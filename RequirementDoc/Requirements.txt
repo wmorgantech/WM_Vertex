@@ -1,0 +1,66 @@
+
+
+**Vertex WM – Smart Employee & Internship Management Platform**
+
+VertexWM (appname) is a comprehensive workforce management platform designed to simplify employee and internship operations through a structured, role-based management system. Built for organizations of all sizes, Vertex enables administrators to efficiently manage teams while giving leadership complete visibility into workforce performance and productivity.
+
+### Core Features
+
+* **Employee Management**
+
+  * Maintain employee profiles and departments
+  * Manage onboarding, roles, and permissions
+  * Track employment status and organizational hierarchy
+
+* **Intern Management**
+
+  * Organize internship batches and programs
+  * Assign mentors and managers
+  * Monitor intern progress, performance, and completion
+
+* **Role-Based Access Control**
+
+  * **Super Admin (Managing Director):** Full organizational oversight, analytics, and reporting
+  * **Admin (Managers):** Manage employees, interns, attendance, tasks, and approvals
+  * **Employees & Interns:** Update attendance, submit timesheets, complete assigned tasks, and report daily progress
+
+* **Task Management** with Project Management
+
+  * Create and assign daily or project-based tasks
+  * Set priorities, deadlines, and progress tracking
+  * Monitor task completion and team performance
+
+* **Daily Attendance**
+
+  * Clock-in and clock-out functionality
+  * Attendance history and reports
+  * Late arrivals, absences, and work-hour tracking
+
+* **Timesheet Management**
+
+  * Record daily working hours
+  * Log time spent on projects and tasks
+  * Manager approval workflow and reporting
+
+* **Daily Work Updates**
+
+  * Employees and interns submit end-of-day reports
+  * Managers review progress and provide feedback
+  * Centralized activity history for transparency
+
+* **Productivity Analytics**
+
+  * Individual and team productivity dashboards
+  * Attendance and task completion metrics
+  * Timesheet utilization analysis
+  * Performance insights and trend reports
+
+* **Reports & Monitoring**
+
+  * Real-time dashboards for managers and executives
+  * Attendance, productivity, and task completion reports
+  * Exportable summaries for business insights
+
+### Why Vertex?
+
+Vertex centralizes workforce management by combining employee administration, internship management, attendance tracking, timesheets, task management, and productivity analytics into a single platform. With role-based access and real-time monitoring, managers can efficiently oversee daily operations while leadership gains clear visibility into organizational performance, ensuring accountability, collaboration, and continuous productivity improvement.

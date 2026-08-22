@@ -1,0 +1,500 @@
+// VertexWM — Smart Employee & Internship Management Platform
+// Prisma schema (PostgreSQL)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  EMPLOYEE
+  INTERN
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  INTERN
+  CONTRACT
+}
+
+enum EmploymentStatus {
+  ACTIVE
+  ON_LEAVE
+  SUSPENDED
+  TERMINATED
+  ALUMNI
+}
+
+enum InternBatchStatus {
+  UPCOMING
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+enum InternCompletionStatus {
+  IN_PROGRESS
+  COMPLETED
+  TERMINATED
+  EXTENDED
+  CONVERTED_TO_EMPLOYEE
+}
+
+enum ProjectStatus {
+  PLANNED
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskType {
+  DAILY
+  PROJECT
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+  BLOCKED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+  HALF_DAY
+  ON_LEAVE
+  HOLIDAY
+  WEEKEND
+}
+
+enum TimesheetStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum WorkUpdateStatus {
+  SUBMITTED
+  REVIEWED
+  FLAGGED
+}
+
+enum InternDocumentType {
+  BONAFIDE
+  COLLEGE_ID
+  RESUME
+  ADDITIONAL
+}
+
+enum InternDocumentStatus {
+  DRAFT
+  PENDING_REVIEW
+  REJECTED
+  VERIFIED
+}
+
+enum DocumentAuditAction {
+  UPLOADED
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum InternshipCategory {
+  FREE_INTERNSHIP
+  JOT
+}
+
+enum InternshipAuditAction {
+  FINAL_APPROVED
+  OFFER_LETTER_GENERATED
+  OFFER_LETTER_DOWNLOADED
+  CERTIFICATE_GENERATED
+  CERTIFICATE_DOWNLOADED
+  CATEGORY_SET
+}
+
+// ---------------------------------------------------------------------------
+// Core: Users, Departments, Hierarchy
+// ---------------------------------------------------------------------------
+
+model Department {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  headId      String?  @unique
+  head        User?    @relation("DepartmentHead", fields: [headId], references: [id])
+  users       User[]   @relation("DepartmentMembers")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model User {
+  id               String           @id @default(uuid())
+  email            String           @unique
+  password         String
+  firstName        String
+  lastName         String
+  phone            String?
+  role             Role             @default(EMPLOYEE)
+  designation      String?
+  employmentType   EmploymentType   @default(FULL_TIME)
+  status           EmploymentStatus @default(ACTIVE)
+  joinDate         DateTime         @default(now())
+  exitDate         DateTime?
+  avatarUrl        String?
+
+  departmentId     String?
+  department       Department?      @relation("DepartmentMembers", fields: [departmentId], references: [id])
+  departmentHeadOf Department?      @relation("DepartmentHead")
+
+  managerId        String?
+  manager          User?            @relation("ManagerHierarchy", fields: [managerId], references: [id])
+  directReports    User[]           @relation("ManagerHierarchy")
+
+  refreshTokens    RefreshToken[]
+
+  // Intern-specific
+  internEnrollment InternEnrollment?
+  mentoredInterns  InternEnrollment[] @relation("InternMentor")
+
+  // Intern document review
+  reviewedDocuments    InternDocument[]      @relation("DocumentReviewer")
+  documentAuditActions InternDocumentAudit[] @relation("DocumentAuditActor")
+
+  // Internship lifecycle (final approval, offer letters, certificates, audit)
+  finalApprovedEnrollments InternEnrollment[]       @relation("EnrollmentFinalApprover")
+  generatedOfferLetters    OfferLetter[]             @relation("OfferLetterGenerator")
+  generatedCertificates    CompletionCertificate[]   @relation("CertificateGenerator")
+  internshipAuditActions   InternshipAudit[]
+
+  // Projects
+  managedProjects  Project[]        @relation("ProjectManager")
+  projectMembers   ProjectMember[]
+
+  // Tasks
+  assignedTasks    Task[]           @relation("TaskAssignee")
+  createdTasks     Task[]           @relation("TaskCreator")
+
+  // Attendance / Timesheet / Work updates
+  attendances      Attendance[]
+  timesheets       Timesheet[]      @relation("TimesheetOwner")
+  approvedTimesheets Timesheet[]    @relation("TimesheetApprover")
+  workUpdates      DailyWorkUpdate[] @relation("WorkUpdateOwner")
+  reviewedWorkUpdates DailyWorkUpdate[] @relation("WorkUpdateReviewer")
+
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([role])
+  @@index([departmentId])
+  @@index([managerId])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revoked   Boolean  @default(false)
+}
+
+// ---------------------------------------------------------------------------
+// Intern Management
+// ---------------------------------------------------------------------------
+
+model InternshipBatch {
+  id          String             @id @default(uuid())
+  name        String
+  program     String
+  startDate   DateTime
+  endDate     DateTime
+  status      InternBatchStatus  @default(UPCOMING)
+  description String?
+  enrollments InternEnrollment[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+}
+
+model InternEnrollment {
+  id                String                  @id @default(uuid())
+  userId            String                  @unique
+  user              User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  batchId           String
+  batch             InternshipBatch         @relation(fields: [batchId], references: [id])
+  mentorId          String?
+  mentor            User?                   @relation("InternMentor", fields: [mentorId], references: [id])
+  completionStatus  InternCompletionStatus  @default(IN_PROGRESS)
+  performanceRating Float?
+  progressPercent   Int                     @default(0)
+  stipend           Float?
+  notes             String?
+
+  // Academic / internship profile (self-service, filled in by the intern)
+  collegeName         String?
+  university          String?
+  collegeDepartment   String?
+  course              String?
+  branch              String?
+  year                Int?
+  semester            Int?
+  registerNumber      String?
+  collegeEmail        String?
+  hodName             String?
+  internshipStartDate DateTime?
+  internshipEndDate   DateTime?
+
+  category            InternshipCategory?
+
+  // Super Admin final approval — the one genuine human decision point in the
+  // lifecycle that isn't already derivable from document/offer-letter/certificate state.
+  finalApprovedAt      DateTime?
+  finalApprovedById    String?
+  finalApprovedBy      User?                   @relation("EnrollmentFinalApprover", fields: [finalApprovedById], references: [id])
+
+  documents         InternDocument[]
+  offerLetter       OfferLetter?
+  certificate       CompletionCertificate?
+  auditLogs         InternshipAudit[]
+
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Internship Document Management
+// ---------------------------------------------------------------------------
+
+model InternDocument {
+  id           String                @id @default(uuid())
+  enrollmentId String
+  enrollment   InternEnrollment      @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  type         InternDocumentType
+  fileName     String
+  filePath     String
+  mimeType     String
+  fileSize     Int
+  status       InternDocumentStatus  @default(DRAFT)
+  adminRemarks String?
+  reviewedById String?
+  reviewedBy   User?                 @relation("DocumentReviewer", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+  uploadedAt   DateTime              @default(now())
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  auditLogs    InternDocumentAudit[]
+
+  @@index([enrollmentId])
+  @@index([status])
+}
+
+model InternDocumentAudit {
+  id         String              @id @default(uuid())
+  documentId String
+  document   InternDocument      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  action     DocumentAuditAction
+  actorId    String
+  actor      User                @relation("DocumentAuditActor", fields: [actorId], references: [id])
+  remarks    String?
+  createdAt  DateTime            @default(now())
+
+  @@index([documentId])
+}
+
+// ---------------------------------------------------------------------------
+// Internship Lifecycle — Final Approval, Offer Letters, Completion Certificates
+// ---------------------------------------------------------------------------
+
+model OfferLetter {
+  id            String           @id @default(uuid())
+  enrollmentId  String           @unique
+  enrollment    InternEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  filePath      String
+  fileName      String
+  generatedById String
+  generatedBy   User             @relation("OfferLetterGenerator", fields: [generatedById], references: [id])
+  generatedAt   DateTime         @default(now())
+}
+
+model CompletionCertificate {
+  id            String           @id @default(uuid())
+  enrollmentId  String           @unique
+  enrollment    InternEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  filePath      String
+  fileName      String
+  generatedById String
+  generatedBy   User             @relation("CertificateGenerator", fields: [generatedById], references: [id])
+  generatedAt   DateTime         @default(now())
+}
+
+model InternshipAudit {
+  id           String                @id @default(uuid())
+  enrollmentId String
+  enrollment   InternEnrollment      @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  action       InternshipAuditAction
+  actorId      String
+  actor        User                  @relation(fields: [actorId], references: [id])
+  metadata     String?
+  createdAt    DateTime              @default(now())
+
+  @@index([enrollmentId])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Project & Task Management
+// ---------------------------------------------------------------------------
+
+model Project {
+  id          String          @id @default(uuid())
+  name        String
+  description String?
+  status      ProjectStatus   @default(PLANNED)
+  startDate   DateTime?
+  endDate     DateTime?
+  managerId   String
+  manager     User            @relation("ProjectManager", fields: [managerId], references: [id])
+  members     ProjectMember[]
+  tasks       Task[]
+  timesheets  Timesheet[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+model ProjectMember {
+  id        String   @id @default(uuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addedAt   DateTime @default(now())
+
+  @@unique([projectId, userId])
+}
+
+model Task {
+  id           String       @id @default(uuid())
+  title        String
+  description  String?
+  type         TaskType     @default(DAILY)
+  priority     TaskPriority @default(MEDIUM)
+  status       TaskStatus   @default(TODO)
+  progress     Int          @default(0)
+  dueDate      DateTime?
+
+  projectId    String?
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  assigneeId   String
+  assignee     User         @relation("TaskAssignee", fields: [assigneeId], references: [id])
+
+  createdById  String
+  createdBy    User         @relation("TaskCreator", fields: [createdById], references: [id])
+
+  timesheets   Timesheet[]
+
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  completedAt  DateTime?
+
+  @@index([assigneeId])
+  @@index([status])
+  @@index([projectId])
+}
+
+// ---------------------------------------------------------------------------
+// Attendance
+// ---------------------------------------------------------------------------
+
+model Attendance {
+  id         String           @id @default(uuid())
+  userId     String
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date       DateTime         @db.Date
+  clockIn    DateTime?
+  clockOut   DateTime?
+  status     AttendanceStatus @default(PRESENT)
+  workHours  Float?
+  notes      String?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  @@unique([userId, date])
+  @@index([date])
+}
+
+// ---------------------------------------------------------------------------
+// Timesheets
+// ---------------------------------------------------------------------------
+
+model Timesheet {
+  id           String          @id @default(uuid())
+  userId       String
+  user         User            @relation("TimesheetOwner", fields: [userId], references: [id], onDelete: Cascade)
+  date         DateTime        @db.Date
+  projectId    String?
+  project      Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  taskId       String?
+  task         Task?           @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  hoursLogged  Float
+  description  String?
+  status       TimesheetStatus @default(PENDING)
+  approverId   String?
+  approver     User?           @relation("TimesheetApprover", fields: [approverId], references: [id])
+  approvedAt   DateTime?
+  rejectionReason String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([userId, date])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Daily Work Updates
+// ---------------------------------------------------------------------------
+
+model DailyWorkUpdate {
+  id              String            @id @default(uuid())
+  userId          String
+  user            User              @relation("WorkUpdateOwner", fields: [userId], references: [id], onDelete: Cascade)
+  date            DateTime          @db.Date
+  summary         String
+  tasksCompleted  String?
+  blockers        String?
+  planForTomorrow String?
+  status          WorkUpdateStatus  @default(SUBMITTED)
+  managerFeedback String?
+  reviewedById    String?
+  reviewedBy      User?             @relation("WorkUpdateReviewer", fields: [reviewedById], references: [id])
+  reviewedAt      DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@unique([userId, date])
+  @@index([date])
+}

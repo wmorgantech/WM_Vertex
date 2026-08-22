@@ -1,0 +1,115 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    color: #111827;
+    position: relative;
+    width: 210mm;
+    min-height: 297mm;
+  }
+  .watermark {
+    position: fixed;
+    top: 45%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-32deg);
+    font-size: 84px;
+    font-weight: 800;
+    color: rgba(79, 70, 229, 0.06);
+    letter-spacing: 6px;
+    white-space: nowrap;
+    z-index: 0;
+  }
+  .page { position: relative; z-index: 1; padding: 16mm 18mm; }
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; }
+  .brand-mark {
+    width: 34px; height: 34px; border-radius: 9px; background: #4f46e5;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 800; font-size: 15px;
+  }
+  .brand-name { font-size: 19px; font-weight: 800; color: #111827; }
+  .brand-sub { font-size: 10px; color: #6b7280; letter-spacing: 1px; text-transform: uppercase; margin-top: 1px; }
+  h1 { font-size: 20px; margin: 0 0 4px; color: #111827; }
+  .meta { font-size: 11px; color: #6b7280; margin-bottom: 24px; }
+  .category-badge {
+    display: inline-block; padding: 4px 12px; border-radius: 999px;
+    background: #eef2ff; color: #4338ca; font-size: 11px; font-weight: 700;
+    letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 20px;
+  }
+  p { font-size: 13px; line-height: 1.8; color: #1f2937; }
+  .details {
+    width: 100%; border-collapse: collapse; margin: 20px 0 24px;
+    border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;
+  }
+  .details td { padding: 10px 14px; font-size: 12px; border-bottom: 1px solid #f3f4f6; }
+  .details td:first-child { color: #6b7280; font-weight: 600; width: 40%; background: #f9fafb; }
+  .details tr:last-child td { border-bottom: none; }
+  .footer-block { margin-top: 44px; display: flex; justify-content: space-between; align-items: flex-end; }
+  .signature { font-family: 'Brush Script MT', cursive; font-size: 30px; color: #1f2937; margin-bottom: 2px; }
+  .sig-name { font-size: 12px; font-weight: 700; color: #111827; }
+  .sig-title { font-size: 11px; color: #6b7280; }
+  .disclaimer { font-size: 9px; color: #9ca3af; margin-top: 6px; max-width: 220px; }
+  .qr-block { text-align: center; }
+  .qr-block img { width: 78px; height: 78px; }
+  .qr-label { font-size: 8px; color: #9ca3af; margin-top: 4px; }
+  .ref { position: absolute; bottom: 10mm; left: 18mm; font-size: 9px; color: #9ca3af; }
+</style>
+</head>
+<body>
+  <div class="watermark">VERTEXWM &nbsp; OFFICIAL</div>
+  <div class="page">
+    <div class="brand">
+      <div class="brand-mark">VW</div>
+      <div>
+        <div class="brand-name">VertexWM</div>
+        <div class="brand-sub">Employee &amp; Internship Management</div>
+      </div>
+    </div>
+
+    <h1>Internship Offer Letter</h1>
+    <div class="meta">Issued on {{generatedDate}} &middot; Reference: {{verificationId}}</div>
+    <div class="category-badge">{{categoryLabel}}</div>
+
+    <p>Dear {{firstName}} {{lastName}},</p>
+    <p>
+      We are pleased to confirm your internship with VertexWM under the <strong>{{categoryLabel}}</strong> program.
+      This letter formally confirms your placement following the completion of document verification and final approval.
+    </p>
+
+    <table class="details">
+      <tr><td>Intern Name</td><td>{{firstName}} {{lastName}}</td></tr>
+      <tr><td>College / Institution</td><td>{{collegeName}}</td></tr>
+      <tr><td>University</td><td>{{university}}</td></tr>
+      <tr><td>Course / Branch</td><td>{{course}} &middot; {{branch}}</td></tr>
+      <tr><td>Register Number</td><td>{{registerNumber}}</td></tr>
+      <tr><td>Internship Batch</td><td>{{batchName}}</td></tr>
+      <tr><td>Internship Duration</td><td>{{internshipStartDate}} to {{internshipEndDate}}</td></tr>
+    </table>
+
+    <p>
+      Please report as per the schedule communicated by your assigned mentor. We look forward to a productive
+      internship experience together.
+    </p>
+
+    <div class="footer-block">
+      <div>
+        <div class="signature">{{generatedByName}}</div>
+        <div class="sig-name">{{generatedByName}}</div>
+        <div class="sig-title">{{generatedByTitle}}, VertexWM</div>
+        <div class="disclaimer">This is a digitally generated and verified document issued by VertexWM and does not require a physical signature.</div>
+      </div>
+      <div class="qr-block">
+        <img src="{{qrCodeDataUrl}}" alt="Verification QR" />
+        <div class="qr-label">Scan to verify</div>
+      </div>
+    </div>
+
+    <div class="ref">VertexWM &middot; Document ID: {{verificationId}} &middot; Generated {{generatedDate}}</div>
+  </div>
+</body>
+</html>

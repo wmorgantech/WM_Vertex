@@ -1,0 +1,26 @@
+const app = require('./app');
+const prisma = require('./config/db');
+const { closeBrowser, warmBrowser } = require('./services/pdf.service');
+
+const PORT = process.env.PORT || 5111;
+
+const server = app.listen(PORT, () => {
+  // eslint-disable-next-line no-console
+  console.log(`VertexWM backend listening on port ${PORT}`);
+});
+
+// Pre-warm the shared Puppeteer browser so the first offer-letter/certificate
+// request doesn't pay the ~10s Chromium launch cost inline.
+warmBrowser().catch((err) => {
+  // eslint-disable-next-line no-console
+  console.error('[pdf.service] Failed to pre-warm browser:', err.message);
+});
+
+async function shutdown() {
+  server.close();
+  await Promise.all([prisma.$disconnect(), closeBrowser()]);
+  process.exit(0);
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
