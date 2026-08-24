@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
@@ -51,7 +52,7 @@ export default function Projects() {
       <PageHeader
         title="Projects"
         subtitle="Project-based work across the organization"
-        actions={isManager && <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ New Project</button>}
+        actions={isManager && <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> New Project</button>}
       />
       {loading ? <div className="page-loading">Loading...</div> : <DataTable columns={columns} rows={projects} />}
 

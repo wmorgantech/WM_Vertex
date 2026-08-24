@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
 import api from '../../api/axios';
 import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
@@ -99,7 +100,7 @@ export default function MOUs() {
       <PageHeader
         title="MOU Management"
         subtitle="Memorandums of understanding with partner colleges"
-        actions={<button className="btn btn-primary" onClick={() => setShowModal(true)}>+ New MOU</button>}
+        actions={<button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> New MOU</button>}
       />
 
       {loading ? <div className="page-loading">Loading...</div> : <DataTable columns={columns} rows={mous} emptyMessage="No MOUs recorded yet." />}

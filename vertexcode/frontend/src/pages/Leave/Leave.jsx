@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Check, X, Plus } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -105,8 +106,8 @@ export default function Leave() {
     {
       key: 'actions', header: '', render: (r) => r.status === 'PENDING' && (
         <div style={{ display: 'flex', gap: 6 }}>
-          <button className="btn btn-primary btn-sm" onClick={() => handleApprove(r.id)}>Approve</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => handleReject(r.id)}>Reject</button>
+          <button className="btn btn-success btn-sm" onClick={() => handleApprove(r.id)}><Check size={14} /> Approve</button>
+          <button className="btn btn-danger btn-sm" onClick={() => handleReject(r.id)}><X size={14} /> Reject</button>
         </div>
       ),
     },
@@ -117,7 +118,7 @@ export default function Leave() {
       <PageHeader
         title="Leave"
         subtitle="Request time off and track approvals"
-        actions={<button className="btn btn-primary" onClick={() => setShowModal(true)}>+ Request Leave</button>}
+        actions={<button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> Request Leave</button>}
       />
 
       {loading ? <div className="page-loading">Loading...</div> : (

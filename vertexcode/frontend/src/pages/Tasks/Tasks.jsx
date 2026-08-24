@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -106,7 +107,7 @@ export default function Tasks() {
                 <button className="btn btn-secondary" onClick={() => downloadReport(`/reports/tasks?${new URLSearchParams({ ...(statusFilter && { status: statusFilter }), format: 'xlsx' })}`, 'tasks.xlsx')}>Export Excel</button>
               </>
             )}
-            {isManager && <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ New Task</button>}
+            {isManager && <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> New Task</button>}
           </>
         )}
       />

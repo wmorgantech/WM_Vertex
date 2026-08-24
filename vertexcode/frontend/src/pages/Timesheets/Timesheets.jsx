@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Plus, Check, X } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -73,8 +74,8 @@ export default function Timesheets() {
     ...(isManager ? [{
       key: 'actions', header: 'Actions', render: (r) => r.status === 'PENDING' ? (
         <div className="row-actions">
-          <button className="btn btn-sm btn-primary" onClick={() => handleApprove(r.id)}>Approve</button>
-          <button className="btn btn-sm btn-ghost" onClick={() => handleReject(r.id)}>Reject</button>
+          <button className="btn btn-sm btn-success" onClick={() => handleApprove(r.id)}><Check size={14} /> Approve</button>
+          <button className="btn btn-sm btn-danger" onClick={() => handleReject(r.id)}><X size={14} /> Reject</button>
         </div>
       ) : '—',
     }] : []),
@@ -93,7 +94,7 @@ export default function Timesheets() {
                 <button className="btn btn-secondary" onClick={() => downloadReport('/reports/timesheets?format=xlsx', 'timesheets.xlsx')}>Export Excel</button>
               </>
             )}
-            {!isManager && <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ Log Time</button>}
+            {!isManager && <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> Log Time</button>}
           </>
         )}
       />
