@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
 import api from '../../api/axios';
 import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
@@ -88,7 +89,7 @@ export default function Colleges() {
       <PageHeader
         title="College / Institution Master"
         subtitle="Reusable college records shared across internships, trainees, workshops and MOUs"
-        actions={<button className="btn btn-primary" onClick={() => setShowModal(true)}>+ Add College</button>}
+        actions={<button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> Add College</button>}
       />
 
       {loading ? <div className="page-loading">Loading...</div> : <DataTable columns={columns} rows={colleges} emptyMessage="No colleges added yet." />}

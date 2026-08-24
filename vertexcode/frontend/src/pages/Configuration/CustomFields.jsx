@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Plus, Trash2 } from 'lucide-react';
 import api from '../../api/axios';
 import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
@@ -75,7 +76,7 @@ export default function CustomFields() {
     { key: 'active', header: 'Status', render: (r) => (
       <button className="btn btn-ghost btn-sm" onClick={() => toggleActive(r)}>{r.active ? 'Active' : 'Inactive'}</button>
     ) },
-    { key: 'actions', header: '', render: (r) => <button className="btn btn-ghost btn-sm" onClick={() => handleDelete(r)}>Remove</button> },
+    { key: 'actions', header: '', align: 'actions', render: (r) => <button className="btn btn-danger btn-sm" onClick={() => handleDelete(r)}><Trash2 size={14} /> Remove</button> },
   ];
 
   return (
@@ -83,7 +84,7 @@ export default function CustomFields() {
       <PageHeader
         title="Configuration — Custom Fields"
         subtitle="Add extra fields to employee, intern, trainee, college and workshop records without touching code"
-        actions={<button className="btn btn-primary" onClick={() => { setForm({ ...emptyForm, entityType: entityFilter }); setShowModal(true); }}>+ Add Field</button>}
+        actions={<button className="btn btn-primary" onClick={() => { setForm({ ...emptyForm, entityType: entityFilter }); setShowModal(true); }}><Plus size={14} /> Add Field</button>}
       />
 
       <div className="toolbar">
