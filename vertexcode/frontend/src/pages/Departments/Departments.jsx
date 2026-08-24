@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
 import api from '../../api/axios';
 import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
@@ -46,7 +47,7 @@ export default function Departments() {
       <PageHeader
         title="Departments"
         subtitle="Organizational units and structure"
-        actions={<button className="btn btn-primary" onClick={() => setShowModal(true)}>+ Add Department</button>}
+        actions={<button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> Add Department</button>}
       />
       {loading ? <div className="page-loading">Loading...</div> : <DataTable columns={columns} rows={departments} />}
 

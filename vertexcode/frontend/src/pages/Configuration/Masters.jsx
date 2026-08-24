@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Plus, Trash2 } from 'lucide-react';
 import api from '../../api/axios';
 import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
@@ -167,7 +168,7 @@ export default function Masters() {
       </button>
     ) },
     { key: 'actions', header: '', render: (r) => (
-      <button className="btn btn-ghost btn-sm" onClick={() => handleDelete(r)}>Remove</button>
+      <button className="btn btn-danger btn-sm" onClick={() => handleDelete(r)}><Trash2 size={14} /> Remove</button>
     ) },
   ];
 
@@ -176,7 +177,7 @@ export default function Masters() {
       <PageHeader
         title="Configuration — Master Data"
         subtitle="Configurable lists used across the platform instead of hardcoded values"
-        actions={<button className="btn btn-primary" onClick={() => setShowModal(true)}>+ Add {TABS.find((t) => t.key === tab).label.replace(/s$/, '')}</button>}
+        actions={<button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> Add {TABS.find((t) => t.key === tab).label.replace(/s$/, '')}</button>}
       />
 
       <div className="toolbar">
