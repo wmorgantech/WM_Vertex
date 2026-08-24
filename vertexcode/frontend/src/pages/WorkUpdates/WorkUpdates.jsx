@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -71,7 +72,7 @@ export default function WorkUpdates() {
       <PageHeader
         title="Daily Work Updates"
         subtitle="End-of-day reports and manager feedback"
-        actions={!isManager && <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ Submit Update</button>}
+        actions={!isManager && <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> Submit Update</button>}
       />
       {loading ? <div className="page-loading">Loading...</div> : <DataTable columns={columns} rows={updates} />}
 

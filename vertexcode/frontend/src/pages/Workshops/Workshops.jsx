@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -116,7 +117,7 @@ export default function Workshops() {
       <PageHeader
         title="Workshop Management"
         subtitle="College workshop pipeline — from lead to completion"
-        actions={isManager && <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ New Workshop</button>}
+        actions={isManager && <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> New Workshop</button>}
       />
 
       {loading ? <div className="page-loading">Loading...</div> : <DataTable columns={columns} rows={workshops} emptyMessage="No workshops recorded yet." />}

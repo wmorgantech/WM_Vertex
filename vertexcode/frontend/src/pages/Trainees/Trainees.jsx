@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../api/axios';
 import PageHeader from '../../components/common/PageHeader';
@@ -150,8 +151,8 @@ export default function Trainees() {
                 <button className="btn btn-secondary" onClick={() => downloadReport('/reports/trainees?format=xlsx', 'trainees.xlsx')}>Export Excel</button>
               </>
             )}
-            <button className="btn btn-secondary" onClick={() => setShowProgramModal(true)}>+ New Program</button>
-            <button className="btn btn-primary" onClick={() => setShowEnrollModal(true)}>+ Enroll Trainee</button>
+            <button className="btn btn-secondary" onClick={() => setShowProgramModal(true)}><Plus size={14} /> New Program</button>
+            <button className="btn btn-primary" onClick={() => setShowEnrollModal(true)}><Plus size={14} /> Enroll Trainee</button>
           </>
         )}
       />
@@ -172,7 +173,7 @@ export default function Trainees() {
                 <select value={selectedProgramId} onChange={(e) => setSelectedProgramId(e.target.value)}>
                   {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
-                <button className="btn btn-primary" onClick={() => setShowTopicModal(true)} disabled={!selectedProgramId}>+ Add Topic</button>
+                <button className="btn btn-primary" onClick={() => setShowTopicModal(true)} disabled={!selectedProgramId}><Plus size={14} /> Add Topic</button>
               </div>
               <DataTable columns={topicColumns} rows={topics} emptyMessage="No topics defined for this program yet." />
             </div>

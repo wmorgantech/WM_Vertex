@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
@@ -119,7 +120,7 @@ export default function TraineeDetail() {
             <dt>Paid</dt><dd>₹{payment.totalPaid.toLocaleString()}</dd>
             <dt>Balance</dt><dd>{payment.balance > 0 ? <span className="badge badge-red">₹{payment.balance.toLocaleString()} DUE</span> : <span className="badge badge-green">PAID IN FULL</span>}</dd>
           </dl>
-          {isManager && <button className="btn btn-primary btn-sm" onClick={() => setShowPaymentModal(true)}>+ Record Payment</button>}
+          {isManager && <button className="btn btn-primary btn-sm" onClick={() => setShowPaymentModal(true)}><Plus size={14} /> Record Payment</button>}
         </div>
       </div>
 
@@ -162,7 +163,7 @@ export default function TraineeDetail() {
       <div className="card" style={{ marginTop: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3>Session History</h3>
-          {isManager && <button className="btn btn-secondary btn-sm" onClick={() => setShowSessionModal(true)}>+ Log Session</button>}
+          {isManager && <button className="btn btn-secondary btn-sm" onClick={() => setShowSessionModal(true)}><Plus size={14} /> Log Session</button>}
         </div>
         {sessions.length === 0 ? <div className="empty-state">No sessions logged yet.</div> : (
           <ul className="simple-list">
