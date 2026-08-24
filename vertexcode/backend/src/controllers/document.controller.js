@@ -5,11 +5,20 @@ const ApiError = require('../utils/apiError');
 const { sendSuccess } = require('../utils/apiResponse');
 const { sendMail, renderEmailTemplate } = require('../services/email.service');
 const { computeInternshipStage } = require('../utils/internshipStage');
+const { notify } = require('../utils/notify');
+const { evaluateRequiredDocs } = require('../utils/internDocumentRequirements');
 
-const DOC_TYPE_LABELS = { BONAFIDE: 'Bonafide Certificate', COLLEGE_ID: 'College ID Card', RESUME: 'Resume', ADDITIONAL: 'Additional Document' };
+const DOC_TYPE_LABELS = {
+  BONAFIDE: 'Bonafide Certificate',
+  PERMISSION_LETTER: 'Permission Letter',
+  COLLEGE_ID: 'College ID Card',
+  RESUME: 'Resume',
+  ADDITIONAL: 'Additional Document',
+};
 
-const REQUIRED_TYPES = ['BONAFIDE', 'COLLEGE_ID'];
-const SINGLE_TYPES = ['BONAFIDE', 'COLLEGE_ID', 'RESUME'];
+// One active document per type — re-uploading replaces the previous file and
+// resets it to DRAFT (see uploadDocument below).
+const SINGLE_TYPES = ['BONAFIDE', 'PERMISSION_LETTER', 'COLLEGE_ID', 'RESUME'];
 const PROFILE_FIELDS = [
   'collegeName', 'university', 'collegeDepartment', 'course', 'branch', 'year', 'semester',
   'registerNumber', 'collegeEmail', 'hodName', 'internshipStartDate', 'internshipEndDate',
@@ -38,13 +47,7 @@ async function getMine(req, res) {
     prisma.completionCertificate.findUnique({ where: { enrollmentId: enrollment.id }, select: { generatedAt: true } }),
   ]);
 
-  const latestByType = {};
-  for (const doc of documents) {
-    if (!latestByType[doc.type] || doc.uploadedAt > latestByType[doc.type].uploadedAt) {
-      latestByType[doc.type] = doc;
-    }
-  }
-  const verifiedRequired = REQUIRED_TYPES.filter((t) => latestByType[t]?.status === 'VERIFIED').length;
+  const requirement = evaluateRequiredDocs(documents);
   const verifiedAll = documents.filter((d) => d.status === 'VERIFIED').length;
 
   return sendSuccess(res, 200, {
@@ -52,8 +55,9 @@ async function getMine(req, res) {
     documents,
     profileCompletionPercent: computeProfileCompletion(enrollment),
     verification: {
-      verifiedRequired,
-      totalRequired: REQUIRED_TYPES.length,
+      verifiedRequired: requirement.groups.filter((g) => g.status === 'VERIFIED').length,
+      totalRequired: requirement.groups.length,
+      requiredGroups: requirement.groups,
       verifiedAll,
       totalUploaded: documents.length,
     },
@@ -67,7 +71,7 @@ async function getMine(req, res) {
 async function uploadDocument(req, res) {
   if (!req.file) throw new ApiError(400, 'A file is required');
   const { type } = req.body;
-  if (!type || !['BONAFIDE', 'COLLEGE_ID', 'RESUME', 'ADDITIONAL'].includes(type)) {
+  if (!type || !['BONAFIDE', 'PERMISSION_LETTER', 'COLLEGE_ID', 'RESUME', 'ADDITIONAL'].includes(type)) {
     fs.unlink(req.file.path, () => {});
     throw new ApiError(400, 'A valid document type is required');
   }
@@ -118,10 +122,10 @@ async function submitForVerification(req, res) {
   const enrollment = await getOwnEnrollment(req.user.id);
   const documents = await prisma.internDocument.findMany({ where: { enrollmentId: enrollment.id } });
 
-  for (const type of REQUIRED_TYPES) {
-    const doc = documents.find((d) => d.type === type);
-    if (!doc || !['DRAFT', 'VERIFIED'].includes(doc.status)) {
-      throw new ApiError(400, `${type.replace('_', ' ')} must be uploaded before submitting for verification`);
+  const requirement = evaluateRequiredDocs(documents);
+  for (const group of requirement.groups) {
+    if (!['DRAFT', 'PENDING_REVIEW', 'VERIFIED'].includes(group.status)) {
+      throw new ApiError(400, `${group.label} must be uploaded before submitting for verification`);
     }
   }
 
@@ -176,7 +180,7 @@ async function getEnrollmentDetail(req, res) {
   if (req.user.role === 'ADMIN' && enrollment.mentorId !== req.user.id) {
     throw new ApiError(403, 'You can only review interns assigned to you');
   }
-  return sendSuccess(res, 200, enrollment);
+  return sendSuccess(res, 200, { ...enrollment, requirement: evaluateRequiredDocs(enrollment.documents) });
 }
 
 async function assertAdminOwnsDocument(req, documentId) {
@@ -198,9 +202,14 @@ async function approve(req, res) {
   const document = await prisma.internDocument.update({
     where: { id: req.params.id },
     data: { status: 'VERIFIED', adminRemarks: null, reviewedById: req.user.id, reviewedAt: new Date() },
+    include: { enrollment: { select: { userId: true } } },
   });
   await prisma.internDocumentAudit.create({
     data: { documentId: document.id, action: 'APPROVED', actorId: req.user.id },
+  });
+  await notify({
+    userId: document.enrollment.userId, type: 'DOCUMENT_REVIEWED', title: 'Document verified',
+    message: `${DOC_TYPE_LABELS[document.type]} was verified.`, link: '/documents',
   });
   return sendSuccess(res, 200, document);
 }
@@ -231,6 +240,10 @@ async function reject(req, res) {
       remarks,
       appUrl: process.env.APP_URL,
     }),
+  });
+  await notify({
+    userId: document.enrollment.userId, type: 'DOCUMENT_REVIEWED', title: 'Document rejected — re-upload required',
+    message: `${DOC_TYPE_LABELS[document.type]}: ${remarks}`, link: '/documents',
   });
 
   return sendSuccess(res, 200, document);

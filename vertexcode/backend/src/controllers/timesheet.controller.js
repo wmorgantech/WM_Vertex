@@ -1,6 +1,8 @@
 const prisma = require('../config/db');
 const ApiError = require('../utils/apiError');
 const { sendSuccess } = require('../utils/apiResponse');
+const { recordAudit } = require('../utils/audit');
+const { notify } = require('../utils/notify');
 
 async function listTimesheets(req, res) {
   const { userId, status, projectId, from, to } = req.query;
@@ -45,6 +47,15 @@ async function createTimesheet(req, res) {
       status: 'PENDING',
     },
   });
+
+  const submitter = await prisma.user.findUnique({ where: { id: req.user.id }, select: { managerId: true, firstName: true, lastName: true } });
+  if (submitter.managerId) {
+    await notify({
+      userId: submitter.managerId, type: 'TIMESHEET_PENDING', title: 'Timesheet pending your review',
+      message: `${submitter.firstName} ${submitter.lastName} logged ${hoursLogged}h on ${date}`, link: '/timesheets',
+    });
+  }
+
   return sendSuccess(res, 201, timesheet);
 }
 
@@ -70,19 +81,29 @@ async function updateTimesheet(req, res) {
 
 // PATCH /api/timesheets/:id/approve
 async function approveTimesheet(req, res) {
+  const before = await prisma.timesheet.findUnique({ where: { id: req.params.id } });
+  if (!before) throw new ApiError(404, 'Timesheet not found');
   const updated = await prisma.timesheet.update({
     where: { id: req.params.id },
     data: { status: 'APPROVED', approverId: req.user.id, approvedAt: new Date(), rejectionReason: null },
   });
+  await recordAudit({ actorId: req.user.id, action: 'APPROVED', module: 'TIMESHEET', entityId: updated.id, before, after: updated });
   return sendSuccess(res, 200, updated);
 }
 
 // PATCH /api/timesheets/:id/reject
 async function rejectTimesheet(req, res) {
   const { reason } = req.body;
+  const before = await prisma.timesheet.findUnique({ where: { id: req.params.id } });
+  if (!before) throw new ApiError(404, 'Timesheet not found');
   const updated = await prisma.timesheet.update({
     where: { id: req.params.id },
     data: { status: 'REJECTED', approverId: req.user.id, approvedAt: new Date(), rejectionReason: reason || null },
+  });
+  await recordAudit({ actorId: req.user.id, action: 'REJECTED', module: 'TIMESHEET', entityId: updated.id, before, after: updated });
+  await notify({
+    userId: updated.userId, type: 'TIMESHEET_REJECTED', title: 'Timesheet rejected',
+    message: reason || 'Your timesheet was rejected — see remarks and resubmit.', link: '/timesheets',
   });
   return sendSuccess(res, 200, updated);
 }

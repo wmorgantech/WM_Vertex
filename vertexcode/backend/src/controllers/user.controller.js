@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const prisma = require('../config/db');
 const ApiError = require('../utils/apiError');
 const { sendSuccess } = require('../utils/apiResponse');
+const { recordAudit } = require('../utils/audit');
 
 const publicUser = (u) => {
   if (!u) return u;
@@ -33,7 +34,11 @@ async function listUsers(req, res) {
   const [items, total] = await Promise.all([
     prisma.user.findMany({
       where,
-      include: { department: true, manager: { select: { id: true, firstName: true, lastName: true } } },
+      include: {
+        department: true,
+        manager: { select: { id: true, firstName: true, lastName: true } },
+        location: { select: { id: true, name: true } },
+      },
       orderBy: { createdAt: 'desc' },
       take,
       skip,
@@ -53,6 +58,7 @@ async function getUser(req, res) {
       manager: { select: { id: true, firstName: true, lastName: true, email: true } },
       directReports: { select: { id: true, firstName: true, lastName: true, role: true, designation: true } },
       internEnrollment: { include: { batch: true, mentor: { select: { id: true, firstName: true, lastName: true } } } },
+      location: { select: { id: true, name: true } },
     },
   });
   if (!user) throw new ApiError(404, 'User not found');
@@ -68,7 +74,7 @@ async function getUser(req, res) {
 async function createUser(req, res) {
   const {
     email, password, firstName, lastName, phone, role, designation,
-    employmentType, departmentId, managerId, joinDate,
+    employmentType, departmentId, managerId, locationId, joinDate,
   } = req.body;
 
   if (!email || !password || !firstName || !lastName) {
@@ -92,12 +98,18 @@ async function createUser(req, res) {
       lastName,
       phone,
       role: role || 'EMPLOYEE',
-      designation,
-      employmentType: employmentType || (role === 'INTERN' ? 'INTERN' : 'FULL_TIME'),
+      designation: designation || null,
+      employmentType: employmentType || (role === 'INTERN' ? 'INTERN' : role === 'TRAINEE' ? 'TRAINEE' : 'FULL_TIME'),
       departmentId: departmentId || null,
       managerId: managerId || null,
+      locationId: locationId || null,
       joinDate: joinDate ? new Date(joinDate) : new Date(),
     },
+  });
+
+  await recordAudit({
+    actorId: req.user.id, action: 'CREATED', module: 'USER', entityId: user.id,
+    entityLabel: `${user.firstName} ${user.lastName}`, after: publicUser(user),
   });
 
   return sendSuccess(res, 201, publicUser(user));
@@ -112,10 +124,14 @@ async function updateUser(req, res) {
   const isManagerRole = ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role);
   if (!isSelf && !isManagerRole) throw new ApiError(403, 'Not authorized to update this profile');
 
-  const allowedSelfFields = ['phone', 'avatarUrl'];
+  const allowedSelfFields = [
+    'phone', 'avatarUrl', 'gender', 'dateOfBirth', 'address',
+    'skills', 'technologyStack', 'certifications', 'experienceYears',
+  ];
   const allowedManagerFields = [
     'firstName', 'lastName', 'phone', 'role', 'designation', 'employmentType',
-    'status', 'departmentId', 'managerId', 'avatarUrl', 'exitDate',
+    'status', 'departmentId', 'managerId', 'locationId', 'avatarUrl', 'exitDate',
+    'gender', 'dateOfBirth', 'address', 'skills', 'technologyStack', 'certifications', 'experienceYears',
   ];
 
   const fields = isManagerRole ? allowedManagerFields : allowedSelfFields;
@@ -124,6 +140,7 @@ async function updateUser(req, res) {
     if (req.body[f] !== undefined) data[f] = req.body[f];
   }
   if (data.exitDate) data.exitDate = new Date(data.exitDate);
+  if (data.dateOfBirth) data.dateOfBirth = new Date(data.dateOfBirth);
   if (req.body.password && (isSelf || isManagerRole)) {
     data.password = await bcrypt.hash(req.body.password, 10);
   }
@@ -133,6 +150,12 @@ async function updateUser(req, res) {
   }
 
   const user = await prisma.user.update({ where: { id: target.id }, data });
+  if (!isSelf) {
+    await recordAudit({
+      actorId: req.user.id, action: 'UPDATED', module: 'USER', entityId: user.id,
+      entityLabel: `${user.firstName} ${user.lastName}`, before: publicUser(target), after: publicUser(user),
+    });
+  }
   return sendSuccess(res, 200, publicUser(user));
 }
 
@@ -144,6 +167,10 @@ async function deactivateUser(req, res) {
   const user = await prisma.user.update({
     where: { id: target.id },
     data: { status: 'TERMINATED', exitDate: new Date() },
+  });
+  await recordAudit({
+    actorId: req.user.id, action: 'DEACTIVATED', module: 'USER', entityId: user.id,
+    entityLabel: `${user.firstName} ${user.lastName}`, before: publicUser(target), after: publicUser(user),
   });
   return sendSuccess(res, 200, publicUser(user));
 }

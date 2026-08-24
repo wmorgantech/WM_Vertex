@@ -1,4 +1,4 @@
-const REQUIRED_DOC_TYPES = ['BONAFIDE', 'COLLEGE_ID'];
+const { evaluateRequiredDocs } = require('./internDocumentRequirements');
 
 // Derives the 9-stage internship lifecycle label for display purposes.
 // Only `finalApprovedAt` is a genuine stored decision — everything else is
@@ -35,12 +35,9 @@ function computeInternshipStage(enrollment, documents, offerLetter, certificate)
   if (enrollment.finalApprovedAt && startDate && now >= startDate) return STAGES.INTERNSHIP_ACTIVE;
   if (enrollment.finalApprovedAt) return STAGES.INTERNSHIP_CONFIRMED;
 
-  const requiredDocs = REQUIRED_DOC_TYPES.map((t) => documents.find((d) => d.type === t));
-  const allRequiredVerified = requiredDocs.every((d) => d?.status === 'VERIFIED');
-  if (allRequiredVerified) return STAGES.PENDING_SUPER_ADMIN_APPROVAL;
-
-  const anyPendingReview = requiredDocs.some((d) => d?.status === 'PENDING_REVIEW');
-  if (anyPendingReview) return STAGES.UNDER_ADMIN_REVIEW;
+  const requirement = evaluateRequiredDocs(documents);
+  if (requirement.satisfied) return STAGES.PENDING_SUPER_ADMIN_APPROVAL;
+  if (requirement.anyPendingReview) return STAGES.UNDER_ADMIN_REVIEW;
 
   const anyUploaded = documents.length > 0;
   if (anyUploaded) return STAGES.DOCUMENTS_SUBMITTED;

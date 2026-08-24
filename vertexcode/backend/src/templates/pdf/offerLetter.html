@@ -61,13 +61,13 @@
 </style>
 </head>
 <body>
-  <div class="watermark">VERTEXWM &nbsp; OFFICIAL</div>
+  <div class="watermark">{{companyNameUpper}} &nbsp; OFFICIAL</div>
   <div class="page">
     <div class="brand">
-      <div class="brand-mark">VW</div>
+      {{brandMarkHtml}}
       <div>
-        <div class="brand-name">VertexWM</div>
-        <div class="brand-sub">Employee &amp; Internship Management</div>
+        <div class="brand-name">{{companyName}}</div>
+        <div class="brand-sub">{{companyAddress}}</div>
       </div>
     </div>
 
@@ -98,10 +98,10 @@
 
     <div class="footer-block">
       <div>
-        <div class="signature">{{generatedByName}}</div>
-        <div class="sig-name">{{generatedByName}}</div>
-        <div class="sig-title">{{generatedByTitle}}, VertexWM</div>
-        <div class="disclaimer">This is a digitally generated and verified document issued by VertexWM and does not require a physical signature.</div>
+        <div class="signature">{{signatoryName}}</div>
+        <div class="sig-name">{{signatoryName}}</div>
+        <div class="sig-title">{{signatoryTitle}}, {{companyName}}</div>
+        <div class="disclaimer">This is a digitally generated and verified document issued by {{companyName}} and does not require a physical signature.</div>
       </div>
       <div class="qr-block">
         <img src="{{qrCodeDataUrl}}" alt="Verification QR" />
@@ -109,7 +109,7 @@
       </div>
     </div>
 
-    <div class="ref">VertexWM &middot; Document ID: {{verificationId}} &middot; Generated {{generatedDate}}</div>
+    <div class="ref">{{companyName}} &middot; Document ID: {{verificationId}} &middot; Generated {{generatedDate}}</div>
   </div>
 </body>
 </html>

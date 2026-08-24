@@ -1,9 +1,11 @@
 const prisma = require('../config/db');
 const ApiError = require('../utils/apiError');
 const { sendSuccess } = require('../utils/apiResponse');
+const { recordAudit } = require('../utils/audit');
+const { notify } = require('../utils/notify');
 
 async function listTasks(req, res) {
-  const { status, priority, type, projectId, assigneeId, dueBefore, dueAfter } = req.query;
+  const { status, priority, type, projectId, assigneeId, unallocated, dueBefore, dueAfter } = req.query;
   const isManagerRole = ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role);
 
   const where = {
@@ -12,6 +14,7 @@ async function listTasks(req, res) {
     ...(type && { type }),
     ...(projectId && { projectId }),
     ...(assigneeId && isManagerRole && { assigneeId }),
+    ...(unallocated === 'true' && isManagerRole && { assigneeId: null }),
     ...(!isManagerRole && { assigneeId: req.user.id }),
     ...((dueBefore || dueAfter) && {
       dueDate: {
@@ -60,8 +63,10 @@ async function getTask(req, res) {
 
 async function createTask(req, res) {
   const { title, description, type, priority, dueDate, projectId, assigneeId } = req.body;
-  if (!title || !assigneeId) throw new ApiError(400, 'title and assigneeId are required');
+  if (!title) throw new ApiError(400, 'title is required');
 
+  // A task with no assignee is valid — it surfaces as NOT ALLOCATED on
+  // dashboards and lists rather than being rejected.
   const task = await prisma.task.create({
     data: {
       title,
@@ -70,10 +75,19 @@ async function createTask(req, res) {
       priority: priority || 'MEDIUM',
       dueDate: dueDate ? new Date(dueDate) : null,
       projectId: projectId || null,
-      assigneeId,
+      assigneeId: assigneeId || null,
       createdById: req.user.id,
     },
   });
+  await recordAudit({
+    actorId: req.user.id, action: 'CREATED', module: 'TASK', entityId: task.id, entityLabel: task.title, after: task,
+  });
+  if (task.assigneeId) {
+    await notify({
+      userId: task.assigneeId, type: 'TASK_ASSIGNED', title: 'New task assigned',
+      message: task.title, link: '/tasks',
+    });
+  }
   return sendSuccess(res, 201, task);
 }
 
@@ -94,19 +108,45 @@ async function updateTask(req, res) {
     ...(dueDate && { dueDate: new Date(dueDate) }),
     ...(projectId !== undefined && { projectId }),
   };
-  if (assigneeId && ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) data.assigneeId = assigneeId;
-  if (status === 'DONE' || progress === 100) {
-    data.status = 'DONE';
-    data.progress = 100;
+  // Managers may (re)assign or explicitly unassign (assigneeId: null -> NOT ALLOCATED).
+  if (assigneeId !== undefined && ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) {
+    data.assigneeId = assigneeId || null;
+  }
+  // Reaching a final status (configurable — not just the literal "DONE")
+  // always completes the task; hitting 100% progress without picking a
+  // final status explicitly still defaults to "DONE" for backward compatibility.
+  if (status) {
+    const statusMaster = await prisma.taskStatus.findUnique({ where: { code: status } });
+    if (statusMaster?.isFinal) {
+      data.progress = 100;
+      data.completedAt = new Date();
+    }
+  }
+  if (progress === 100 && !data.completedAt) {
+    data.status = data.status || 'DONE';
     data.completedAt = new Date();
   }
 
   const updated = await prisma.task.update({ where: { id: req.params.id }, data });
+  const reassigned = 'assigneeId' in data && data.assigneeId !== task.assigneeId;
+  const action = reassigned ? 'REASSIGNED' : 'UPDATED';
+  await recordAudit({
+    actorId: req.user.id, action, module: 'TASK', entityId: updated.id, entityLabel: updated.title, before: task, after: updated,
+  });
+  if (reassigned && updated.assigneeId) {
+    await notify({
+      userId: updated.assigneeId, type: 'TASK_ASSIGNED', title: 'Task assigned to you',
+      message: updated.title, link: '/tasks',
+    });
+  }
   return sendSuccess(res, 200, updated);
 }
 
 async function deleteTask(req, res) {
+  const before = await prisma.task.findUnique({ where: { id: req.params.id } });
+  if (!before) throw new ApiError(404, 'Task not found');
   await prisma.task.delete({ where: { id: req.params.id } });
+  await recordAudit({ actorId: req.user.id, action: 'DELETED', module: 'TASK', entityId: before.id, entityLabel: before.title, before });
   return sendSuccess(res, 200, { message: 'Task removed' });
 }
 

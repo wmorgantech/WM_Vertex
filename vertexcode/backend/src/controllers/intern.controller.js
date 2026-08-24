@@ -7,9 +7,29 @@ const { sendSuccess } = require('../utils/apiResponse');
 const { sendMail, renderEmailTemplate } = require('../services/email.service');
 const { renderHtmlToPdf, renderPdfTemplate } = require('../services/pdf.service');
 const { generateQrDataUrl } = require('../utils/qrCode');
+const { recordAudit } = require('../utils/audit');
+const { notify } = require('../utils/notify');
+const { evaluateRequiredDocs } = require('../utils/internDocumentRequirements');
 
 const CATEGORY_LABELS = { FREE_INTERNSHIP: 'Free Internship', JOT: 'Job Oriented Training (JOT)' };
-const REQUIRED_DOC_TYPES = ['BONAFIDE', 'COLLEGE_ID'];
+
+// Company identity + signatory block for generated PDFs, configurable by
+// Super Admin (see settings.controller.js) rather than hardcoded per template.
+async function getBrandTemplateVars() {
+  const settings = await prisma.appSettings.findUnique({ where: { id: 1 } });
+  const companyName = settings?.companyName || 'VertexWM';
+  const brandMarkHtml = settings?.companyLogoUrl
+    ? `<img src="${settings.companyLogoUrl}" alt="${companyName}" style="height:34px;max-width:120px;object-fit:contain;" />`
+    : `<div class="brand-mark">${companyName.slice(0, 2).toUpperCase()}</div>`;
+  return {
+    companyName,
+    companyNameUpper: companyName.toUpperCase(),
+    companyAddress: settings?.companyAddress || '',
+    signatoryName: settings?.signatoryName || 'Authorized Signatory',
+    signatoryTitle: settings?.signatoryTitle || 'Management',
+    brandMarkHtml,
+  };
+}
 
 const OFFER_LETTER_DIR = path.join(__dirname, '../../uploads/offer-letters');
 const CERTIFICATE_DIR = path.join(__dirname, '../../uploads/certificates');
@@ -81,13 +101,28 @@ async function deleteBatch(req, res) {
   return sendSuccess(res, 200, { message: 'Batch removed' });
 }
 
+// GET /api/interns/enrollable-users — minimal user list for the "add intern"
+// picker. Deliberately narrower than GET /users (which requires the broader
+// user:view permission) so a Senior Full Stack Developer can add interns
+// without being handed full HR visibility over every account.
+async function listEnrollableUsers(req, res) {
+  const enrolledUserIds = (await prisma.internEnrollment.findMany({ select: { userId: true } })).map((e) => e.userId);
+  const users = await prisma.user.findMany({
+    where: { id: { notIn: enrolledUserIds }, role: 'EMPLOYEE' },
+    select: { id: true, firstName: true, lastName: true, email: true, role: true },
+    orderBy: { firstName: 'asc' },
+  });
+  return sendSuccess(res, 200, users);
+}
+
 // --- Enrollments -------------------------------------------------------------
 
 async function listEnrollments(req, res) {
   const { batchId, mentorId, completionStatus } = req.query;
 
-  // SUPER_ADMIN: unrestricted. ADMIN: only interns they mentor ("records assigned to them").
-  // INTERN/EMPLOYEE: only their own enrollment.
+  // SUPER_ADMIN: unrestricted. Everyone else: interns they mentor (includes
+  // Admins, and any employee who added an intern and defaulted to mentoring
+  // them — see enrollIntern) plus their own enrollment if they have one.
   let where;
   if (req.user.role === 'SUPER_ADMIN') {
     where = {
@@ -95,14 +130,12 @@ async function listEnrollments(req, res) {
       ...(mentorId && { mentorId }),
       ...(completionStatus && { completionStatus }),
     };
-  } else if (req.user.role === 'ADMIN') {
+  } else {
     where = {
-      mentorId: req.user.id,
+      OR: [{ mentorId: req.user.id }, { userId: req.user.id }],
       ...(batchId && { batchId }),
       ...(completionStatus && { completionStatus }),
     };
-  } else {
-    where = { userId: req.user.id };
   }
 
   const enrollments = await prisma.internEnrollment.findMany({
@@ -127,8 +160,17 @@ async function enrollIntern(req, res) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new ApiError(404, 'User not found');
 
+  // Whoever adds an intern without naming a mentor becomes the default mentor,
+  // so they keep visibility of the record they just created (SUPER_ADMIN sees
+  // everything regardless, so this only matters for Admins/Employees adding).
+  const effectiveMentorId = mentorId || (req.user.role !== 'SUPER_ADMIN' ? req.user.id : null);
+
   const enrollment = await prisma.internEnrollment.create({
-    data: { userId, batchId, mentorId: mentorId || null, stipend, notes, category: category || null },
+    data: { userId, batchId, mentorId: effectiveMentorId, stipend, notes, category: category || null },
+  });
+  await recordAudit({
+    actorId: req.user.id, action: 'CREATED', module: 'INTERN_ENROLLMENT', entityId: enrollment.id,
+    entityLabel: `${user.firstName} ${user.lastName}`, after: enrollment,
   });
 
   await prisma.user.update({
@@ -170,6 +212,33 @@ async function updateEnrollment(req, res) {
   }
 
   return sendSuccess(res, 200, enrollment);
+}
+
+// DELETE /api/interns/enrollments/:id — Super Admin only, soft delete.
+// The record is kept (completionStatus -> TERMINATED) for audit/history and
+// the intern's account is deactivated, rather than removing any rows.
+async function deleteEnrollment(req, res) {
+  const enrollment = await prisma.internEnrollment.findUnique({
+    where: { id: req.params.id },
+    include: { user: { select: { id: true, firstName: true, lastName: true } } },
+  });
+  if (!enrollment) throw new ApiError(404, 'Enrollment not found');
+
+  const updated = await prisma.internEnrollment.update({
+    where: { id: req.params.id },
+    data: { completionStatus: 'TERMINATED' },
+  });
+  await prisma.user.update({
+    where: { id: enrollment.userId },
+    data: { status: 'TERMINATED', exitDate: new Date() },
+  });
+
+  await recordAudit({
+    actorId: req.user.id, action: 'DELETED', module: 'INTERN_ENROLLMENT', entityId: enrollment.id,
+    entityLabel: `${enrollment.user.firstName} ${enrollment.user.lastName}`, before: enrollment, after: updated,
+  });
+
+  return sendSuccess(res, 200, { message: 'Intern removed' });
 }
 
 // PUT /api/interns/enrollments/me — Intern self-service academic profile update
@@ -220,10 +289,11 @@ async function finalApprove(req, res) {
   });
   if (!enrollment) throw new ApiError(404, 'Enrollment not found');
 
-  const requiredVerified = REQUIRED_DOC_TYPES.every((t) =>
-    enrollment.documents.some((d) => d.type === t && d.status === 'VERIFIED')
-  );
-  if (!requiredVerified) throw new ApiError(400, 'Both required documents must be verified before final approval');
+  const requirement = evaluateRequiredDocs(enrollment.documents);
+  if (!requirement.satisfied) {
+    const missing = requirement.groups.filter((g) => g.status !== 'VERIFIED').map((g) => g.label);
+    throw new ApiError(400, `Required documents must be verified before final approval: ${missing.join(', ')}`);
+  }
 
   const updated = await prisma.internEnrollment.update({
     where: { id: req.params.id },
@@ -261,8 +331,10 @@ async function generateOfferLetter(req, res) {
 
   const verificationId = `OL-${enrollment.id.slice(0, 8).toUpperCase()}`;
   const qrCodeDataUrl = await generateQrDataUrl(`${process.env.APP_URL}/verify/offer-letter/${enrollment.id}`);
+  const brandVars = await getBrandTemplateVars();
 
   const html = renderPdfTemplate('offerLetter.html', {
+    ...brandVars,
     firstName: enrollment.user.firstName,
     lastName: enrollment.user.lastName,
     categoryLabel: CATEGORY_LABELS[enrollment.category] || 'Internship',
@@ -275,8 +347,6 @@ async function generateOfferLetter(req, res) {
     internshipStartDate: enrollment.internshipStartDate ? new Date(enrollment.internshipStartDate).toLocaleDateString() : '—',
     internshipEndDate: enrollment.internshipEndDate ? new Date(enrollment.internshipEndDate).toLocaleDateString() : '—',
     generatedDate: new Date().toLocaleDateString(),
-    generatedByName: `${req.user.firstName} ${req.user.lastName}`,
-    generatedByTitle: 'Super Admin',
     qrCodeDataUrl,
     verificationId,
   });
@@ -346,8 +416,10 @@ async function generateCertificate(req, res) {
 
   const verificationId = `CC-${enrollment.id.slice(0, 8).toUpperCase()}`;
   const qrCodeDataUrl = await generateQrDataUrl(`${process.env.APP_URL}/verify/certificate/${enrollment.id}`);
+  const brandVars = await getBrandTemplateVars();
 
   const html = renderPdfTemplate('completionCertificate.html', {
+    ...brandVars,
     firstName: enrollment.user.firstName,
     lastName: enrollment.user.lastName,
     categoryLabel: CATEGORY_LABELS[enrollment.category] || 'Internship',
@@ -359,8 +431,6 @@ async function generateCertificate(req, res) {
     internshipStartDate: enrollment.internshipStartDate ? new Date(enrollment.internshipStartDate).toLocaleDateString() : '—',
     internshipEndDate: enrollment.internshipEndDate ? new Date(enrollment.internshipEndDate).toLocaleDateString() : '—',
     generatedDate: new Date().toLocaleDateString(),
-    generatedByName: `${req.user.firstName} ${req.user.lastName}`,
-    generatedByTitle: 'Super Admin',
     qrCodeDataUrl,
     verificationId,
   });
@@ -381,6 +451,10 @@ async function generateCertificate(req, res) {
 
   await prisma.internshipAudit.create({
     data: { enrollmentId: enrollment.id, action: 'CERTIFICATE_GENERATED', actorId: req.user.id },
+  });
+  await notify({
+    userId: enrollment.userId, type: 'CERTIFICATE_GENERATED', title: 'Your completion certificate is ready',
+    link: '/documents',
   });
 
   await sendMail({
@@ -415,6 +489,6 @@ async function downloadCertificate(req, res) {
 
 module.exports = {
   listBatches, getBatch, createBatch, updateBatch, deleteBatch,
-  listEnrollments, enrollIntern, updateEnrollment, updateMyEnrollment,
+  listEnrollments, listEnrollableUsers, enrollIntern, updateEnrollment, deleteEnrollment, updateMyEnrollment,
   finalApprove, generateOfferLetter, downloadOfferLetter, generateCertificate, downloadCertificate,
 };

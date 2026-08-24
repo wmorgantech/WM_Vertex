@@ -1,12 +1,15 @@
 const prisma = require('../config/db');
 const { sendSuccess } = require('../utils/apiResponse');
 const { computeInternshipStage } = require('../utils/internshipStage');
+const { evaluateRequiredDocs } = require('../utils/internDocumentRequirements');
 
+// UTC-anchored midnight for "n days ago" on the local calendar — see
+// attendance.controller.js's dayStart() for why plain setHours(0,0,0,0)
+// silently shifts a day off against @db.Date columns in +UTC timezones.
 function daysAgo(n) {
   const d = new Date();
   d.setDate(d.getDate() - n);
-  d.setHours(0, 0, 0, 0);
-  return d;
+  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
 }
 
 // GET /api/analytics/overview — org-wide KPIs (Super Admin / Admin)
@@ -14,19 +17,23 @@ async function overview(req, res) {
   const since = daysAgo(30);
 
   const [
-    totalEmployees, totalInterns, activeUsers, totalDepartments,
-    totalProjects, activeProjects, totalTasks, tasksByStatus,
+    totalEmployees, totalInterns, totalTrainees, activeUsers, totalDepartments,
+    totalProjects, activeProjects, totalTasks, tasksByStatus, unallocatedTasks,
     attendanceLast30, pendingTimesheets, pendingWorkUpdates,
     enrollmentsWithDocs,
+    upcomingWorkshops, workshopFollowUpsOverdue, activeMous, mousExpiringSoon,
+    expenseTotalAgg, expenseLast30Agg, expenseByCategory,
   ] = await Promise.all([
     prisma.user.count({ where: { role: { in: ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'] } } }),
     prisma.user.count({ where: { role: 'INTERN' } }),
+    prisma.user.count({ where: { role: 'TRAINEE' } }),
     prisma.user.count({ where: { status: 'ACTIVE' } }),
     prisma.department.count(),
     prisma.project.count(),
     prisma.project.count({ where: { status: 'ACTIVE' } }),
     prisma.task.count(),
     prisma.task.groupBy({ by: ['status'], _count: { _all: true } }),
+    prisma.task.count({ where: { assigneeId: null } }),
     prisma.attendance.findMany({ where: { date: { gte: since } }, select: { status: true, date: true, workHours: true } }),
     prisma.timesheet.count({ where: { status: 'PENDING' } }),
     prisma.dailyWorkUpdate.count({ where: { status: 'SUBMITTED' } }),
@@ -40,6 +47,15 @@ async function overview(req, res) {
         certificate: { select: { generatedAt: true } },
       },
     }),
+    prisma.workshop.count({ where: { status: { in: ['SCHEDULED', 'CONFIRMED'] } } }),
+    prisma.workshop.count({ where: { followUpDate: { lt: new Date() }, status: { notIn: ['COMPLETED', 'CANCELLED'] } } }),
+    prisma.mOU.count({ where: { status: 'ACTIVE' } }),
+    prisma.mOU.count({
+      where: { status: 'ACTIVE', endDate: { gte: new Date(), lte: new Date(Date.now() + 30 * 86400000) } },
+    }),
+    prisma.expense.aggregate({ _sum: { amount: true } }),
+    prisma.expense.aggregate({ _sum: { amount: true }, where: { expenseDate: { gte: since } } }),
+    prisma.expense.groupBy({ by: ['categoryCode'], _sum: { amount: true } }),
   ]);
 
   const attendanceByStatus = attendanceLast30.reduce((acc, r) => {
@@ -52,7 +68,7 @@ async function overview(req, res) {
   );
   const pendingVerifications = allDocs.filter((d) => d.status === 'PENDING_REVIEW').length;
   const rejectedDocuments = allDocs.filter((d) => d.status === 'REJECTED').length;
-  const requiredVerified = (e) => ['BONAFIDE', 'COLLEGE_ID'].every((t) => e.documents.some((d) => d.type === t && d.status === 'VERIFIED'));
+  const requiredVerified = (e) => evaluateRequiredDocs(e.documents).satisfied;
   const verifiedInterns = enrollmentsWithDocs.filter(requiredVerified).length;
   const pendingApplications = enrollmentsWithDocs.filter((e) => requiredVerified(e) && !e.finalApprovedAt).length;
   const recentSubmissions = allDocs
@@ -62,15 +78,22 @@ async function overview(req, res) {
     .map((d) => ({ id: d.id, internName: d.internName, type: d.type, status: d.status, updatedAt: d.updatedAt }));
 
   const payload = {
-    headcount: { totalEmployees, totalInterns, activeUsers, totalDepartments },
+    headcount: { totalEmployees, totalInterns, totalTrainees, activeUsers, totalDepartments },
     projects: { totalProjects, activeProjects },
     tasks: {
       total: totalTasks,
+      unallocated: unallocatedTasks,
       byStatus: tasksByStatus.map((t) => ({ status: t.status, count: t._count._all })),
     },
     attendance: { last30Days: attendanceByStatus },
     pendingApprovals: { timesheets: pendingTimesheets, workUpdates: pendingWorkUpdates },
     documents: { pendingVerifications, verifiedInterns, rejectedDocuments, pendingApplications, recentSubmissions },
+    businessDevelopment: { upcomingWorkshops, workshopFollowUpsOverdue, activeMous, mousExpiringSoon },
+    finance: {
+      totalExpenses: expenseTotalAgg._sum.amount || 0,
+      last30DaysExpenses: expenseLast30Agg._sum.amount || 0,
+      expensesByCategory: expenseByCategory.map((c) => ({ category: c.categoryCode, total: c._sum.amount || 0 })),
+    },
   };
 
   // Reports / Offer Letters / Certificates / Audit Logs are Super-Admin-only per the

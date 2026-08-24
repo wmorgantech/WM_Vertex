@@ -66,12 +66,12 @@
 </style>
 </head>
 <body>
-  <div class="watermark">VERTEXWM &nbsp; OFFICIAL</div>
+  <div class="watermark">{{companyNameUpper}} &nbsp; OFFICIAL</div>
   <div class="border-frame"></div>
   <div class="page">
     <div class="brand">
-      <div class="brand-mark">VW</div>
-      <div class="brand-name">VertexWM</div>
+      {{brandMarkHtml}}
+      <div class="brand-name">{{companyName}}</div>
     </div>
 
     <div class="kicker">Certificate of Internship Completion</div>
@@ -81,7 +81,7 @@
     <div class="intern-name">{{firstName}} {{lastName}}</div>
 
     <p class="body-text">
-      in recognition of the successful completion of their internship with VertexWM under the
+      in recognition of the successful completion of their internship with {{companyName}} under the
       {{categoryLabel}} program, from {{internshipStartDate}} to {{internshipEndDate}}, demonstrating
       dedication, professionalism, and consistent contribution throughout the internship period.
     </p>
@@ -95,10 +95,10 @@
 
     <div class="footer-block">
       <div>
-        <div class="signature">{{generatedByName}}</div>
-        <div class="sig-name">{{generatedByName}}</div>
-        <div class="sig-title">{{generatedByTitle}}, VertexWM</div>
-        <div class="disclaimer">This is a digitally generated and verified document issued by VertexWM and does not require a physical signature.</div>
+        <div class="signature">{{signatoryName}}</div>
+        <div class="sig-name">{{signatoryName}}</div>
+        <div class="sig-title">{{signatoryTitle}}, {{companyName}}</div>
+        <div class="disclaimer">This is a digitally generated and verified document issued by {{companyName}} and does not require a physical signature.</div>
       </div>
       <div class="qr-block">
         <img src="{{qrCodeDataUrl}}" alt="Verification QR" />
@@ -106,6 +106,6 @@
       </div>
     </div>
   </div>
-  <div class="ref">VertexWM &middot; Document ID: {{verificationId}} &middot; Issued {{generatedDate}}</div>
+  <div class="ref">{{companyName}} &middot; Document ID: {{verificationId}} &middot; Issued {{generatedDate}}</div>
 </body>
 </html>

@@ -1,8 +1,17 @@
 const prisma = require('../config/db');
 const ApiError = require('../utils/apiError');
 const { sendSuccess } = require('../utils/apiResponse');
+const { recordAudit } = require('../utils/audit');
 
-const dayStart = (d = new Date()) => new Date(new Date(d).setHours(0, 0, 0, 0));
+// Builds a UTC-midnight Date for the given local calendar day. A plain
+// `setHours(0,0,0,0)` anchors midnight in the *server's* local timezone,
+// which for any positive UTC offset (e.g. IST, +5:30) serializes to the
+// *previous* day once written to a `@db.Date` column — so "today" silently
+// got stored as yesterday, and clock-in/out state read back wrong.
+const dayStart = (d = new Date()) => {
+  const local = new Date(d);
+  return new Date(Date.UTC(local.getFullYear(), local.getMonth(), local.getDate()));
+};
 const LATE_THRESHOLD_HOUR = 9; // 09:00 local
 
 function hoursBetween(a, b) {
@@ -85,10 +94,15 @@ async function markAttendance(req, res) {
   const { userId, date, status, workHours, notes } = req.body;
   if (!userId || !date || !status) throw new ApiError(400, 'userId, date and status are required');
 
+  const before = await prisma.attendance.findUnique({ where: { userId_date: { userId, date: dayStart(date) } } });
   const attendance = await prisma.attendance.upsert({
     where: { userId_date: { userId, date: dayStart(date) } },
     update: { status, workHours, notes },
     create: { userId, date: dayStart(date), status, workHours, notes },
+  });
+  await recordAudit({
+    actorId: req.user.id, action: before ? 'UPDATED' : 'CREATED', module: 'ATTENDANCE',
+    entityId: attendance.id, entityLabel: `${userId} — ${dayStart(date).toISOString().slice(0, 10)}`, before, after: attendance,
   });
   return sendSuccess(res, 200, attendance);
 }

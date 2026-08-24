@@ -19,13 +19,7 @@ enum Role {
   ADMIN
   EMPLOYEE
   INTERN
-}
-
-enum EmploymentType {
-  FULL_TIME
-  PART_TIME
-  INTERN
-  CONTRACT
+  TRAINEE
 }
 
 enum EmploymentStatus {
@@ -59,26 +53,6 @@ enum ProjectStatus {
   CANCELLED
 }
 
-enum TaskType {
-  DAILY
-  PROJECT
-}
-
-enum TaskPriority {
-  LOW
-  MEDIUM
-  HIGH
-  URGENT
-}
-
-enum TaskStatus {
-  TODO
-  IN_PROGRESS
-  IN_REVIEW
-  DONE
-  BLOCKED
-}
-
 enum AttendanceStatus {
   PRESENT
   LATE
@@ -89,11 +63,6 @@ enum AttendanceStatus {
   WEEKEND
 }
 
-enum TimesheetStatus {
-  PENDING
-  APPROVED
-  REJECTED
-}
 
 enum WorkUpdateStatus {
   SUBMITTED
@@ -103,6 +72,7 @@ enum WorkUpdateStatus {
 
 enum InternDocumentType {
   BONAFIDE
+  PERMISSION_LETTER
   COLLEGE_ID
   RESUME
   ADDITIONAL
@@ -141,14 +111,336 @@ enum InternshipAuditAction {
 // ---------------------------------------------------------------------------
 
 model Department {
-  id          String   @id @default(uuid())
-  name        String   @unique
+  id          String        @id @default(uuid())
+  name        String        @unique
   description String?
-  headId      String?  @unique
-  head        User?    @relation("DepartmentHead", fields: [headId], references: [id])
-  users       User[]   @relation("DepartmentMembers")
+  headId      String?       @unique
+  head        User?         @relation("DepartmentHead", fields: [headId], references: [id])
+  users       User[]        @relation("DepartmentMembers")
+  designations Designation[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Configurable master data (Super Admin managed, replaces hardcoded values)
+// ---------------------------------------------------------------------------
+
+model EmploymentType {
+  code      String   @id
+  label     String
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  users     User[]
+}
+
+model Designation {
+  id           String       @id @default(uuid())
+  name         String       @unique
+  departmentId String?
+  department   Department?  @relation(fields: [departmentId], references: [id])
+  active       Boolean      @default(true)
+  sortOrder    Int          @default(0)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  users        User[]       @relation("UserDesignation")
+}
+
+model Location {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  address   String?
+  city      String?
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  users     User[]
+}
+
+model CollegeType {
+  code      String   @id
+  label     String
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  colleges  College[]
+}
+
+model TaskType {
+  code      String   @id
+  label     String
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tasks     Task[]
+}
+
+model TaskPriority {
+  code      String   @id
+  label     String
+  color     String?
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tasks     Task[]
+}
+
+// Richer than the other masters — mirrors spec's "Configurable Status
+// System": category/order/color plus whether a status is a terminal state.
+model TaskStatus {
+  code      String   @id
+  label     String
+  color     String?
+  isFinal   Boolean  @default(false)
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tasks     Task[]
+}
+
+model TimesheetStatus {
+  code      String   @id
+  label     String
+  color     String?
+  isFinal   Boolean  @default(false)
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  timesheets Timesheet[]
+}
+
+model LeaveType {
+  code      String   @id
+  label     String
+  paid      Boolean  @default(true)
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  requests  LeaveRequest[]
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model LeaveRequest {
+  id              String              @id @default(uuid())
+  userId          String
+  user            User                @relation("LeaveOwner", fields: [userId], references: [id], onDelete: Cascade)
+  leaveTypeCode   String
+  leaveType       LeaveType           @relation(fields: [leaveTypeCode], references: [code])
+  startDate       DateTime            @db.Date
+  endDate         DateTime            @db.Date
+  reason          String?
+  status          LeaveRequestStatus  @default(PENDING)
+  approverId      String?
+  approver        User?               @relation("LeaveApprover", fields: [approverId], references: [id])
+  approvedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+enum CustomFieldEntityType {
+  EMPLOYEE
+  INTERN
+  TRAINEE
+  COLLEGE
+  WORKSHOP
+}
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  DATE
+  DROPDOWN
+  MULTISELECT
+  CHECKBOX
+  TEXTAREA
+}
+
+model CustomFieldDefinition {
+  id         String                 @id @default(uuid())
+  entityType CustomFieldEntityType
+  name       String
+  fieldType  CustomFieldType
+  options    String[]               @default([])
+  required   Boolean                @default(false)
+  active     Boolean                @default(true)
+  sortOrder  Int                    @default(0)
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
+
+  values     CustomFieldValue[]
+
+  @@unique([entityType, name])
+}
+
+// entityId is a loose reference (the Employee/Intern-enrollment/etc. id it
+// belongs to) rather than a hard FK — a custom field can attach to any of
+// several unrelated tables, which a single relation column can't express.
+model CustomFieldValue {
+  id        String                 @id @default(uuid())
+  fieldId   String
+  field     CustomFieldDefinition  @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  entityId  String
+  value     String?
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+
+  @@unique([fieldId, entityId])
+  @@index([entityId])
+}
+
+enum ExpenseLinkType {
+  USER
+  WORKSHOP
+  MOU
+  PROJECT
+}
+
+model ExpenseCategory {
+  code      String    @id
+  label     String
+  active    Boolean   @default(true)
+  sortOrder Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  expenses  Expense[]
+}
+
+// Single ledger for all actual company spending — salaries/payroll, travel,
+// office, workshop/event, and other operational expenses. Income (trainee
+// fee payments, etc.) is tracked elsewhere (TraineePayment) and never flows
+// in here. linkType/linkId loosely reference the record this spend relates
+// to (an employee for a salary payment, a Workshop for an event cost, ...)
+// rather than a hard FK per entity type, mirroring CustomFieldValue's
+// loose entityId — avoids a duplicate model per linkable entity.
+model Expense {
+  id            String           @id @default(uuid())
+  categoryCode  String
+  category      ExpenseCategory  @relation(fields: [categoryCode], references: [code])
+  title         String
+  description   String?
+  amount        Float
+  expenseDate   DateTime         @db.Date
+  paymentMode   String?
+  reference     String?
+  vendor        String?
+  linkType      ExpenseLinkType?
+  linkId        String?
+  recordedById  String
+  recordedBy    User             @relation("ExpenseRecorder", fields: [recordedById], references: [id])
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([categoryCode])
+  @@index([expenseDate])
+  @@index([linkType, linkId])
+}
+
+// Configurable Admin permission matrix — Super Admin toggles which
+// (module, action) pairs the ADMIN role is allowed to perform.
+// SUPER_ADMIN always has full access and is never gated by this table.
+model Permission {
+  id        String   @id @default(uuid())
+  role      Role
+  module    String
+  action    String
+  allowed   Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+
+  @@unique([role, module, action])
+}
+
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_OVERDUE
+  TASK_UNALLOCATED
+  TIMESHEET_PENDING
+  TIMESHEET_REJECTED
+  ATTENDANCE_MISSING
+  TRAINING_SESSION_SCHEDULED
+  TRAINING_TOPIC_PENDING
+  INTERN_TASK_NOT_ALLOCATED
+  PAYMENT_PENDING
+  MOU_EXPIRING
+  WORKSHOP_FOLLOWUP_DUE
+  CERTIFICATE_GENERATED
+  DOCUMENT_REVIEWED
+  LEAVE_REQUESTED
+  LEAVE_APPROVED
+  LEAVE_REJECTED
+  GENERAL
+}
+
+// Per-type on/off switch, Super-Admin-configurable. A disabled type is never
+// created (see utils/notify.js), rather than merely hidden client-side.
+// Single-row table (id is always 1) holding the values offer-letter and
+// certificate PDFs render into their header/signatory block, so Super Admin
+// can change the company identity without touching the HTML templates.
+model AppSettings {
+  id             Int      @id @default(1)
+  companyName    String?
+  companyAddress String?
+  companyLogoUrl String?
+  signatoryName  String?
+  signatoryTitle String?
+  updatedAt      DateTime @updatedAt
+}
+
+model NotificationSetting {
+  type      NotificationType @id
+  enabled   Boolean          @default(true)
+  updatedAt DateTime         @updatedAt
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType @default(GENERAL)
+  title     String
+  message   String?
+  link      String?
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId, read])
+  @@index([createdAt])
+}
+
+// General audit trail — who did what to which record, and what changed.
+model AuditLog {
+  id          String   @id @default(uuid())
+  actorId     String
+  actor       User     @relation("AuditActor", fields: [actorId], references: [id])
+  action      String
+  module      String
+  entityId    String
+  entityLabel String?
+  before      Json?
+  after       Json?
   createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+
+  @@index([module])
+  @@index([entityId])
+  @@index([createdAt])
 }
 
 model User {
@@ -160,11 +452,27 @@ model User {
   phone            String?
   role             Role             @default(EMPLOYEE)
   designation      String?
-  employmentType   EmploymentType   @default(FULL_TIME)
+  designationRef   Designation?     @relation("UserDesignation", fields: [designation], references: [name])
+  employmentType   String           @default("FULL_TIME")
+  employmentTypeRef EmploymentType  @relation(fields: [employmentType], references: [code])
   status           EmploymentStatus @default(ACTIVE)
   joinDate         DateTime         @default(now())
   exitDate         DateTime?
   avatarUrl        String?
+
+  // Personal details
+  gender           String?
+  dateOfBirth      DateTime?
+  address          String?
+
+  // Professional details
+  skills           String[]         @default([])
+  technologyStack  String[]         @default([])
+  certifications   String[]         @default([])
+  experienceYears  Float?
+
+  locationId       String?
+  location         Location?        @relation(fields: [locationId], references: [id])
 
   departmentId     String?
   department       Department?      @relation("DepartmentMembers", fields: [departmentId], references: [id])
@@ -179,6 +487,20 @@ model User {
   // Intern-specific
   internEnrollment InternEnrollment?
   mentoredInterns  InternEnrollment[] @relation("InternMentor")
+
+  // Trainee-specific
+  traineeEnrollment    TraineeEnrollment?
+  mentoredTrainees     TraineeEnrollment[] @relation("TraineeMentor")
+  trainerOfPrograms    TrainingProgram[]   @relation("ProgramTrainer")
+  mentorOfPrograms     TrainingProgram[]   @relation("ProgramMentor")
+  trainerOfSessions    TrainingSession[]   @relation("SessionTrainer")
+  mentorOfSessions     TrainingSession[]   @relation("SessionMentor")
+  recordedTraineePayments TraineePayment[] @relation("PaymentRecorder")
+
+  // College business development
+  assignedWorkshops Workshop[] @relation("WorkshopAssignee")
+  trainerOfWorkshops Workshop[] @relation("WorkshopTrainer")
+  assignedMous       MOU[]      @relation("MouAssignee")
 
   // Intern document review
   reviewedDocuments    InternDocument[]      @relation("DocumentReviewer")
@@ -204,6 +526,12 @@ model User {
   approvedTimesheets Timesheet[]    @relation("TimesheetApprover")
   workUpdates      DailyWorkUpdate[] @relation("WorkUpdateOwner")
   reviewedWorkUpdates DailyWorkUpdate[] @relation("WorkUpdateReviewer")
+
+  auditLogs        AuditLog[]       @relation("AuditActor")
+  notifications    Notification[]
+  leaveRequests    LeaveRequest[]   @relation("LeaveOwner")
+  approvedLeaveRequests LeaveRequest[] @relation("LeaveApprover")
+  recordedExpenses Expense[]        @relation("ExpenseRecorder")
 
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
@@ -366,6 +694,294 @@ model InternshipAudit {
 }
 
 // ---------------------------------------------------------------------------
+// Trainee Management & Training Programs
+// ---------------------------------------------------------------------------
+
+enum TrainingProgramStatus {
+  UPCOMING
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+enum TopicProgressStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum AssignmentStatus {
+  NOT_SUBMITTED
+  SUBMITTED
+  REVIEWED
+}
+
+model TrainingProgram {
+  id            String                @id @default(uuid())
+  name          String
+  description   String?
+  technology    String?
+  duration      String?
+  totalSessions Int?
+  trainerId     String
+  trainer       User                  @relation("ProgramTrainer", fields: [trainerId], references: [id])
+  mentorId      String?
+  mentor        User?                 @relation("ProgramMentor", fields: [mentorId], references: [id])
+  fee           Float?
+  discount      Float?
+  finalFee      Float?
+  startDate     DateTime
+  endDate       DateTime
+  status        TrainingProgramStatus @default(UPCOMING)
+
+  topics      TrainingTopic[]
+  enrollments TraineeEnrollment[]
+  sessions    TrainingSession[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model TrainingTopic {
+  id                    String   @id @default(uuid())
+  programId             String
+  program               TrainingProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  topic                 String
+  description           String?
+  sequence              Int      @default(0)
+  expectedDurationHours Float?
+  trainingMaterial      String?
+  active                Boolean  @default(true)
+
+  progress TraineeTopicProgress[]
+  sessions TrainingSession[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([programId])
+}
+
+model TraineeEnrollment {
+  id                String                 @id @default(uuid())
+  userId            String                 @unique
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  programId         String
+  program           TrainingProgram        @relation(fields: [programId], references: [id])
+  mentorId          String?
+  mentor            User?                  @relation("TraineeMentor", fields: [mentorId], references: [id])
+  completionStatus  InternCompletionStatus @default(IN_PROGRESS)
+  progressPercent   Int                    @default(0)
+
+  education    String?
+  qualification String?
+  experienceYears Float?
+
+  trainingStartDate DateTime?
+  trainingEndDate   DateTime?
+
+  totalFee  Float?
+  discount  Float?
+  finalFee  Float?
+
+  notes String?
+
+  payments TraineePayment[]
+  topicProgress TraineeTopicProgress[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model TraineeTopicProgress {
+  id               String            @id @default(uuid())
+  enrollmentId     String
+  enrollment       TraineeEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  topicId          String
+  topic            TrainingTopic     @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  status           TopicProgressStatus @default(NOT_STARTED)
+  assignmentStatus AssignmentStatus  @default(NOT_SUBMITTED)
+  remarks          String?
+  completedAt      DateTime?
+  updatedAt        DateTime          @updatedAt
+
+  @@unique([enrollmentId, topicId])
+}
+
+model TrainingSession {
+  id             String          @id @default(uuid())
+  programId      String
+  program        TrainingProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  topicId        String?
+  topic          TrainingTopic?  @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  trainerId      String
+  trainer        User            @relation("SessionTrainer", fields: [trainerId], references: [id])
+  mentorId       String?
+  mentor         User?           @relation("SessionMentor", fields: [mentorId], references: [id])
+  date           DateTime        @db.Date
+  startTime      DateTime?
+  endTime        DateTime?
+  topicsCovered  String?
+  topicsPending  String?
+  trainingMaterial String?
+  remarks        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([programId, date])
+}
+
+model TraineePayment {
+  id           String            @id @default(uuid())
+  enrollmentId String
+  enrollment   TraineeEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  amount       Float
+  paymentDate  DateTime          @default(now())
+  paymentMode  String?
+  reference    String?
+  notes        String?
+  recordedById String
+  recordedBy   User              @relation("PaymentRecorder", fields: [recordedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([enrollmentId])
+}
+
+// ---------------------------------------------------------------------------
+// College / Institution Master & Business Development (Workshops, MOUs)
+// ---------------------------------------------------------------------------
+
+enum WorkshopStatus {
+  LEAD
+  CONTACTED
+  DISCUSSION
+  PROPOSED
+  SCHEDULED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  FOLLOW_UP_REQUIRED
+}
+
+enum MouStatus {
+  DISCUSSION
+  DRAFT
+  SENT
+  UNDER_REVIEW
+  APPROVED
+  SIGNED
+  ACTIVE
+  EXPIRED
+  RENEWED
+  CANCELLED
+}
+
+model College {
+  id            String   @id @default(uuid())
+  name          String   @unique
+  typeCode      String?
+  type          CollegeType? @relation(fields: [typeCode], references: [code])
+  university    String?
+  address       String?
+  city          String?
+  district      String?
+  state         String?
+  website       String?
+  contactPerson String?
+  phone         String?
+  email         String?
+  coordinator   String?
+  active        Boolean  @default(true)
+
+  departments CollegeDepartment[]
+  workshops   Workshop[]
+  mous        MOU[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CollegeDepartment {
+  id            String   @id @default(uuid())
+  collegeId     String
+  college       College  @relation(fields: [collegeId], references: [id], onDelete: Cascade)
+  name          String
+  contactPerson String?
+  contactPhone  String?
+  contactEmail  String?
+
+  workshops Workshop[]
+  mous      MOU[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([collegeId, name])
+}
+
+model Workshop {
+  id                   String             @id @default(uuid())
+  collegeId            String
+  college              College            @relation(fields: [collegeId], references: [id])
+  collegeDepartmentId  String?
+  collegeDepartment    CollegeDepartment? @relation(fields: [collegeDepartmentId], references: [id])
+  contactPerson        String?
+  contactNumber        String?
+  contactEmail         String?
+  topic                String
+  technology           String?
+  proposedDate         DateTime?
+  confirmedDate        DateTime?
+  duration             String?
+  expectedParticipants Int?
+  actualParticipants   Int?
+  assignedEmployeeId   String?
+  assignedEmployee     User?              @relation("WorkshopAssignee", fields: [assignedEmployeeId], references: [id])
+  trainerId            String?
+  trainer              User?              @relation("WorkshopTrainer", fields: [trainerId], references: [id])
+  status               WorkshopStatus     @default(LEAD)
+  followUpDate         DateTime?
+  discussionNotes      String?
+  nextAction           String?
+  remarks              String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([collegeId])
+  @@index([status])
+}
+
+model MOU {
+  id                  String             @id @default(uuid())
+  collegeId           String
+  college              College            @relation(fields: [collegeId], references: [id])
+  collegeDepartmentId String?
+  collegeDepartment    CollegeDepartment? @relation(fields: [collegeDepartmentId], references: [id])
+  contactPerson       String?
+  mouType             String?
+  purpose             String?
+  startDate           DateTime?
+  endDate             DateTime?
+  status              MouStatus          @default(DISCUSSION)
+  assignedEmployeeId  String?
+  assignedEmployee    User?              @relation("MouAssignee", fields: [assignedEmployeeId], references: [id])
+  signedDate          DateTime?
+  renewalDate         DateTime?
+  documentPath        String?
+  documentName        String?
+  remarks             String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([collegeId])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
 // Project & Task Management
 // ---------------------------------------------------------------------------
 
@@ -400,17 +1016,20 @@ model Task {
   id           String       @id @default(uuid())
   title        String
   description  String?
-  type         TaskType     @default(DAILY)
-  priority     TaskPriority @default(MEDIUM)
-  status       TaskStatus   @default(TODO)
+  type         String       @default("DAILY")
+  typeRef      TaskType     @relation(fields: [type], references: [code])
+  priority     String       @default("MEDIUM")
+  priorityRef  TaskPriority @relation(fields: [priority], references: [code])
+  status       String       @default("TODO")
+  statusRef    TaskStatus   @relation(fields: [status], references: [code])
   progress     Int          @default(0)
   dueDate      DateTime?
 
   projectId    String?
   project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
-  assigneeId   String
-  assignee     User         @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  assigneeId   String?
+  assignee     User?        @relation("TaskAssignee", fields: [assigneeId], references: [id])
 
   createdById  String
   createdBy    User         @relation("TaskCreator", fields: [createdById], references: [id])
@@ -462,7 +1081,8 @@ model Timesheet {
   task         Task?           @relation(fields: [taskId], references: [id], onDelete: SetNull)
   hoursLogged  Float
   description  String?
-  status       TimesheetStatus @default(PENDING)
+  status       String          @default("PENDING")
+  statusRef    TimesheetStatus @relation(fields: [status], references: [code])
   approverId   String?
   approver     User?           @relation("TimesheetApprover", fields: [approverId], references: [id])
   approvedAt   DateTime?
