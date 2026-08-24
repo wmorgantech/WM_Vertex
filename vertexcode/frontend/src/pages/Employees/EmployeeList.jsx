@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
@@ -117,7 +118,7 @@ export default function EmployeeList() {
                 <button className="btn btn-secondary" onClick={() => downloadReport('/reports/employees?format=xlsx', 'employees.xlsx')}>Export Excel</button>
               </>
             )}
-            <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ Add Employee</button>
+            <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> Add Employee</button>
           </>
         )}
       />

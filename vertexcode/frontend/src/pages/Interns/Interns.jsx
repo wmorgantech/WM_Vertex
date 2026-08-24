@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Plus, Trash2 } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -90,7 +91,7 @@ export default function Interns() {
     { key: 'completionStatus', header: 'Status', render: (r) => <Badge value={r.completionStatus} /> },
     ...(isSuperAdmin ? [{
       key: 'actions', header: '',
-      render: (r) => <button className="btn btn-ghost btn-sm" onClick={() => handleDelete(r)}>Remove</button>,
+      render: (r) => <button className="btn btn-danger btn-sm" onClick={() => handleDelete(r)}><Trash2 size={14} /> Remove</button>,
     }] : []),
   ];
 
@@ -120,8 +121,8 @@ export default function Interns() {
                 <button className="btn btn-secondary" onClick={() => downloadReport('/reports/interns?format=xlsx', 'interns.xlsx')}>Export Excel</button>
               </>
             )}
-            {isManager && <button className="btn btn-secondary" onClick={() => setShowBatchModal(true)}>+ New Batch</button>}
-            <button className="btn btn-primary" onClick={() => setShowEnrollModal(true)}>+ Enroll Intern</button>
+            {isManager && <button className="btn btn-secondary" onClick={() => setShowBatchModal(true)}><Plus size={14} /> New Batch</button>}
+            <button className="btn btn-primary" onClick={() => setShowEnrollModal(true)}><Plus size={14} /> Enroll Intern</button>
           </>
         )}
       />

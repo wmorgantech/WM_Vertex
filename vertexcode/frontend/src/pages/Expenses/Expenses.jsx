@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Plus, Pencil, Trash2 } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -139,15 +140,17 @@ export default function Expenses() {
     { key: 'expenseDate', header: 'Date', render: (r) => new Date(r.expenseDate).toLocaleDateString() },
     { key: 'category', header: 'Category', render: (r) => <Badge value={r.category.code} /> },
     { key: 'title', header: 'Title' },
-    { key: 'amount', header: 'Amount', render: (r) => `₹${r.amount.toLocaleString()}` },
+    { key: 'amount', header: 'Amount', align: 'right', render: (r) => `₹${r.amount.toLocaleString()}` },
     { key: 'vendor', header: 'Vendor', render: (r) => r.vendor || '—' },
     { key: 'linked', header: 'Linked To', render: linkedLabel },
     { key: 'recordedBy', header: 'Recorded By', render: (r) => `${r.recordedBy.firstName} ${r.recordedBy.lastName}` },
     {
-      key: 'actions', header: '', render: (r) => (
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button className="btn btn-ghost btn-sm" onClick={() => openEdit(r)}>Edit</button>
-          {isSuperAdmin && <button className="btn btn-ghost btn-sm" onClick={() => handleDelete(r)}>Delete</button>}
+      key: 'actions', header: '', align: 'actions', render: (r) => (
+        <div className="row-actions">
+          <button className="btn btn-ghost btn-sm" onClick={() => openEdit(r)}>
+            <Pencil size={14} /> Edit
+          </button>
+          {isSuperAdmin && <button className="btn btn-danger btn-sm" onClick={() => handleDelete(r)}><Trash2 size={14} /> Delete</button>}
         </div>
       ),
     },
@@ -172,7 +175,7 @@ export default function Expenses() {
                 <button className="btn btn-secondary" onClick={() => downloadReport(`/reports/expenses?${new URLSearchParams({ ...exportFilterParams, format: 'xlsx' })}`, 'expenses.xlsx')}>Export Excel</button>
               </>
             )}
-            <button className="btn btn-primary" onClick={openCreate}>+ Add Expense</button>
+            <button className="btn btn-primary" onClick={openCreate}><Plus size={14} /> Add Expense</button>
           </>
         )}
       />

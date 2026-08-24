@@ -168,11 +168,11 @@ export default function AdminDocumentReview() {
       header: 'Actions',
       render: (d) => d.status === 'PENDING_REVIEW' ? (
         <div className="flex items-center gap-2">
-          <Button size="sm" disabled={acting === d.id} onClick={() => handleApprove(d.id)}>
+          <Button size="sm" variant="success" disabled={acting === d.id} onClick={() => handleApprove(d.id)}>
             <CheckCircle2 />
             Approve
           </Button>
-          <Button size="sm" variant="ghost" disabled={acting === d.id} onClick={() => handleReject(d.id)}>
+          <Button size="sm" variant="destructive" disabled={acting === d.id} onClick={() => handleReject(d.id)}>
             <XCircle />
             Reject
           </Button>
