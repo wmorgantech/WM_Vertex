@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 
 export default function MobileSidebar({ open, onOpenChange }) {
   const { user } = useAuth();
-  const groups = getNavGroups(user?.role);
+  const groups = getNavGroups(user);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>

@@ -6,8 +6,7 @@ import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import toast from 'react-hot-toast';
-
-const STATUSES = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'DONE', 'BLOCKED'];
+import { downloadReport } from '../../lib/download';
 
 export default function Tasks() {
   const { user } = useAuth();
@@ -15,25 +14,37 @@ export default function Tasks() {
   const [tasks, setTasks] = useState([]);
   const [users, setUsers] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [statuses, setStatuses] = useState([]);
+  const [priorities, setPriorities] = useState([]);
+  const [types, setTypes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
+  const [unallocatedOnly, setUnallocatedOnly] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', type: 'DAILY', priority: 'MEDIUM', dueDate: '', assigneeId: '', projectId: '' });
   const [saving, setSaving] = useState(false);
 
   const load = () => {
     setLoading(true);
-    const calls = [api.get('/tasks', { params: { status: statusFilter || undefined } })];
+    const calls = [
+      api.get('/tasks', { params: { status: statusFilter || undefined, unallocated: unallocatedOnly ? 'true' : undefined } }),
+      api.get('/masters/task-statuses'),
+      api.get('/masters/task-priorities'),
+      api.get('/masters/task-types'),
+    ];
     if (isManager) {
       calls.push(api.get('/users'), api.get('/projects'));
     }
-    Promise.all(calls).then(([t, u, p]) => {
+    Promise.all(calls).then(([t, st, pr, ty, u, p]) => {
       setTasks(t.data.data);
+      setStatuses(st.data.data.filter((x) => x.active));
+      setPriorities(pr.data.data.filter((x) => x.active));
+      setTypes(ty.data.data.filter((x) => x.active));
       if (u) setUsers(u.data.data);
       if (p) setProjects(p.data.data);
     }).finally(() => setLoading(false));
   };
-  useEffect(load, [statusFilter]);
+  useEffect(load, [statusFilter, unallocatedOnly]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -52,7 +63,9 @@ export default function Tasks() {
 
   const updateStatus = async (taskId, status) => {
     try {
-      await api.put(`/tasks/${taskId}`, { status, progress: status === 'DONE' ? 100 : undefined });
+      // The backend sets progress to 100% automatically when the chosen
+      // status is configured as final — no need to guess that here.
+      await api.put(`/tasks/${taskId}`, { status });
       load();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to update task');
@@ -61,7 +74,12 @@ export default function Tasks() {
 
   const columns = [
     { key: 'title', header: 'Task' },
-    ...(isManager ? [{ key: 'assignee', header: 'Assignee', render: (r) => `${r.assignee.firstName} ${r.assignee.lastName}` }] : []),
+    ...(isManager ? [{
+      key: 'assignee', header: 'Assignee',
+      render: (r) => r.assignee
+        ? `${r.assignee.firstName} ${r.assignee.lastName}`
+        : <span className="badge badge-red">NOT ALLOCATED</span>,
+    }] : []),
     { key: 'project', header: 'Project', render: (r) => r.project?.name || '—' },
     { key: 'priority', header: 'Priority', render: (r) => <Badge value={r.priority} /> },
     { key: 'dueDate', header: 'Due', render: (r) => r.dueDate ? new Date(r.dueDate).toLocaleDateString() : '—' },
@@ -69,7 +87,7 @@ export default function Tasks() {
     {
       key: 'status', header: 'Status', render: (r) => (
         <select value={r.status} onChange={(e) => updateStatus(r.id, e.target.value)}>
-          {STATUSES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+          {statuses.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
         </select>
       ),
     },
@@ -80,14 +98,32 @@ export default function Tasks() {
       <PageHeader
         title={isManager ? 'Task Management' : 'My Tasks'}
         subtitle="Daily and project-based tasks with priority and deadline tracking"
-        actions={isManager && <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ New Task</button>}
+        actions={(
+          <>
+            {user.role === 'SUPER_ADMIN' && (
+              <>
+                <button className="btn btn-secondary" onClick={() => downloadReport(`/reports/tasks?${new URLSearchParams(statusFilter ? { status: statusFilter } : {})}`, 'tasks.csv')}>Export CSV</button>
+                <button className="btn btn-secondary" onClick={() => downloadReport(`/reports/tasks?${new URLSearchParams({ ...(statusFilter && { status: statusFilter }), format: 'xlsx' })}`, 'tasks.xlsx')}>Export Excel</button>
+              </>
+            )}
+            {isManager && <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ New Task</button>}
+          </>
+        )}
       />
 
       <div className="toolbar">
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option value="">All statuses</option>
-          {STATUSES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+          {statuses.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
         </select>
+        {isManager && (
+          <button
+            className={`btn ${unallocatedOnly ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setUnallocatedOnly((v) => !v)}
+          >
+            Not Allocated Only
+          </button>
+        )}
       </div>
 
       {loading ? <div className="page-loading">Loading...</div> : <DataTable columns={columns} rows={tasks} />}
@@ -99,22 +135,18 @@ export default function Tasks() {
             <label>Description<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
             <label>Type
               <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
-                <option value="DAILY">Daily</option>
-                <option value="PROJECT">Project-based</option>
+                {types.map((t) => <option key={t.code} value={t.code}>{t.label}</option>)}
               </select>
             </label>
             <label>Priority
               <select value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
-                <option value="LOW">Low</option>
-                <option value="MEDIUM">Medium</option>
-                <option value="HIGH">High</option>
-                <option value="URGENT">Urgent</option>
+                {priorities.map((p) => <option key={p.code} value={p.code}>{p.label}</option>)}
               </select>
             </label>
             <label>Due Date<input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></label>
             <label>Assignee
-              <select required value={form.assigneeId} onChange={(e) => setForm({ ...form, assigneeId: e.target.value })}>
-                <option value="">Select user...</option>
+              <select value={form.assigneeId} onChange={(e) => setForm({ ...form, assigneeId: e.target.value })}>
+                <option value="">— Not allocated yet —</option>
                 {users.map((u) => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
               </select>
             </label>

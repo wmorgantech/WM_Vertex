@@ -10,8 +10,13 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import toast from 'react-hot-toast';
 
-const DOC_LABELS = { BONAFIDE: 'Bonafide Certificate', COLLEGE_ID: 'College ID Card', RESUME: 'Resume', ADDITIONAL: 'Additional Document' };
-const REQUIRED_TYPES = ['BONAFIDE', 'COLLEGE_ID'];
+const DOC_LABELS = {
+  BONAFIDE: 'Bonafide Certificate',
+  PERMISSION_LETTER: 'Permission Letter',
+  COLLEGE_ID: 'College ID Card',
+  RESUME: 'Resume',
+  ADDITIONAL: 'Additional Document',
+};
 
 const PROFILE_FIELDS = [
   { key: 'collegeName', label: 'College Name' },
@@ -206,7 +211,7 @@ export default function AdminDocumentReview() {
             <Table columns={docColumns} rows={selected.documents} emptyMessage="No documents uploaded yet." />
 
             {isSuperAdmin && (() => {
-              const requiredVerified = REQUIRED_TYPES.every((t) => selected.documents.some((d) => d.type === t && d.status === 'VERIFIED'));
+              const requiredVerified = selected.requirement?.satisfied ?? false;
               const canApprove = requiredVerified && !selected.finalApprovedAt;
               const canGenerateOfferLetter = !!selected.finalApprovedAt && !selected.offerLetter;
               const canGenerateCertificate = !!selected.offerLetter && !selected.certificate
@@ -240,7 +245,11 @@ export default function AdminDocumentReview() {
                       </Button>
                     )}
                   </div>
-                  {!requiredVerified && <p className="text-xs text-muted-foreground">Both required documents must be verified before final approval.</p>}
+                  {!requiredVerified && (
+                    <p className="text-xs text-muted-foreground">
+                      Required before final approval: {(selected.requirement?.groups || []).filter((g) => g.status !== 'VERIFIED').map((g) => g.label).join(', ')}
+                    </p>
+                  )}
                   {canGenerateCertificate === false && selected.offerLetter && !selected.certificate && (
                     <p className="text-xs text-muted-foreground">The completion certificate unlocks after the internship end date.</p>
                   )}

@@ -6,6 +6,7 @@ import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import toast from 'react-hot-toast';
+import { localDateString } from '../../lib/utils';
 
 export default function WorkUpdates() {
   const { user } = useAuth();
@@ -15,7 +16,7 @@ export default function WorkUpdates() {
   const [showModal, setShowModal] = useState(false);
   const [reviewTarget, setReviewTarget] = useState(null);
   const [feedback, setFeedback] = useState('');
-  const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), summary: '', tasksCompleted: '', blockers: '', planForTomorrow: '' });
+  const [form, setForm] = useState({ date: localDateString(), summary: '', tasksCompleted: '', blockers: '', planForTomorrow: '' });
   const [saving, setSaving] = useState(false);
 
   const load = () => {

@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { LogOut, ChevronsUpDown } from 'lucide-react';
+import { LogOut, ChevronsUpDown, UserCircle } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -16,6 +16,7 @@ const ROLE_LABELS = {
   ADMIN: 'Admin',
   EMPLOYEE: 'Employee',
   INTERN: 'Intern',
+  TRAINEE: 'Trainee',
 };
 
 function initials(user) {
@@ -61,6 +62,11 @@ export default function UserMenu({ collapsed = false }) {
           </p>
           <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
         </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => navigate('/profile')}>
+          <UserCircle />
+          My Profile
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onSelect={handleLogout}>
           <LogOut />

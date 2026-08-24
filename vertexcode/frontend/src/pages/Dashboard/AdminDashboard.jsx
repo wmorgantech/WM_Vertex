@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FileClock, FileText, FolderKanban, ListChecks, AlertTriangle, Users, ListTodo, ShieldCheck, ShieldAlert, FolderOpen, ClipboardCheck } from 'lucide-react';
+import { FileClock, FileText, FolderKanban, ListChecks, AlertTriangle, Users, ListTodo, ShieldCheck, ShieldAlert, FolderOpen, ClipboardCheck, UserX, Presentation, FileSignature, IndianRupee } from 'lucide-react';
 import api from '@/api/axios';
 import PageHeader from '@/components/shared/PageHeader';
 import KpiCard from '@/components/shared/KpiCard';
@@ -20,6 +20,7 @@ const QUICK_ACTIONS = [
   { to: '/tasks', label: 'Assign a Task', icon: ListTodo },
   { to: '/projects', label: 'View Projects', icon: FolderKanban },
   { to: '/employees', label: 'View Employees', icon: Users },
+  { to: '/expenses', label: 'View Expenses', icon: IndianRupee },
 ];
 
 function initials(user) {
@@ -64,7 +65,7 @@ export default function AdminDashboard() {
     return <p className="text-sm text-muted-foreground">No analytics available.</p>;
   }
 
-  const { headcount, projects, tasks, pendingApprovals, documents } = overview;
+  const { headcount, projects, tasks, pendingApprovals, documents, businessDevelopment, finance } = overview;
   const inProgress = tasks.byStatus.find((t) => t.status === 'IN_PROGRESS')?.count || 0;
   const blocked = tasks.byStatus.find((t) => t.status === 'BLOCKED')?.count || 0;
   const taskChartData = tasks.byStatus.map((t) => ({ name: t.status.replace('_', ' '), count: t.count }));
@@ -98,6 +99,7 @@ export default function AdminDashboard() {
         <KpiCard label="Active Projects" value={projects.activeProjects} icon={FolderKanban} accent="primary" />
         <KpiCard label="Tasks In Progress" value={inProgress} icon={ListChecks} accent="info" />
         <KpiCard label="Tasks Blocked" value={blocked} icon={AlertTriangle} accent="destructive" />
+        <KpiCard label="Tasks Not Allocated" value={tasks.unallocated} icon={UserX} accent="destructive" />
         <KpiCard
           label="Team Size"
           value={headcount.totalEmployees + headcount.totalInterns}
@@ -109,6 +111,11 @@ export default function AdminDashboard() {
         <KpiCard label="Pending Applications" value={documents.pendingApplications} icon={ClipboardCheck} accent="warning" />
         <KpiCard label="Verified Interns" value={documents.verifiedInterns} icon={ShieldCheck} accent="success" />
         <KpiCard label="Rejected Documents" value={documents.rejectedDocuments} icon={ShieldAlert} accent="destructive" />
+        <KpiCard label="Upcoming Workshops" value={businessDevelopment.upcomingWorkshops} icon={Presentation} accent="info" />
+        <KpiCard label="Workshop Follow-ups" value={businessDevelopment.workshopFollowUpsOverdue} icon={AlertTriangle} accent={businessDevelopment.workshopFollowUpsOverdue > 0 ? 'destructive' : 'success'} />
+        <KpiCard label="Active MOUs" value={businessDevelopment.activeMous} icon={FileSignature} accent="primary" />
+        <KpiCard label="MOUs Expiring Soon" value={businessDevelopment.mousExpiringSoon} icon={FileSignature} accent={businessDevelopment.mousExpiringSoon > 0 ? 'warning' : 'success'} />
+        <KpiCard label="Total Expenses" value={`₹${finance.totalExpenses.toLocaleString()}`} hint={`₹${finance.last30DaysExpenses.toLocaleString()} last 30 days`} icon={IndianRupee} accent="warning" />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

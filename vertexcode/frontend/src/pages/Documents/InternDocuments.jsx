@@ -29,13 +29,12 @@ const PROFILE_FIELDS = [
 ];
 
 const DOC_TYPES = [
-  { type: 'BONAFIDE', label: 'Bonafide Certificate', required: true },
-  { type: 'COLLEGE_ID', label: 'College ID Card', required: true },
-  { type: 'RESUME', label: 'Resume', required: false },
+  { type: 'BONAFIDE', label: 'Bonafide Certificate', note: 'Upload this OR a Permission Letter' },
+  { type: 'PERMISSION_LETTER', label: 'Permission Letter', note: 'Upload this OR a Bonafide Certificate' },
+  { type: 'COLLEGE_ID', label: 'College ID Card', note: 'Required' },
+  { type: 'RESUME', label: 'Resume', note: 'Optional' },
 ];
 
-const REQUIRED_TYPES = ['BONAFIDE', 'COLLEGE_ID'];
-const DOC_LABELS = { BONAFIDE: 'Bonafide Certificate', COLLEGE_ID: 'College ID Card', RESUME: 'Resume', ADDITIONAL: 'Additional Document' };
 const EDITABLE_STATUSES = [undefined, 'DRAFT', 'REJECTED'];
 
 function toDateInput(value) {
@@ -188,20 +187,15 @@ export default function InternDocuments() {
 
   const { documents, profileCompletionPercent, verification, stage, offerLetter, certificate, enrollment } = data;
   const additionalDocs = documents.filter((d) => d.type === 'ADDITIONAL');
-  const missingDocs = REQUIRED_TYPES.filter((t) => {
-    const doc = documents.find((d) => d.type === t);
-    return !doc || doc.status === 'REJECTED';
-  });
-
-  const bonafide = documents.find((d) => d.type === 'BONAFIDE');
-  const collegeId = documents.find((d) => d.type === 'COLLEGE_ID');
-  const canSubmit = [bonafide, collegeId].every((d) => d && ['DRAFT', 'VERIFIED'].includes(d.status))
+  const requiredGroups = verification.requiredGroups || [];
+  const missingGroups = requiredGroups.filter((g) => g.status === 'MISSING' || g.status === 'REJECTED');
+  const canSubmit = requiredGroups.every((g) => ['DRAFT', 'PENDING_REVIEW', 'VERIFIED'].includes(g.status))
     && documents.some((d) => d.status === 'DRAFT');
 
   const rows = [
-    ...DOC_TYPES.map(({ type, label, required }) => ({
+    ...DOC_TYPES.map(({ type, label, note }) => ({
       key: type,
-      label: required ? `${label} (Required)` : `${label} (Optional)`,
+      label: `${label} (${note})`,
       type,
       doc: documents.find((d) => d.type === type),
     })),
@@ -275,11 +269,11 @@ export default function InternDocuments() {
             </div>
             <Progress value={(verification.verifiedRequired / verification.totalRequired) * 100} />
           </div>
-          {missingDocs.length > 0 && (
+          {missingGroups.length > 0 && (
             <div>
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Missing / Action Needed</p>
               <ul className="list-inside list-disc text-sm text-foreground">
-                {missingDocs.map((t) => <li key={t}>{DOC_LABELS[t]}</li>)}
+                {missingGroups.map((g) => <li key={g.key}>{g.label}</li>)}
               </ul>
             </div>
           )}
@@ -360,7 +354,7 @@ export default function InternDocuments() {
           <Table columns={columns} rows={rows} />
           {!canSubmit && (
             <p className="mt-3 text-xs text-muted-foreground">
-              Upload the Bonafide Certificate and College ID Card before submitting for verification.
+              Upload a Bonafide Certificate or Permission Letter, plus your College ID Card, before submitting for verification.
             </p>
           )}
         </CardContent>

@@ -6,6 +6,7 @@ import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import StatCard from '../../components/common/StatCard';
 import toast from 'react-hot-toast';
+import { downloadReport } from '../../lib/download';
 
 export default function Attendance() {
   const { user } = useAuth();
@@ -51,10 +52,20 @@ export default function Attendance() {
       <PageHeader
         title="Attendance"
         subtitle="Clock-in/out, attendance history and reports"
-        actions={!isManager && (
+        actions={(
           <>
-            <button className="btn btn-primary" disabled={clocking} onClick={() => handleClock('clock-in')}>Clock In</button>
-            <button className="btn btn-secondary" disabled={clocking} onClick={() => handleClock('clock-out')}>Clock Out</button>
+            {user.role === 'SUPER_ADMIN' && (
+              <>
+                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/attendance', 'attendance.csv')}>Export CSV</button>
+                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/attendance?format=xlsx', 'attendance.xlsx')}>Export Excel</button>
+              </>
+            )}
+            {!isManager && (
+              <>
+                <button className="btn btn-primary" disabled={clocking} onClick={() => handleClock('clock-in')}>Clock In</button>
+                <button className="btn btn-secondary" disabled={clocking} onClick={() => handleClock('clock-out')}>Clock Out</button>
+              </>
+            )}
           </>
         )}
       />

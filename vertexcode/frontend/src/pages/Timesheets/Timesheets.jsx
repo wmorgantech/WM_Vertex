@@ -6,6 +6,8 @@ import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import toast from 'react-hot-toast';
+import { downloadReport } from '../../lib/download';
+import { localDateString } from '../../lib/utils';
 
 export default function Timesheets() {
   const { user } = useAuth();
@@ -14,7 +16,7 @@ export default function Timesheets() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), projectId: '', hoursLogged: '', description: '' });
+  const [form, setForm] = useState({ date: localDateString(), projectId: '', hoursLogged: '', description: '' });
   const [saving, setSaving] = useState(false);
 
   const load = () => {
@@ -83,7 +85,17 @@ export default function Timesheets() {
       <PageHeader
         title="Timesheets"
         subtitle="Log hours per project/task and track approvals"
-        actions={!isManager && <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ Log Time</button>}
+        actions={(
+          <>
+            {user.role === 'SUPER_ADMIN' && (
+              <>
+                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/timesheets', 'timesheets.csv')}>Export CSV</button>
+                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/timesheets?format=xlsx', 'timesheets.xlsx')}>Export Excel</button>
+              </>
+            )}
+            {!isManager && <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ Log Time</button>}
+          </>
+        )}
       />
       {loading ? <div className="page-loading">Loading...</div> : <DataTable columns={columns} rows={timesheets} />}
 

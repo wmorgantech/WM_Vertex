@@ -50,7 +50,7 @@ function NavItem({ item, collapsed }) {
 
 export default function Sidebar({ collapsed, onToggle, className }) {
   const { user } = useAuth();
-  const groups = getNavGroups(user?.role);
+  const groups = getNavGroups(user);
 
   return (
     <aside

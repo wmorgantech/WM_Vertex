@@ -3,12 +3,14 @@ import SuperAdminDashboard from './SuperAdminDashboard';
 import AdminDashboard from './AdminDashboard';
 import EmployeeDashboard from './EmployeeDashboard';
 import InternDashboard from './InternDashboard';
+import TraineeDashboard from './TraineeDashboard';
 
 const DASHBOARDS = {
   SUPER_ADMIN: SuperAdminDashboard,
   ADMIN: AdminDashboard,
   EMPLOYEE: EmployeeDashboard,
   INTERN: InternDashboard,
+  TRAINEE: TraineeDashboard,
 };
 
 export default function Dashboard() {

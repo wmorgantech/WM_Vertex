@@ -1,12 +1,18 @@
 import { useEffect, useState } from 'react';
 import api from '../../api/axios';
+import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import toast from 'react-hot-toast';
+import { downloadReport } from '../../lib/download';
 
 export default function Interns() {
+  const { user } = useAuth();
+  const isManager = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
+  const isSuperAdmin = user.role === 'SUPER_ADMIN';
+
   const [tab, setTab] = useState('enrollments');
   const [enrollments, setEnrollments] = useState([]);
   const [batches, setBatches] = useState([]);
@@ -20,7 +26,10 @@ export default function Interns() {
 
   const load = () => {
     setLoading(true);
-    Promise.all([api.get('/interns/enrollments'), api.get('/interns/batches'), api.get('/users')])
+    // Managers get the full user directory (for mentor assignment too);
+    // anyone else who can add interns gets a minimal, scoped picker list.
+    const usersCall = isManager ? api.get('/users') : api.get('/interns/enrollable-users');
+    Promise.all([api.get('/interns/enrollments'), api.get('/interns/batches'), usersCall])
       .then(([e, b, u]) => {
         setEnrollments(e.data.data);
         setBatches(b.data.data);
@@ -52,11 +61,23 @@ export default function Interns() {
       await api.post('/interns/enrollments', enrollForm);
       toast.success('Intern enrolled');
       setShowEnrollModal(false);
+      setEnrollForm({ userId: '', batchId: '', mentorId: '' });
       load();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to enroll intern');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async (enrollment) => {
+    if (!window.confirm(`Remove ${enrollment.user.firstName} ${enrollment.user.lastName} as an intern? This deactivates their account (soft delete) — the record is kept for history.`)) return;
+    try {
+      await api.delete(`/interns/enrollments/${enrollment.id}`);
+      toast.success('Intern removed');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to remove intern');
     }
   };
 
@@ -67,6 +88,10 @@ export default function Interns() {
     { key: 'progressPercent', header: 'Progress', render: (r) => `${r.progressPercent}%` },
     { key: 'performanceRating', header: 'Rating', render: (r) => r.performanceRating ?? '—' },
     { key: 'completionStatus', header: 'Status', render: (r) => <Badge value={r.completionStatus} /> },
+    ...(isSuperAdmin ? [{
+      key: 'actions', header: '',
+      render: (r) => <button className="btn btn-ghost btn-sm" onClick={() => handleDelete(r)}>Remove</button>,
+    }] : []),
   ];
 
   const batchColumns = [
@@ -78,7 +103,9 @@ export default function Interns() {
     { key: 'count', header: 'Interns', render: (r) => r._count?.enrollments ?? 0 },
   ];
 
-  const potentialInterns = users.filter((u) => !enrollments.some((e) => e.user.id === u.id));
+  const potentialInterns = isManager
+    ? users.filter((u) => !enrollments.some((e) => e.user.id === u.id))
+    : users; // already excludes enrolled users server-side
 
   return (
     <div>
@@ -87,7 +114,13 @@ export default function Interns() {
         subtitle="Internship batches, mentor assignment and progress tracking"
         actions={(
           <>
-            <button className="btn btn-secondary" onClick={() => setShowBatchModal(true)}>+ New Batch</button>
+            {isSuperAdmin && (
+              <>
+                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/interns', 'interns.csv')}>Export CSV</button>
+                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/interns?format=xlsx', 'interns.xlsx')}>Export Excel</button>
+              </>
+            )}
+            {isManager && <button className="btn btn-secondary" onClick={() => setShowBatchModal(true)}>+ New Batch</button>}
             <button className="btn btn-primary" onClick={() => setShowEnrollModal(true)}>+ Enroll Intern</button>
           </>
         )}
@@ -95,7 +128,7 @@ export default function Interns() {
 
       <div className="tabs">
         <button className={`tab ${tab === 'enrollments' ? 'active' : ''}`} onClick={() => setTab('enrollments')}>Enrollments</button>
-        <button className={`tab ${tab === 'batches' ? 'active' : ''}`} onClick={() => setTab('batches')}>Batches</button>
+        {isManager && <button className={`tab ${tab === 'batches' ? 'active' : ''}`} onClick={() => setTab('batches')}>Batches</button>}
       </div>
 
       {loading ? <div className="page-loading">Loading...</div> : (
@@ -135,12 +168,14 @@ export default function Interns() {
                 {batches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
             </label>
-            <label>Mentor
-              <select value={enrollForm.mentorId} onChange={(e) => setEnrollForm({ ...enrollForm, mentorId: e.target.value })}>
-                <option value="">— None —</option>
-                {users.filter((u) => u.role === 'EMPLOYEE' || u.role === 'ADMIN').map((u) => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
-              </select>
-            </label>
+            {isManager && (
+              <label>Mentor
+                <select value={enrollForm.mentorId} onChange={(e) => setEnrollForm({ ...enrollForm, mentorId: e.target.value })}>
+                  <option value="">— None (defaults to you) —</option>
+                  {users.filter((u) => u.role === 'EMPLOYEE' || u.role === 'ADMIN').map((u) => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+                </select>
+              </label>
+            )}
             <div className="form-actions">
               <button type="button" className="btn btn-ghost" onClick={() => setShowEnrollModal(false)}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Enroll'}</button>

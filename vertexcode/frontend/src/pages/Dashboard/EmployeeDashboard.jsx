@@ -14,6 +14,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { selfInsights } from '@/lib/dashboardInsights';
+import { localDateString } from '@/lib/utils';
 
 const QUICK_ACTIONS = [
   { to: '/tasks', label: 'My Tasks', icon: ListChecks },
@@ -28,7 +29,7 @@ export function useClockWidget() {
 
   const load = () => {
     api.get('/attendance/me').then(({ data }) => {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = localDateString();
       const todays = data.data.find((a) => a.date.slice(0, 10) === today);
       setAttendanceToday(todays || null);
     });

@@ -20,9 +20,29 @@ import Timesheets from './pages/Timesheets/Timesheets';
 import WorkUpdates from './pages/WorkUpdates/WorkUpdates';
 import Analytics from './pages/Analytics/Analytics';
 import Documents from './pages/Documents/Documents';
+import Masters from './pages/Configuration/Masters';
+import Permissions from './pages/Configuration/Permissions';
+import AuditLog from './pages/Configuration/AuditLog';
+import NotificationSettings from './pages/Configuration/NotificationSettings';
+import CustomFields from './pages/Configuration/CustomFields';
+import DocumentSettings from './pages/Configuration/DocumentSettings';
+import Leave from './pages/Leave/Leave';
+import Expenses from './pages/Expenses/Expenses';
+import Trainees from './pages/Trainees/Trainees';
+import TraineeDetail from './pages/Trainees/TraineeDetail';
+import Colleges from './pages/Colleges/Colleges';
+import Workshops from './pages/Workshops/Workshops';
+import MOUs from './pages/MOUs/MOUs';
+import Profile from './pages/Profile/Profile';
 
 const MANAGER_ROLES = ['SUPER_ADMIN', 'ADMIN'];
 const DOCUMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'INTERN'];
+const SUPER_ADMIN_ROLES = ['SUPER_ADMIN'];
+// Interns page also opens to Employees — the backend additionally restricts
+// who can actually add an intern to the "Senior Full Stack Developer"
+// designation (see intern.routes.js canAddIntern); this just lets that
+// route resolve instead of bouncing them to /dashboard.
+const INTERN_PAGE_ROLES = ['SUPER_ADMIN', 'ADMIN', 'EMPLOYEE'];
 
 export default function App() {
   return (
@@ -51,23 +71,43 @@ export default function App() {
           <Route element={<ProtectedRoute />}>
             <Route element={<DashboardLayout />}>
               <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/profile" element={<Profile />} />
               <Route path="/tasks" element={<Tasks />} />
               <Route path="/attendance" element={<Attendance />} />
               <Route path="/timesheets" element={<Timesheets />} />
               <Route path="/work-updates" element={<WorkUpdates />} />
+              <Route path="/workshops" element={<Workshops />} />
+              <Route path="/leave" element={<Leave />} />
 
               <Route element={<RoleRoute roles={DOCUMENT_ROLES} />}>
                 <Route path="/documents" element={<Documents />} />
               </Route>
 
+              <Route element={<RoleRoute roles={INTERN_PAGE_ROLES} />}>
+                <Route path="/interns" element={<Interns />} />
+              </Route>
+
               <Route element={<RoleRoute roles={MANAGER_ROLES} />}>
                 <Route path="/employees" element={<EmployeeList />} />
                 <Route path="/employees/:id" element={<EmployeeDetail />} />
-                <Route path="/interns" element={<Interns />} />
+                <Route path="/trainees" element={<Trainees />} />
+                <Route path="/trainees/:id" element={<TraineeDetail />} />
+                <Route path="/colleges" element={<Colleges />} />
+                <Route path="/mous" element={<MOUs />} />
                 <Route path="/departments" element={<Departments />} />
                 <Route path="/projects" element={<Projects />} />
                 <Route path="/projects/:id" element={<ProjectDetail />} />
                 <Route path="/analytics" element={<Analytics />} />
+                <Route path="/expenses" element={<Expenses />} />
+              </Route>
+
+              <Route element={<RoleRoute roles={SUPER_ADMIN_ROLES} />}>
+                <Route path="/configuration/masters" element={<Masters />} />
+                <Route path="/configuration/permissions" element={<Permissions />} />
+                <Route path="/configuration/audit-log" element={<AuditLog />} />
+                <Route path="/configuration/notifications" element={<NotificationSettings />} />
+                <Route path="/configuration/custom-fields" element={<CustomFields />} />
+                <Route path="/configuration/document-settings" element={<DocumentSettings />} />
               </Route>
             </Route>
           </Route>

@@ -10,6 +10,17 @@ import {
   FileText,
   FolderOpen,
   BarChart3,
+  Sliders,
+  ShieldCheck,
+  History,
+  School,
+  Presentation,
+  FileSignature,
+  Bell,
+  CalendarOff,
+  ListPlus,
+  FileCog,
+  IndianRupee,
 } from 'lucide-react';
 
 // Route access is unchanged from the original NAV_BY_ROLE map in DashboardLayout —
@@ -24,6 +35,7 @@ const MANAGER_GROUPS = [
     items: [
       { to: '/employees', label: 'Employees', icon: Users },
       { to: '/interns', label: 'Interns', icon: GraduationCap },
+      { to: '/trainees', label: 'Trainees', icon: GraduationCap },
       { to: '/documents', label: 'Intern Documents', icon: FolderOpen },
       { to: '/departments', label: 'Departments', icon: Building2 },
     ],
@@ -36,16 +48,44 @@ const MANAGER_GROUPS = [
     ],
   },
   {
+    label: 'Business Development',
+    items: [
+      { to: '/colleges', label: 'Colleges', icon: School },
+      { to: '/workshops', label: 'Workshops', icon: Presentation },
+      { to: '/mous', label: 'MOUs', icon: FileSignature },
+    ],
+  },
+  {
     label: 'Time',
     items: [
       { to: '/attendance', label: 'Attendance', icon: Clock },
       { to: '/timesheets', label: 'Timesheets', icon: FileClock },
       { to: '/work-updates', label: 'Work Updates', icon: FileText },
+      { to: '/leave', label: 'Leave', icon: CalendarOff },
     ],
+  },
+  {
+    label: 'Finance',
+    items: [{ to: '/expenses', label: 'Expenses', icon: IndianRupee }],
   },
   {
     label: 'Insights',
     items: [{ to: '/analytics', label: 'Analytics', icon: BarChart3 }],
+  },
+];
+
+const SUPER_ADMIN_GROUPS = [
+  ...MANAGER_GROUPS,
+  {
+    label: 'Configuration',
+    items: [
+      { to: '/configuration/masters', label: 'Master Data', icon: Sliders },
+      { to: '/configuration/permissions', label: 'Admin Permissions', icon: ShieldCheck },
+      { to: '/configuration/audit-log', label: 'Audit Log', icon: History },
+      { to: '/configuration/notifications', label: 'Notifications', icon: Bell },
+      { to: '/configuration/custom-fields', label: 'Custom Fields', icon: ListPlus },
+      { to: '/configuration/document-settings', label: 'Document Settings', icon: FileCog },
+    ],
   },
 ];
 
@@ -61,6 +101,8 @@ const SELF_GROUPS = [
       { to: '/attendance', label: 'Attendance', icon: Clock },
       { to: '/timesheets', label: 'Timesheets', icon: FileClock },
       { to: '/work-updates', label: 'Work Updates', icon: FileText },
+      { to: '/leave', label: 'Leave', icon: CalendarOff },
+      { to: '/workshops', label: 'My Workshops', icon: Presentation },
     ],
   },
 ];
@@ -73,13 +115,41 @@ const INTERN_GROUPS = [
   },
 ];
 
+const TRAINEE_GROUPS = [
+  { label: 'Overview', items: [{ to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }] },
+  {
+    label: 'My Training',
+    items: [
+      { to: '/attendance', label: 'Attendance', icon: Clock },
+      { to: '/leave', label: 'Leave', icon: CalendarOff },
+    ],
+  },
+];
+
 export const NAV_GROUPS_BY_ROLE = {
-  SUPER_ADMIN: MANAGER_GROUPS,
+  SUPER_ADMIN: SUPER_ADMIN_GROUPS,
   ADMIN: MANAGER_GROUPS,
   EMPLOYEE: SELF_GROUPS,
   INTERN: INTERN_GROUPS,
+  TRAINEE: TRAINEE_GROUPS,
 };
 
-export function getNavGroups(role) {
-  return NAV_GROUPS_BY_ROLE[role] || SELF_GROUPS;
+// Designation that additionally grants an Employee the ability to add
+// interns (see backend intern.routes.js canAddIntern) — surfaced here too
+// so they get a nav link to actually reach the page.
+const SENIOR_FULLSTACK_DESIGNATION = 'Senior Full Stack Developer';
+
+export function getNavGroups(user) {
+  const role = user?.role;
+  const groups = NAV_GROUPS_BY_ROLE[role] || SELF_GROUPS;
+
+  if (role === 'EMPLOYEE' && user?.designation === SENIOR_FULLSTACK_DESIGNATION) {
+    return groups.map((g) => (
+      g.label === 'My Work'
+        ? { ...g, items: [...g.items, { to: '/interns', label: 'Interns', icon: GraduationCap }] }
+        : g
+    ));
+  }
+
+  return groups;
 }
