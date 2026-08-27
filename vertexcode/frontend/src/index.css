@@ -327,6 +327,326 @@ input, select, textarea { font-family: inherit; }
 .data-table a:hover { text-decoration: underline; }
 .col-num { text-align: right; font-variant-numeric: tabular-nums; }
 .col-actions { text-align: right; white-space: nowrap; }
+/* Pins a table's leading column (e.g. Project/Task) while the rest of a
+   wide row scrolls horizontally underneath it — opt-in, only applied where
+   a table explicitly needs it (see WeeklyGrid). */
+.col-sticky {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--surface);
+  box-shadow: 1px 0 0 var(--border);
+}
+.data-table th.col-sticky { z-index: 3; background: #f9fafb; }
+.data-table tbody tr:hover td.col-sticky { background: #f9fafb; }
+
+/* --- Timesheet header: bold date/month heading on its own line, a
+   compact nav-control row directly beneath it, tight together so the pair
+   reads as one composed unit rather than another stacked section. --- */
+.ts-header-block { margin-bottom: 18px; }
+.ts-header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.ts-period-heading { font-size: 21px; font-weight: 700; letter-spacing: -0.01em; color: var(--text); margin: 0; white-space: nowrap; }
+.ts-nav-group { display: flex; align-items: center; gap: 4px; margin-top: 8px; }
+.ts-hidden-date-input { position: absolute; width: 0; height: 0; padding: 0; border: none; opacity: 0; pointer-events: none; }
+.btn-today {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 7px;
+  margin: 0 4px;
+  cursor: pointer;
+}
+.btn-today:hover { border-color: #c7cbd4; color: var(--text); }
+.ts-section-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: 0 0 8px 2px;
+}
+
+/* Weekly/Monthly segmented control, in the page header actions slot —
+   one pill container with an active/inactive state, not two loose buttons. */
+.ts-segment {
+  display: inline-flex;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+}
+.ts-segment button {
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ts-segment button.active { background: var(--surface); color: var(--brand); box-shadow: var(--shadow); }
+.ts-segment button:not(.active):hover { color: var(--text); }
+
+/* Dense, spreadsheet-style cell padding for the Timesheet weekly grid
+   specifically — kept scoped to .timesheet-grid so the generic .data-table
+   padding used by every other table in the app is untouched. Modeled on a
+   traditional enterprise timesheet portal: a plain compact numeric cell,
+   not a card-like control, so a full week fits in noticeably less vertical
+   space and Tab moves cleanly from one day straight into the next. */
+.timesheet-grid th, .timesheet-grid td { padding: 6px 8px; }
+
+/* "Work Assignment" super-header groups Position+Project under one label,
+   like a spreadsheet's grouped columns — reads as one unit, not two
+   unrelated fields, without merging them into a single wide cell. */
+.timesheet-grid tr.col-super-row th {
+  position: static; /* never sticky — only the field-label row beneath is */
+  padding: 5px 8px 4px;
+  border-bottom: none;
+  background: var(--surface);
+}
+.timesheet-grid .col-super-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/* Position/Project read as one logical work assignment: a single divider
+   after Project, none between the two, groups them visually as a pair
+   distinct from the day-hours block. Long values ellipsize instead of
+   cutting off mid-character, and the native title tooltip shows the rest. */
+.timesheet-grid th.col-group-end, .timesheet-grid td.col-group-end { border-right: 1px solid var(--border); }
+.timesheet-grid select { text-overflow: ellipsis; }
+
+/* Two-line day header: small caps weekday + the date beneath it, the date
+   noticeably more prominent. Today's column gets a very subtle tint —
+   never a strong/high-saturation fill. */
+.day-head { display: flex; flex-direction: column; align-items: center; line-height: 1.3; }
+.day-head-name { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.day-head-date { font-size: 14px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+/* Weekend gets a slightly muted weekday label only — the date, the input,
+   and Sunday's full usability are all untouched, this is a hint, not a
+   restriction. */
+.day-head-weekend .day-head-name { color: var(--text-faint, #b0b4bd); }
+.timesheet-grid th.col-today { background: rgba(79, 70, 229, 0.05); }
+.timesheet-grid th.col-today .day-head-name,
+.timesheet-grid th.col-today .day-head-date { color: var(--brand); }
+.timesheet-grid td.col-today { background: rgba(79, 70, 229, 0.035); }
+
+/* Hour input — a whisper of background tint signals "this cell is
+   editable" without drawing a box around it; a border only appears on
+   hover/focus, like a spreadsheet cell revealing its edit state. Disabled
+   (locked week) drops the tint entirely so it reads as plain settled data,
+   not an inactive control. */
+.timesheet-grid input[type="number"].hour-input {
+  width: 100%;
+  min-width: 56px;
+  max-width: 70px;
+  height: 34px;
+  padding: 4px 4px;
+  text-align: center;
+  vertical-align: middle;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  background: #f7f8fa;
+  color: var(--text);
+  cursor: text;
+  transition: border-color 0.12s, background 0.12s;
+}
+.timesheet-grid input[type="number"].hour-input:hover:not(:disabled) { border-color: #d7dae1; background: var(--surface); }
+.timesheet-grid input[type="number"].hour-input:focus {
+  outline: none;
+  border-color: var(--brand);
+  background: var(--surface);
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
+}
+.timesheet-grid input[type="number"].hour-input:disabled { background: transparent; color: var(--text-muted); border-color: transparent; cursor: default; }
+/* No native spinner — a plain box the user types a number into directly. */
+.timesheet-grid input[type="number"].hour-input::-webkit-inner-spin-button,
+.timesheet-grid input[type="number"].hour-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.timesheet-grid input[type="number"].hour-input { -moz-appearance: textfield; }
+
+.timesheet-grid select {
+  width: 100%;
+  min-width: 96px;
+  height: 34px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 13px;
+  background: var(--surface);
+  color: var(--text);
+}
+.timesheet-grid select:hover:not(:disabled) { border-color: #c7cbd4; }
+.timesheet-grid select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15); }
+.timesheet-grid select:disabled { background: #f9fafb; color: var(--text-muted); border-color: var(--border); }
+
+/* Total column — the strongest anchor in the row: bolder, slightly larger,
+   a faint brand-tinted fill (not a card, not a badge). */
+.timesheet-grid .col-total-head { color: var(--text); }
+.timesheet-grid td.col-total-cell {
+  font-weight: 700;
+  font-size: 14.5px;
+  font-variant-numeric: tabular-nums;
+  background: rgba(79, 70, 229, 0.045);
+  border-left: 1px solid var(--border);
+}
+
+/* Weekly Total footer — per-day sums across every row, aligned under the
+   same day/Total columns, so the grand total reads directly off the grid
+   instead of floating separately at the bottom of the page. */
+.timesheet-grid tfoot .ts-weekly-total-row td {
+  border-top: 1px solid var(--border-strong, var(--border));
+  border-bottom: none;
+  font-weight: 600;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  background: var(--surface-2, #f9fafb);
+}
+.timesheet-grid tfoot .ts-weekly-total-row td:first-child {
+  font-weight: 700;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.timesheet-grid tfoot .ts-weekly-total-row td.col-total-cell {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--brand);
+  background: rgba(79, 70, 229, 0.07);
+}
+
+/* --- Monthly calendar overview ---
+   A real calendar grid (dates + hours + a status dot), built from the
+   month summary's own per-day data — a complement to the Weeks status
+   table below it, not a replacement: this is "at a glance," that table is
+   "take action." Still a timesheet, not a meeting scheduler — no time
+   slots, no colored event blocks. */
+.ts-month-cal {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 8px;
+  background: var(--surface);
+}
+.ts-month-cal-head {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  background: #f9fafb;
+  border-bottom: 1px solid var(--border);
+}
+.ts-month-cal-head span {
+  padding: 8px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  text-align: center;
+}
+.ts-month-cal-row { display: grid; grid-template-columns: repeat(7, 1fr); }
+.ts-month-cal-row + .ts-month-cal-row { border-top: 1px solid var(--border); }
+.ts-month-cal-cell {
+  min-height: 56px;
+  padding: 6px 8px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+}
+.ts-month-cal-cell:last-child { border-right: none; }
+.ts-month-cal-blank { background: #fbfbfc; }
+.ts-month-cal-date { font-size: 13px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.ts-month-cal-hours { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ts-month-cal-nonworking .ts-month-cal-date,
+.ts-month-cal-nonworking .ts-month-cal-hours { color: #b0b4bd; }
+.ts-month-cal-today { background: rgba(79, 70, 229, 0.05); }
+.ts-month-cal-today .ts-month-cal-date { color: var(--brand); }
+.ts-month-cal-dot { width: 6px; height: 6px; border-radius: 50%; margin-top: 1px; }
+.ts-dot-complete { background: var(--green); }
+.ts-dot-partial { background: var(--amber); }
+.ts-dot-empty { background: #d1d5db; }
+
+/* Assignment Summary's grand total — a plain right-aligned line, not
+   another table row, so it doesn't get mistaken for one more assignment. */
+.ts-breakdown-total {
+  display: flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 4px 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.ts-breakdown-total strong { font-size: 15px; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* Row actions stay visually secondary — dimmed until the row is hovered,
+   so the hour-entry area (not the delete icon) leads the eye. */
+.timesheet-grid tbody td.col-actions button { opacity: 0.35; transition: opacity 0.12s; }
+.timesheet-grid tbody tr:hover td.col-actions button,
+.timesheet-grid tbody td.col-actions button:focus-visible { opacity: 1; }
+
+/* Add-row affordance sits below the table, subtle and text-like rather
+   than a filled call-to-action button. */
+.btn-add-row-subtle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 6px;
+  margin-top: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.btn-add-row-subtle:hover { color: var(--brand); background: #f8f9fc; }
+
+/* --- Timesheet summary stat cards (Weekly + Monthly) ---
+   Scoped to Timesheets only; .stat-card / .stat-grid (used by Dashboard and
+   other pages) are untouched — this is a smaller, quieter card purpose-built
+   for these four metrics: a subtle border instead of a shadow/accent-stripe,
+   no icon well, equal height via the grid itself. 4-up on desktop, 2x2 once
+   the row can no longer fit comfortably. */
+.ts-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 10px 0 22px;
+}
+@media (max-width: 720px) {
+  .ts-stat-grid { grid-template-columns: repeat(2, 1fr); }
+}
+.ts-stat-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.ts-stat-value { font-size: 22px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1.2; }
+.ts-stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+.ts-stat-value.ts-stat-positive { color: var(--green); }
+.ts-stat-value.ts-stat-negative { color: var(--amber); }
+.ts-stat-value.ts-stat-neutral { color: var(--text); }
 
 /* --- Badge --- */
 .badge {

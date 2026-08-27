@@ -1,6 +1,7 @@
 const prisma = require('../config/db');
 const ApiError = require('../utils/apiError');
 const { sendSuccess } = require('../utils/apiResponse');
+const { recordAudit } = require('../utils/audit');
 
 async function listProjects(req, res) {
   const { status, managerId } = req.query;
@@ -63,10 +64,14 @@ async function createProject(req, res) {
     },
     include: { members: true },
   });
+  await recordAudit({ actorId: req.user.id, action: 'CREATED', module: 'PROJECT', entityId: project.id, entityLabel: project.name, after: project });
   return sendSuccess(res, 201, project);
 }
 
 async function updateProject(req, res) {
+  const before = await prisma.project.findUnique({ where: { id: req.params.id } });
+  if (!before) throw new ApiError(404, 'Project not found');
+
   const { name, description, status, startDate, endDate, managerId } = req.body;
   const project = await prisma.project.update({
     where: { id: req.params.id },
@@ -79,6 +84,7 @@ async function updateProject(req, res) {
       ...(managerId && { managerId }),
     },
   });
+  await recordAudit({ actorId: req.user.id, action: 'UPDATED', module: 'PROJECT', entityId: project.id, entityLabel: project.name, before, after: project });
   return sendSuccess(res, 200, project);
 }
 
@@ -99,7 +105,11 @@ async function removeMember(req, res) {
 }
 
 async function deleteProject(req, res) {
+  const before = await prisma.project.findUnique({ where: { id: req.params.id } });
+  if (!before) throw new ApiError(404, 'Project not found');
+
   await prisma.project.delete({ where: { id: req.params.id } });
+  await recordAudit({ actorId: req.user.id, action: 'DELETED', module: 'PROJECT', entityId: before.id, entityLabel: before.name, before });
   return sendSuccess(res, 200, { message: 'Project removed' });
 }
 

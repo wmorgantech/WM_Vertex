@@ -17,8 +17,11 @@ const COLORS = {
   FINAL_APPROVED: 'info', OFFER_LETTER_DOWNLOADED: 'muted', CERTIFICATE_DOWNLOADED: 'muted', CATEGORY_SET: 'muted',
 };
 
-export default function Badge({ value }) {
+// `label` optionally overrides the displayed text while keeping the color
+// keyed off `value` — e.g. the Timesheet status card renders SUBMITTED as
+// "Waiting for Approval" without affecting any other caller of Badge.
+export default function Badge({ value, label }) {
   if (!value) return null;
   const variant = COLORS[value] || 'muted';
-  return <UiBadge variant={variant}>{String(value).replace(/_/g, ' ')}</UiBadge>;
+  return <UiBadge variant={variant}>{label || String(value).replace(/_/g, ' ')}</UiBadge>;
 }

@@ -2,7 +2,13 @@ const prisma = require('../config/db');
 const ApiError = require('../utils/apiError');
 const { sendSuccess } = require('../utils/apiResponse');
 
-const dayStart = (d = new Date()) => new Date(new Date(d).setHours(0, 0, 0, 0));
+// UTC-anchored midnight for the given local calendar day — see
+// attendance.controller.js's dayStart() for why plain setHours(0,0,0,0)
+// silently shifts a day off against @db.Date columns in +UTC timezones.
+const dayStart = (d = new Date()) => {
+  const local = new Date(d);
+  return new Date(Date.UTC(local.getFullYear(), local.getMonth(), local.getDate()));
+};
 
 async function listWorkUpdates(req, res) {
   const { userId, status, from, to, departmentId } = req.query;

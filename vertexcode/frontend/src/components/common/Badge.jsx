@@ -17,10 +17,15 @@ const COLORS = {
   INTERNSHIP_ACTIVE: 'green', INTERNSHIP_COMPLETED: 'green', CERTIFICATE_GENERATED: 'green',
   // Internship audit actions
   FINAL_APPROVED: 'blue', OFFER_LETTER_DOWNLOADED: 'gray', CERTIFICATE_DOWNLOADED: 'gray', CATEGORY_SET: 'gray',
+  // Timesheet day/week status (WeeklyGrid, MonthlySummary, TeamView)
+  BELOW: 'amber', MET: 'green', ABOVE: 'blue', NON_WORKING: 'gray', NOT_STARTED: 'gray',
 };
 
-export default function Badge({ value }) {
+// `label` optionally overrides the displayed text while keeping the color
+// keyed off `value` — e.g. Timesheets renders the SUBMITTED status as
+// "Waiting for Approval" without affecting any other caller of Badge.
+export default function Badge({ value, label }) {
   if (!value) return null;
   const color = COLORS[value] || 'gray';
-  return <span className={`badge badge-${color}`}>{String(value).replace(/_/g, ' ')}</span>;
+  return <span className={`badge badge-${color}`}>{label || String(value).replace(/_/g, ' ')}</span>;
 }
