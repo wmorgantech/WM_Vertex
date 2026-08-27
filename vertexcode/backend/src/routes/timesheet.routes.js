@@ -5,6 +5,17 @@ const ctrl = require('../controllers/timesheet.controller');
 
 router.use(authenticate);
 
+// Static-path routes registered before the /:id-shaped ones below —
+// otherwise Express would match e.g. PATCH /bulk/approve as { id: 'bulk' }
+// against PATCH /:id/approve. See masters/leave/notification routes for
+// the same established pattern.
+router.get('/summary', ctrl.getSummary);
+router.get('/team-summary', ctrl.getTeamSummary);
+router.post('/bulk', ctrl.bulkUpsertTimesheets);
+router.post('/submit', ctrl.submitTimesheets);
+router.patch('/bulk/approve', can('timesheet', 'approve'), ctrl.bulkApprove);
+router.patch('/bulk/reject', can('timesheet', 'reject'), ctrl.bulkReject);
+
 router.get('/', ctrl.listTimesheets);
 router.post('/', ctrl.createTimesheet);
 router.put('/:id', ctrl.updateTimesheet);

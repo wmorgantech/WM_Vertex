@@ -41,6 +41,15 @@ async function main() {
     skipDuplicates: true,
   });
 
+  // Draft state for the weekly/monthly Timesheet workflow (Save Draft →
+  // Submit → Approve/Reject → Resubmit). PENDING/APPROVED/REJECTED already
+  // existed as a master; this just adds the missing pre-submission state.
+  await prisma.timesheetStatus.upsert({
+    where: { code: 'DRAFT' },
+    update: {},
+    create: { code: 'DRAFT', label: 'Draft', sortOrder: 0 },
+  });
+
   await prisma.leaveType.createMany({
     data: [
       { code: 'CASUAL', label: 'Casual Leave', paid: true, sortOrder: 1 },
@@ -727,7 +736,6 @@ async function main() {
     ['workshop', 'manage'],
     ['mou', 'manage'],
     ['leave', 'approve'],
-    ['expense', 'view'], ['expense', 'create'], ['expense', 'edit'],
   ];
   await prisma.permission.createMany({
     data: ADMIN_PERMISSIONS.map(([module, action]) => ({ role: 'ADMIN', module, action, allowed: true })),
