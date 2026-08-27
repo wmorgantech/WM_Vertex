@@ -98,10 +98,10 @@ export default function App() {
                 <Route path="/projects" element={<Projects />} />
                 <Route path="/projects/:id" element={<ProjectDetail />} />
                 <Route path="/analytics" element={<Analytics />} />
-                <Route path="/expenses" element={<Expenses />} />
               </Route>
 
               <Route element={<RoleRoute roles={SUPER_ADMIN_ROLES} />}>
+                <Route path="/expenses" element={<Expenses />} />
                 <Route path="/configuration/masters" element={<Masters />} />
                 <Route path="/configuration/permissions" element={<Permissions />} />
                 <Route path="/configuration/audit-log" element={<AuditLog />} />

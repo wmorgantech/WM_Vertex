@@ -17,13 +17,12 @@ const MODULE_ACTIONS = {
   intern: ['manage'],
   trainee: ['manage'],
   workupdate: ['review'],
-  expense: ['view', 'create', 'edit'],
 };
 
 const MODULE_LABELS = {
   department: 'Departments', project: 'Projects', task: 'Tasks', timesheet: 'Timesheets',
   analytics: 'Analytics', attendance: 'Attendance', user: 'Users', document: 'Intern Documents',
-  intern: 'Interns', trainee: 'Trainees', workupdate: 'Work Updates', expense: 'Expenses',
+  intern: 'Interns', trainee: 'Trainees', workupdate: 'Work Updates',
 };
 
 export default function Permissions() {

@@ -5,6 +5,7 @@ import PageHeader from '@/components/shared/PageHeader';
 import KpiCard from '@/components/shared/KpiCard';
 import ActivityList from '@/components/shared/ActivityList';
 import Badge from '@/components/shared/Badge';
+import TimesheetStatusCard from '@/components/shared/TimesheetStatusCard';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -46,6 +47,7 @@ export default function TraineeDashboard() {
       <div className="space-y-6">
         <PageHeader title="My Training" subtitle="No training program enrollment on record yet." />
         <ClockCard />
+        <TimesheetStatusCard />
         <p className="text-sm text-muted-foreground">Contact an admin to be enrolled in a training program.</p>
       </div>
     );
@@ -67,6 +69,7 @@ export default function TraineeDashboard() {
       <PageHeader title="My Training" subtitle={program.name} />
 
       <ClockCard />
+      <TimesheetStatusCard />
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
         <KpiCard label="Training Progress" value={`${progress.completionPercent}%`} icon={TrendingUp} accent="primary" />

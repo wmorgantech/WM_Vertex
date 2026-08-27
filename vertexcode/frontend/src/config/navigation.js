@@ -65,17 +65,22 @@ const MANAGER_GROUPS = [
     ],
   },
   {
-    label: 'Finance',
-    items: [{ to: '/expenses', label: 'Expenses', icon: IndianRupee }],
-  },
-  {
     label: 'Insights',
     items: [{ to: '/analytics', label: 'Analytics', icon: BarChart3 }],
   },
 ];
 
+// Expenses is Super Admin-only (hardcoded business rule — see
+// backend/src/routes/expense.routes.js), not part of MANAGER_GROUPS shared
+// with Admin.
+const FINANCE_GROUP = {
+  label: 'Finance',
+  items: [{ to: '/expenses', label: 'Expenses', icon: IndianRupee }],
+};
+
 const SUPER_ADMIN_GROUPS = [
   ...MANAGER_GROUPS,
+  FINANCE_GROUP,
   {
     label: 'Configuration',
     items: [

@@ -7,6 +7,7 @@ import KpiCard from '@/components/shared/KpiCard';
 import ActivityList from '@/components/shared/ActivityList';
 import QuickActions from '@/components/shared/QuickActions';
 import InsightsPanel from '@/components/shared/InsightsPanel';
+import TimesheetStatusCard from '@/components/shared/TimesheetStatusCard';
 import Badge from '@/components/shared/Badge';
 import PieChart from '@/components/shared/charts/PieChart';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -100,6 +101,7 @@ export default function InternDashboard() {
       <PageHeader title="My Internship" subtitle="Your program progress, tasks and attendance" />
 
       <ClockCard />
+      <TimesheetStatusCard />
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
         <KpiCard label="Tasks Completed" value={me.tasks.done} hint={`${me.tasks.total} total`} icon={CheckCircle2} accent="success" />

@@ -20,7 +20,9 @@ const QUICK_ACTIONS = [
   { to: '/tasks', label: 'Assign a Task', icon: ListTodo },
   { to: '/projects', label: 'View Projects', icon: FolderKanban },
   { to: '/employees', label: 'View Employees', icon: Users },
-  { to: '/expenses', label: 'View Expenses', icon: IndianRupee },
+  // No "View Expenses" quick action — Expenses is Super Admin-only (see
+  // backend/src/routes/expense.routes.js); the icon above is still used by
+  // the Total Expenses KPI card below, which Admin keeps via Analytics.
 ];
 
 function initials(user) {
