@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Plus, Trash2, CheckCircle2, TriangleAlert, Check } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Plus, Trash2, CheckCircle2, TriangleAlert, Check, Pencil, X as XIcon } from 'lucide-react';
 import api from '../../api/axios';
 import Badge from '../../components/common/Badge';
 import SummaryCards from './SummaryCards';
@@ -113,6 +113,11 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
   const [submitting, setSubmitting] = useState(false);
   const [positions, setPositions] = useState([]);
   const [projects, setProjects] = useState([]);
+  // Editing an already-APPROVED week is a distinct, explicit mode the owner
+  // opts into via the Edit button — never a side effect of the row/status
+  // being editable in the DB sense. It never touches the persisted status by
+  // itself; only actually saving (Save & Re-submit) does that, server-side.
+  const [editingApproved, setEditingApproved] = useState(false);
   const dateInputRef = useRef(null);
   const openDatePicker = () => {
     const el = dateInputRef.current;
@@ -134,6 +139,7 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
       .then(({ data }) => {
         setSummary(data.data);
         setRows(buildRowsFromEntries(data.data.entries));
+        setEditingApproved(false); // a fresh fetch always reflects the true persisted state
       })
       .finally(() => setLoading(false));
   };
@@ -147,7 +153,16 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
     api.get('/projects').then(({ data }) => setProjects(data.data));
   }, []);
 
-  const locked = readOnly || ['SUBMITTED', 'APPROVED'].includes(summary?.status);
+  // Explicitly re-opening an APPROVED week (editingApproved) is the one
+  // case that overrides the normal lock — everything else about "locked"
+  // (readOnly manager view, a SUBMITTED week awaiting review) still applies.
+  const canEditApproved = !readOnly && summary?.status === 'APPROVED';
+  const locked = (readOnly || ['SUBMITTED', 'APPROVED'].includes(summary?.status)) && !(canEditApproved && editingApproved);
+  const isCurrentWeek = toIsoDate(monday) === toIsoDate(mondayOf(new Date()));
+  // Editing an approved week is scoped to correcting existing rows' hours/
+  // position/project — adding or removing whole rows stays unavailable in
+  // that mode, so the Actions column (and its colSpan) hides along with it.
+  const showActionsColumn = !locked && !editingApproved;
 
   const liveDayTotals = useMemo(() => {
     const totals = {};
@@ -291,6 +306,34 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
     }
   };
 
+  // Discards any in-progress edits by simply re-fetching the last-saved
+  // (still-APPROVED) state — nothing was ever sent to the server, so there
+  // is nothing to undo server-side.
+  const cancelEditApproved = () => {
+    setEditingApproved(false);
+    load();
+  };
+
+  // A single combined action, matching how an approved week is reviewed as
+  // one unit: /timesheets/bulk already demotes any touched APPROVED row to
+  // PENDING server-side (see timesheet.controller.js), so no separate
+  // /timesheets/submit call is needed or possible here (that endpoint only
+  // looks at DRAFT/REJECTED entries, which these no longer are).
+  const saveAndResubmit = async () => {
+    setSubmitting(true);
+    try {
+      await api.post('/timesheets/bulk', { entries: buildEntries() });
+      toast.success('Timesheet updated and re-submitted for approval');
+      setEditingApproved(false);
+      load();
+      onChanged?.();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to save changes');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   if (loading && !summary) return <div className="page-loading">Loading...</div>;
 
   return (
@@ -315,7 +358,7 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
           <button className="btn btn-ghost btn-icon" onClick={() => setMonday((m) => addDays(m, -7))} aria-label="Previous week">
             <ChevronLeft size={16} />
           </button>
-          <button className="btn-today" onClick={() => setMonday(mondayOf(new Date()))}>Today</button>
+          <button className="btn-today" disabled={isCurrentWeek} onClick={() => setMonday(mondayOf(new Date()))}>Today</button>
           <button className="btn btn-ghost btn-icon" onClick={() => setMonday((m) => addDays(m, 7))} aria-label="Next week">
             <ChevronRight size={16} />
           </button>
@@ -333,6 +376,13 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
           </div>
         );
       })()}
+
+      {canEditApproved && editingApproved && (
+        <div className="ts-edit-banner">
+          <strong>Editing an approved timesheet</strong>
+          <span>Any changes will require re-submission for approval.</span>
+        </div>
+      )}
 
       {summary && (() => {
         const diff = weekTotal - summary.expectedHours;
@@ -355,7 +405,7 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
           <thead>
             <tr className="col-super-row">
               <th colSpan={2} className="col-super-label">Work Assignment</th>
-              <th colSpan={dayIsos.length + 1 + (locked ? 0 : 1)}></th>
+              <th colSpan={dayIsos.length + 1 + (showActionsColumn ? 1 : 0)}></th>
             </tr>
             <tr>
               <th className="col-sticky col-group-end" style={{ minWidth: 165 }}>Role / Position</th>
@@ -373,13 +423,13 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
                 );
               })}
               <th className="col-num col-total-head">Total</th>
-              {!locked && <th className="col-actions">Actions</th>}
+              {showActionsColumn && <th className="col-actions">Actions</th>}
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={locked ? 10 : 11} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 24 }}>
+                <td colSpan={showActionsColumn ? 11 : 10} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 24 }}>
                   No entries yet this week.
                 </td>
               </tr>
@@ -436,7 +486,7 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
                     </td>
                   ))}
                   <td className="col-num col-total-cell">{rowTotal.toFixed(2)}</td>
-                  {!locked && (
+                  {showActionsColumn && (
                     <td className="col-actions">
                       <button className="btn btn-ghost btn-sm btn-icon" onClick={() => removeRow(rIdx)} aria-label="Remove row">
                         <Trash2 size={14} />
@@ -455,14 +505,14 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
                   <td key={iso} className={`col-num${iso === todayIso ? ' col-today' : ''}`}>{liveDayTotals[iso].toFixed(2)}</td>
                 ))}
                 <td className="col-num col-total-cell">{weekTotal.toFixed(2)}</td>
-                {!locked && <td className="col-actions"></td>}
+                {showActionsColumn && <td className="col-actions"></td>}
               </tr>
             </tfoot>
           )}
         </table>
       </div>
 
-      {!locked && (
+      {!locked && !editingApproved && (
         <button className="btn-add-row-subtle" onClick={addRow}>
           <Plus size={13} /> Add another row
         </button>
@@ -470,10 +520,26 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
 
       {!readOnly && (
         <div className="form-actions" style={{ marginTop: 20 }}>
-          {locked ? (
-            <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: 0 }}>
-              {summary?.status === 'APPROVED' ? 'This week has been approved.' : 'This week has been submitted and is waiting for approval.'}
-            </p>
+          {editingApproved ? (
+            <>
+              <button className="btn btn-ghost" disabled={submitting} onClick={cancelEditApproved}>
+                <XIcon size={14} /> Cancel
+              </button>
+              <button className="btn btn-primary" disabled={submitting || rows.length === 0} onClick={saveAndResubmit}>
+                {submitting ? 'Saving...' : (<><Check size={14} /> Save &amp; Re-submit</>)}
+              </button>
+            </>
+          ) : locked ? (
+            <div className="ts-locked-row">
+              <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: 0 }}>
+                {summary?.status === 'APPROVED' ? 'This week has been approved.' : 'This week has been submitted and is waiting for approval.'}
+              </p>
+              {canEditApproved && (
+                <button className="btn btn-secondary btn-sm" onClick={() => setEditingApproved(true)}>
+                  <Pencil size={13} /> Edit Timesheet
+                </button>
+              )}
+            </div>
           ) : (
             <>
               <button className="btn btn-secondary" disabled={saving || submitting} onClick={saveDraft}>
