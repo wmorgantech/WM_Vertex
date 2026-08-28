@@ -34,7 +34,7 @@ function weeksInMonth(monthStart, monthEnd) {
 // padded with blank leading/trailing cells so it reads as a real calendar
 // grid. A status dot reuses the day's own classifyDay() status from the
 // backend rather than recomputing anything client-side.
-function MonthCalendar({ days, todayIso }) {
+function MonthCalendar({ days, todayIso, leaveByDate }) {
   const weeks = useMemo(() => {
     if (!days || days.length === 0) return [];
     const firstDow = parseIsoDate(days[0].date).getDay(); // 0=Sun..6=Sat
@@ -59,19 +59,31 @@ function MonthCalendar({ days, todayIso }) {
           {week.map((day, di) => {
             if (!day) return <div className="ts-month-cal-cell ts-month-cal-blank" key={di} />;
             const hours = Math.round(day.actualHours * 100) / 100;
-            const dotClass = !day.isWorkingDay && hours === 0
-              ? ''
-              : day.status === 'BELOW'
-                ? (hours === 0 ? 'ts-dot-empty' : 'ts-dot-partial')
-                : 'ts-dot-complete';
+            // ON_LEAVE is the authoritative, existing signal (Attendance,
+            // written by leave.controller.js on approval) — the leave-type
+            // label from leaveByDate is a nice-to-have overlay on top of it,
+            // not a second source of truth for whether the day is leave.
+            const onLeave = day.nonWorkingReason === 'ON_LEAVE';
+            const leaveLabel = onLeave ? (leaveByDate?.get(day.date) || 'Leave') : null;
+            const dotClass = onLeave
+              ? 'ts-dot-leave'
+              : !day.isWorkingDay && hours === 0
+                ? ''
+                : day.status === 'BELOW'
+                  ? (hours === 0 ? 'ts-dot-empty' : 'ts-dot-partial')
+                  : 'ts-dot-complete';
             return (
               <div
-                className={`ts-month-cal-cell${day.date === todayIso ? ' ts-month-cal-today' : ''}${!day.isWorkingDay ? ' ts-month-cal-nonworking' : ''}`}
+                className={`ts-month-cal-cell${day.date === todayIso ? ' ts-month-cal-today' : ''}${!day.isWorkingDay ? ' ts-month-cal-nonworking' : ''}${onLeave ? ' ts-month-cal-leave' : ''}`}
                 key={di}
-                title={day.nonWorkingReason || ''}
+                title={leaveLabel || day.nonWorkingReason || ''}
               >
                 <span className="ts-month-cal-date">{parseIsoDate(day.date).getDate()}</span>
-                <span className="ts-month-cal-hours">{hours > 0 ? `${hours}h` : '—'}</span>
+                {onLeave ? (
+                  <span className="ts-leave-badge">{leaveLabel}</span>
+                ) : (
+                  <span className="ts-month-cal-hours">{hours > 0 ? `${hours}h` : '—'}</span>
+                )}
                 {dotClass && <span className={`ts-month-cal-dot ${dotClass}`} />}
               </div>
             );
@@ -90,8 +102,13 @@ export default function MonthlySummary({ userId, onViewWeek }) {
   const [employeeInfo, setEmployeeInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [viewingWeek, setViewingWeek] = useState(null); // manager/TeamView fallback — see handleView
+  const [leaveByDate, setLeaveByDate] = useState(new Map());
   const dateInputRef = useRef(null);
   const todayIso = useMemo(() => toIsoDate(new Date()), []);
+  const isCurrentMonth = useMemo(() => {
+    const now = new Date();
+    return cursor.getFullYear() === now.getFullYear() && cursor.getMonth() === now.getMonth();
+  }, [cursor]);
 
   const { start, end } = monthRange(cursor.getFullYear(), cursor.getMonth());
   const from = toIsoDate(start);
@@ -120,6 +137,35 @@ export default function MonthlySummary({ userId, onViewWeek }) {
     const id = userId || user.id;
     api.get(`/users/${id}`).then(({ data }) => setEmployeeInfo(data.data)).catch(() => {});
   }, [userId, user.id]);
+
+  // Reuses the existing Leave module's own API/data (GET /leave, the same
+  // endpoint the Leave page itself uses) rather than a second leave source —
+  // /timesheets/summary already flags which days are non-working because of
+  // an ON_LEAVE Attendance record (leave.controller.js writes that on
+  // approval), but it doesn't know *which* leave type caused it. This just
+  // overlays that one extra detail. listRequests() has no date-range filter
+  // server-side, so all of this user's approved requests are fetched once
+  // and matched against the visible month client-side — no new backend code.
+  useEffect(() => {
+    api.get('/leave', { params: { status: 'APPROVED', ...(userId && { userId }) } })
+      .then(({ data }) => {
+        const map = new Map();
+        for (const req of data.data) {
+          // Parse the Y-M-D straight off the ISO string rather than
+          // `new Date(req.startDate)` + local getters — that combination
+          // shifts a day in timezones behind UTC (the same class of bug
+          // fixed earlier in setHours(0,0,0,0) callers).
+          let cursorDate = parseIsoDate(req.startDate.slice(0, 10));
+          const endDate = parseIsoDate(req.endDate.slice(0, 10));
+          while (cursorDate <= endDate) {
+            map.set(toIsoDate(cursorDate), req.leaveType?.label || 'Leave');
+            cursorDate = addDays(cursorDate, 1);
+          }
+        }
+        setLeaveByDate(map);
+      })
+      .catch(() => setLeaveByDate(new Map()));
+  }, [userId]);
 
   // Self-service (Timesheets.jsx) jumps the Weekly tab to the chosen week via
   // onViewWeek. The manager/TeamView case renders MonthlySummary without
@@ -204,7 +250,7 @@ export default function MonthlySummary({ userId, onViewWeek }) {
           <button className="btn btn-ghost btn-icon" onClick={() => setCursor((c) => new Date(c.getFullYear(), c.getMonth() - 1, 1))} aria-label="Previous month">
             <ChevronLeft size={16} />
           </button>
-          <button className="btn-today" onClick={() => setCursor(new Date())}>Today</button>
+          <button className="btn-today" disabled={isCurrentMonth} onClick={() => setCursor(new Date())}>Today</button>
           <button className="btn btn-ghost btn-icon" onClick={() => setCursor((c) => new Date(c.getFullYear(), c.getMonth() + 1, 1))} aria-label="Next month">
             <ChevronRight size={16} />
           </button>
@@ -224,7 +270,12 @@ export default function MonthlySummary({ userId, onViewWeek }) {
             { label: 'Working Days', value: monthSummary.workingDays },
           ]} />
 
-          <MonthCalendar days={monthSummary.days} todayIso={todayIso} />
+          <MonthCalendar days={monthSummary.days} todayIso={todayIso} leaveByDate={leaveByDate} />
+          <div className="ts-legend">
+            <span><i className="ts-legend-dot ts-dot-complete" /> Worked</span>
+            <span><i className="ts-legend-dot ts-legend-leave" /> Leave</span>
+            <span><i className="ts-legend-dot ts-legend-weekend" /> Weekend</span>
+          </div>
 
           <p className="ts-section-label" style={{ marginTop: 24 }}>Weeks</p>
           <DataTable columns={columns} rows={weekRows} emptyMessage="No weeks in this month." />
