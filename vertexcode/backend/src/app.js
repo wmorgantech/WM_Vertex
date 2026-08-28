@@ -12,6 +12,8 @@ const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
 
+app.set('trust proxy', 1);
+
 app.use(helmet());
 app.use(cors({ origin: process.env.CLIENT_URL || '*', credentials: true }));
 app.use(express.json({ limit: '2mb' }));
@@ -21,10 +23,22 @@ if (process.env.NODE_ENV !== 'test') {
   app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 }
 
-const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 500, standardHeaders: true, legacyHeaders: false });
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 500,
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 app.use('/api', apiLimiter);
 
-app.get('/health', (req, res) => res.json({ status: 'ok', service: 'vertexwm-backend', time: new Date().toISOString() }));
+app.get('/health', (req, res) =>
+  res.json({
+    status: 'ok',
+    service: 'vertexwm-backend',
+    time: new Date().toISOString()
+  })
+);
 
 app.use('/api', routes);
 
