@@ -9,6 +9,13 @@ const STANDARD_DAILY_TARGET_HOURS = 8;
 // "not yet finally submitted for review" states. PENDING (submitted,
 // awaiting manager) and APPROVED (final) are locked.
 const EDITABLE_STATUSES = ['DRAFT', 'REJECTED'];
+// An employee may still correct an already-APPROVED entry (e.g. they spot a
+// mistake after the fact), but doing so must never leave it silently
+// APPROVED with different numbers behind it — editing one unconditionally
+// demotes the whole entry back to PENDING for the manager to review again
+// (see bulkUpsertTimesheets). This is a deliberate, narrower exception to
+// EDITABLE_STATUSES above, not a relaxation of it.
+const RESUBMIT_ON_EDIT_STATUSES = ['APPROVED'];
 
 // UTC-anchored midnight for the given local calendar day — see
 // attendance.controller.js's dayStart() for why plain setHours(0,0,0,0)
@@ -257,6 +264,7 @@ async function bulkUpsertTimesheets(req, res) {
   }
 
   const results = [];
+  const resubmitted = [];
   for (const entry of entries) {
     const { id, date, position, projectId, hoursLogged, description } = entry;
     const hours = hoursLogged === '' || hoursLogged === undefined || hoursLogged === null ? 0 : Number(hoursLogged);
@@ -266,7 +274,9 @@ async function bulkUpsertTimesheets(req, res) {
     if (id) {
       const existing = await prisma.timesheet.findUnique({ where: { id } });
       if (!existing || existing.userId !== req.user.id) continue; // not theirs — silently skip, not an error for a batch save
-      if (!EDITABLE_STATUSES.includes(existing.status)) continue; // locked (submitted/approved) — leave untouched
+
+      const isResubmitEdit = RESUBMIT_ON_EDIT_STATUSES.includes(existing.status);
+      if (!EDITABLE_STATUSES.includes(existing.status) && !isResubmitEdit) continue; // locked (pending) — leave untouched
 
       if (hours <= 0) {
         await prisma.timesheet.delete({ where: { id } });
@@ -279,8 +289,19 @@ async function bulkUpsertTimesheets(req, res) {
           projectId: projectId !== undefined ? (projectId || null) : existing.projectId,
           hoursLogged: hours,
           description: description ?? existing.description,
+          // Editing a previously-approved entry always demotes it back to
+          // PENDING — an employee can never edit their way to a silently
+          // still-APPROVED record. See RESUBMIT_ON_EDIT_STATUSES above.
+          ...(isResubmitEdit && { status: 'PENDING', approverId: null, approvedAt: null, rejectionReason: null }),
         },
       });
+      if (isResubmitEdit) {
+        await recordAudit({
+          actorId: req.user.id, action: 'RESUBMITTED', module: 'TIMESHEET', entityId: updated.id,
+          entityLabel: isoDate(updated.date), before: existing, after: updated,
+        });
+        resubmitted.push(updated);
+      }
       results.push(updated);
     } else {
       if (hours <= 0) continue; // nothing to save
@@ -297,6 +318,22 @@ async function bulkUpsertTimesheets(req, res) {
         },
       });
       results.push(created);
+    }
+  }
+
+  // One notification for the whole re-submission, not per row — mirrors
+  // submitTimesheets(). A resubmitted entry is already PENDING by the time
+  // we get here, so it can never reach submitTimesheets() itself (that only
+  // looks at DRAFT/REJECTED), which is why this batch needs its own notify.
+  if (resubmitted.length > 0) {
+    const submitter = await prisma.user.findUnique({ where: { id: req.user.id }, select: { managerId: true, firstName: true, lastName: true } });
+    if (submitter.managerId) {
+      const dates = resubmitted.map((e) => isoDate(e.date)).sort();
+      await notify({
+        userId: submitter.managerId, type: 'TIMESHEET_PENDING', title: 'Approved timesheet edited — needs re-approval',
+        message: `${submitter.firstName} ${submitter.lastName} edited ${resubmitted.length} previously-approved entr${resubmitted.length === 1 ? 'y' : 'ies'} (${dates[0]}${dates.length > 1 ? ` – ${dates[dates.length - 1]}` : ''})`,
+        link: '/timesheets',
+      });
     }
   }
 
