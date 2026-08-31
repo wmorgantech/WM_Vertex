@@ -118,7 +118,16 @@ async function listEnrollableUsers(req, res) {
 // --- Enrollments -------------------------------------------------------------
 
 async function listEnrollments(req, res) {
-  const { batchId, mentorId, completionStatus } = req.query;
+  const { batchId, mentorId, completionStatus, search } = req.query;
+  const searchClause = search ? {
+    user: {
+      OR: [
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ],
+    },
+  } : null;
 
   // SUPER_ADMIN: unrestricted. Everyone else: interns they mentor (includes
   // Admins, and any employee who added an intern and defaulted to mentoring
@@ -129,12 +138,19 @@ async function listEnrollments(req, res) {
       ...(batchId && { batchId }),
       ...(mentorId && { mentorId }),
       ...(completionStatus && { completionStatus }),
+      ...(searchClause && searchClause),
     };
   } else {
+    // The owner-scoping OR and the search OR must stay in separate clauses
+    // (combined with AND) — merging them into one OR array would let a
+    // matching search term alone satisfy the filter, bypassing ownership.
     where = {
-      OR: [{ mentorId: req.user.id }, { userId: req.user.id }],
-      ...(batchId && { batchId }),
-      ...(completionStatus && { completionStatus }),
+      AND: [
+        { OR: [{ mentorId: req.user.id }, { userId: req.user.id }] },
+        ...(batchId ? [{ batchId }] : []),
+        ...(completionStatus ? [{ completionStatus }] : []),
+        ...(searchClause ? [searchClause] : []),
+      ],
     };
   }
 

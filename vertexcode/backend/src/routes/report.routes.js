@@ -16,5 +16,6 @@ router.get('/tasks', ctrl.exportTasks);
 router.get('/interns', ctrl.exportInterns);
 router.get('/trainees', ctrl.exportTrainees);
 router.get('/expenses', ctrl.exportExpenses);
+router.get('/enquiries', ctrl.exportEnquiries);
 
 module.exports = router;

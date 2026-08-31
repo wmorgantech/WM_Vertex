@@ -8,6 +8,7 @@ router.use('/trainees', require('./trainee.routes'));
 router.use('/colleges', require('./college.routes'));
 router.use('/workshops', require('./workshop.routes'));
 router.use('/mous', require('./mou.routes'));
+router.use('/enquiries', require('./enquiry.routes'));
 router.use('/reports', require('./report.routes'));
 router.use('/notifications', require('./notification.routes'));
 router.use('/leave', require('./leave.routes'));

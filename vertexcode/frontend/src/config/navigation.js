@@ -21,6 +21,7 @@ import {
   ListPlus,
   FileCog,
   IndianRupee,
+  MessageSquare,
 } from 'lucide-react';
 
 // Route access is unchanged from the original NAV_BY_ROLE map in DashboardLayout —
@@ -53,6 +54,7 @@ const MANAGER_GROUPS = [
       { to: '/colleges', label: 'Colleges', icon: School },
       { to: '/workshops', label: 'Workshops', icon: Presentation },
       { to: '/mous', label: 'MOUs', icon: FileSignature },
+      { to: '/enquiries', label: 'Enquiries', icon: MessageSquare },
     ],
   },
   {
@@ -108,6 +110,7 @@ const SELF_GROUPS = [
       { to: '/work-updates', label: 'Work Updates', icon: FileText },
       { to: '/leave', label: 'Leave', icon: CalendarOff },
       { to: '/workshops', label: 'My Workshops', icon: Presentation },
+      { to: '/enquiries', label: 'My Enquiries', icon: MessageSquare },
     ],
   },
 ];

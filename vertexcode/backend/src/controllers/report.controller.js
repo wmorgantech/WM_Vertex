@@ -195,6 +195,28 @@ async function exportExpenses(req, res) {
   ], { totals: ['amount'], sheetName: 'Expenses' });
 }
 
+async function exportEnquiries(req, res) {
+  const rows = await prisma.enquiry.findMany({
+    include: { assignedEmployee: { select: { firstName: true, lastName: true } } },
+    orderBy: { createdAt: 'desc' },
+  });
+  await audited(req, 'ENQUIRY_REPORT');
+  return sendReport(req, res, `enquiries-${dateStamp()}`, rows, [
+    { key: 'contactName', header: 'Contact Name' },
+    { key: 'contactEmail', header: 'Email' },
+    { key: 'contactPhone', header: 'Phone' },
+    { key: 'companyName', header: 'Company' },
+    { key: 'subject', header: 'Subject' },
+    { key: 'source', header: 'Source' },
+    { key: 'assignedEmployee.firstName', header: 'Assigned To First Name' },
+    { key: 'assignedEmployee.lastName', header: 'Assigned To Last Name' },
+    { key: 'status', header: 'Status' },
+    { key: 'followUpDate', header: 'Follow-up Date', type: 'date' },
+    { key: 'createdAt', header: 'Created At', type: 'date' },
+  ]);
+}
+
 module.exports = {
   exportEmployees, exportAttendance, exportTimesheets, exportTasks, exportInterns, exportTrainees, exportExpenses,
+  exportEnquiries,
 };

@@ -33,6 +33,7 @@ import TraineeDetail from './pages/Trainees/TraineeDetail';
 import Colleges from './pages/Colleges/Colleges';
 import Workshops from './pages/Workshops/Workshops';
 import MOUs from './pages/MOUs/MOUs';
+import Enquiries from './pages/Enquiries/Enquiries';
 import Profile from './pages/Profile/Profile';
 
 const MANAGER_ROLES = ['SUPER_ADMIN', 'ADMIN'];
@@ -43,6 +44,9 @@ const SUPER_ADMIN_ROLES = ['SUPER_ADMIN'];
 // designation (see intern.routes.js canAddIntern); this just lets that
 // route resolve instead of bouncing them to /dashboard.
 const INTERN_PAGE_ROLES = ['SUPER_ADMIN', 'ADMIN', 'EMPLOYEE'];
+// Enquiry is open to any staff role — Interns/Trainees excluded (see
+// enquiry.routes.js/enquiry.controller.js for the matching backend rule).
+const ENQUIRY_PAGE_ROLES = ['SUPER_ADMIN', 'ADMIN', 'EMPLOYEE'];
 
 export default function App() {
   return (
@@ -85,6 +89,10 @@ export default function App() {
 
               <Route element={<RoleRoute roles={INTERN_PAGE_ROLES} />}>
                 <Route path="/interns" element={<Interns />} />
+              </Route>
+
+              <Route element={<RoleRoute roles={ENQUIRY_PAGE_ROLES} />}>
+                <Route path="/enquiries" element={<Enquiries />} />
               </Route>
 
               <Route element={<RoleRoute roles={MANAGER_ROLES} />}>
