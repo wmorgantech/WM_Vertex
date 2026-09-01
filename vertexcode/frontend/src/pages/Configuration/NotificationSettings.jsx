@@ -19,6 +19,9 @@ const TYPE_LABELS = {
   CERTIFICATE_GENERATED: 'Certificate generated',
   DOCUMENT_REVIEWED: 'Document reviewed',
   GENERAL: 'General',
+  LEAVE_REQUESTED: 'Leave requested',
+  LEAVE_APPROVED: 'Leave approved',
+  LEAVE_REJECTED: 'Leave rejected',
 };
 
 export default function NotificationSettings() {

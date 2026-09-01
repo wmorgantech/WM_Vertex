@@ -6,6 +6,7 @@ import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import CustomFieldsSection from '../../components/common/CustomFieldsSection';
 import toast from 'react-hot-toast';
 import { downloadReport } from '../../lib/download';
 
@@ -348,6 +349,7 @@ export default function Interns() {
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
             </div>
           </form>
+          <CustomFieldsSection entityType="INTERN" entityId={editingEnrollment.user.id} />
         </Modal>
       )}
 

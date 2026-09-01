@@ -1,17 +1,22 @@
 import { useEffect, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Pencil, Trash2 } from 'lucide-react';
 import api from '../../api/axios';
+import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
 import Modal from '../../components/common/Modal';
 import toast from 'react-hot-toast';
 
 export default function Departments() {
+  const { user } = useAuth();
+  const isSuperAdmin = user.role === 'SUPER_ADMIN';
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ name: '', description: '' });
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [editForm, setEditForm] = useState({ name: '', description: '' });
 
   const load = () => {
     setLoading(true);
@@ -35,11 +40,57 @@ export default function Departments() {
     }
   };
 
+  const openEdit = (d) => {
+    setEditing(d);
+    setEditForm({ name: d.name, description: d.description || '' });
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.put(`/departments/${editing.id}`, editForm);
+      toast.success('Department updated');
+      setEditing(null);
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update department');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (d) => {
+    if (!window.confirm(`Delete department "${d.name}"? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/departments/${d.id}`);
+      toast.success('Department removed');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete department');
+    }
+  };
+
   const columns = [
     { key: 'name', header: 'Name' },
     { key: 'description', header: 'Description' },
     { key: 'head', header: 'Head', render: (r) => r.head ? `${r.head.firstName} ${r.head.lastName}` : '—' },
     { key: 'count', header: 'Members', render: (r) => r._count?.users ?? 0 },
+    {
+      key: 'actions', header: '',
+      render: (r) => (
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openEdit(r)} aria-label="Edit">
+            <Pencil size={14} />
+          </button>
+          {isSuperAdmin && (
+            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDelete(r)} aria-label="Delete">
+              <Trash2 size={14} />
+            </button>
+          )}
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -59,6 +110,19 @@ export default function Departments() {
             <div className="form-actions">
               <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Create'}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {editing && (
+        <Modal title={`Edit — ${editing.name}`} onClose={() => setEditing(null)}>
+          <form className="form-grid" onSubmit={handleSaveEdit}>
+            <label>Name<input required value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} /></label>
+            <label>Description<textarea value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} /></label>
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
             </div>
           </form>
         </Modal>

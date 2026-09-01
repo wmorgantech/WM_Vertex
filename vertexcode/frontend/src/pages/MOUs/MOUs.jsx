@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Plus, Trash2 } from 'lucide-react';
 import api from '../../api/axios';
+import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import toast from 'react-hot-toast';
+import { downloadReport } from '../../lib/download';
 
 const STATUSES = ['DISCUSSION', 'DRAFT', 'SENT', 'UNDER_REVIEW', 'APPROVED', 'SIGNED', 'ACTIVE', 'EXPIRED', 'RENEWED', 'CANCELLED'];
 
@@ -15,6 +17,7 @@ const emptyForm = {
 };
 
 export default function MOUs() {
+  const { user } = useAuth();
   const [mous, setMous] = useState([]);
   const [colleges, setColleges] = useState([]);
   const [staffUsers, setStaffUsers] = useState([]);
@@ -24,6 +27,8 @@ export default function MOUs() {
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(null);
   const [editForm, setEditForm] = useState({});
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const docInputRef = useRef(null);
 
   const load = () => {
     setLoading(true);
@@ -79,6 +84,44 @@ export default function MOUs() {
     }
   };
 
+  const handleDelete = async (m) => {
+    if (!window.confirm(`Delete this MOU${m.mouType ? ` (${m.mouType})` : ''}? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/mous/${m.id}`);
+      toast.success('MOU removed');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete MOU');
+    }
+  };
+
+  const handleDocumentSelected = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !editing) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    setUploadingDoc(true);
+    try {
+      const { data } = await api.post(`/mous/${editing.id}/document`, formData);
+      toast.success('Document attached');
+      setEditing((prev) => ({ ...prev, documentPath: data.data.documentPath, documentName: data.data.documentName }));
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to attach document');
+    } finally {
+      setUploadingDoc(false);
+    }
+  };
+
+  const handleDownloadDocument = async () => {
+    try {
+      await downloadReport(`/mous/${editing.id}/document`, editing.documentName || 'mou-document');
+    } catch (err) {
+      toast.error('Failed to download document');
+    }
+  };
+
   const columns = [
     { key: 'mouType', header: 'Type', render: (r) => r.mouType || '—' },
     { key: 'college', header: 'College', render: (r) => r.college.name },
@@ -92,7 +135,18 @@ export default function MOUs() {
         return new Date(r.endDate).toLocaleDateString();
       },
     },
-    { key: 'actions', header: '', render: (r) => <button className="btn btn-ghost btn-sm" onClick={() => openEdit(r)}>Update</button> },
+    {
+      key: 'actions', header: '', render: (r) => (
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => openEdit(r)}>Update</button>
+          {user.role === 'SUPER_ADMIN' && (
+            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDelete(r)} aria-label="Delete">
+              <Trash2 size={14} />
+            </button>
+          )}
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -155,6 +209,19 @@ export default function MOUs() {
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
             </div>
           </form>
+          <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--color-border)' }}>
+            <h4>Signed Document</h4>
+            <p>{editing.documentName || 'No document attached yet.'}</p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {editing.documentPath && (
+                <button type="button" className="btn btn-secondary btn-sm" onClick={handleDownloadDocument}>Download</button>
+              )}
+              <button type="button" className="btn btn-secondary btn-sm" disabled={uploadingDoc} onClick={() => docInputRef.current?.click()}>
+                {uploadingDoc ? 'Uploading...' : editing.documentPath ? 'Replace File' : 'Attach File'}
+              </button>
+              <input ref={docInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: 'none' }} onChange={handleDocumentSelected} />
+            </div>
+          </div>
         </Modal>
       )}
     </div>
