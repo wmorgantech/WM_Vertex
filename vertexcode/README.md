@@ -104,25 +104,40 @@ npm run dev
 
 The web app runs at `http://localhost:5174` and talks to the API at `http://localhost:5111/api` (configurable via `VITE_API_URL` in `frontend/.env`).
 
-## Default Login Credentials
+## Creating the first account
 
-The seed script creates one account per role. Password for all seeded accounts:
+The seed script only creates master/config data (employment types, leave types, expense categories, etc.) — it does **not** create any users. There is no default login. To create your first Super Admin account, run this once against your database (replace the email/password/name):
 
+```powershell
+cd backend
+node -e "
+const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcryptjs');
+const prisma = new PrismaClient();
+(async () => {
+  const password = await bcrypt.hash('YOUR_STRONG_PASSWORD_HERE', 10);
+  const user = await prisma.user.create({
+    data: {
+      email: 'you@yourcompany.com',
+      password,
+      firstName: 'Your',
+      lastName: 'Name',
+      role: 'SUPER_ADMIN',
+      employmentType: 'FULL_TIME',
+      status: 'ACTIVE',
+    },
+  });
+  console.log('Created Super Admin:', user.email);
+  await prisma.\$disconnect();
+})();
+"
 ```
-Password123!
-```
 
-| Role | Email |
-|---|---|
-| Super Admin | superadmin@vertexwm.com |
-| Admin (Engineering) | admin.eng@vertexwm.com |
-| Admin (Marketing) | admin.marketing@vertexwm.com |
-| Employee | employee1@vertexwm.com |
-| Employee | employee2@vertexwm.com |
-| Intern | intern1@vertexwm.com |
-| Intern | intern2@vertexwm.com |
+Every subsequent account (Admins, Employees, Interns) can then be created normally through the app itself — Employees → Add Employee (once logged in as this Super Admin).
 
-**Change these passwords before using this in any non-local environment.**
+## API Documentation (Swagger)
+
+Interactive API docs are available at `http://localhost:5111/api-docs` (or your deployed API URL + `/api-docs`). Log in via the app or `POST /api/auth/login` to get an access token, then click **Authorize** in Swagger and paste it (as `Bearer <token>`) to test protected endpoints directly.
 
 ## Useful Commands
 
@@ -130,7 +145,7 @@ Backend (`backend/`):
 - `npm run dev` — start API with auto-reload
 - `npm run prisma:studio` — open Prisma Studio (visual DB browser)
 - `npm run prisma:migrate` — create/apply a new migration after schema changes
-- `npm run seed` — re-run the seed script (safe to re-run; upserts most records)
+- `npm run seed` — re-run the seed script (safe to re-run; only creates/upserts master/config data, never users)
 
 Frontend (`frontend/`):
 - `npm run dev` — start Vite dev server
