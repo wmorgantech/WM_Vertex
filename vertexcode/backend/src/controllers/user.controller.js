@@ -129,9 +129,10 @@ async function updateUser(req, res) {
     'skills', 'technologyStack', 'certifications', 'experienceYears',
   ];
   const allowedManagerFields = [
-    'firstName', 'lastName', 'phone', 'role', 'designation', 'employmentType',
-    'status', 'departmentId', 'managerId', 'locationId', 'avatarUrl', 'exitDate',
+    'firstName', 'lastName', 'email', 'phone', 'role', 'designation', 'employmentType',
+    'status', 'departmentId', 'managerId', 'locationId', 'avatarUrl', 'exitDate', 'joinDate',
     'gender', 'dateOfBirth', 'address', 'skills', 'technologyStack', 'certifications', 'experienceYears',
+    'mustChangePassword',
   ];
 
   const fields = isManagerRole ? allowedManagerFields : allowedSelfFields;
@@ -141,8 +142,29 @@ async function updateUser(req, res) {
   }
   if (data.exitDate) data.exitDate = new Date(data.exitDate);
   if (data.dateOfBirth) data.dateOfBirth = new Date(data.dateOfBirth);
-  if (req.body.password && (isSelf || isManagerRole)) {
-    data.password = await bcrypt.hash(req.body.password, 10);
+  if (data.joinDate) data.joinDate = new Date(data.joinDate);
+
+  if (data.email) {
+    data.email = data.email.toLowerCase();
+    const existingEmail = await prisma.user.findUnique({ where: { email: data.email } });
+    if (existingEmail && existingEmail.id !== target.id) throw new ApiError(409, 'A user with this email already exists');
+  }
+
+  // Self changing their own password must re-prove they know the current one
+  // (otherwise a stolen/idle session could silently take over the account);
+  // a manager setting someone else's password via "Manage Account" has no
+  // current password to prove and isn't asked for one. A successful
+  // self-service change always satisfies any pending forced-change flag.
+  if (req.body.password) {
+    if (isSelf) {
+      if (!req.body.currentPassword) throw new ApiError(400, 'Current password is required to change your password');
+      const currentMatches = await bcrypt.compare(req.body.currentPassword, target.password);
+      if (!currentMatches) throw new ApiError(401, 'Current password is incorrect');
+      data.password = await bcrypt.hash(req.body.password, 10);
+      data.mustChangePassword = false;
+    } else if (isManagerRole) {
+      data.password = await bcrypt.hash(req.body.password, 10);
+    }
   }
 
   if (req.user.role === 'ADMIN' && (target.role === 'SUPER_ADMIN' || data.role === 'SUPER_ADMIN')) {

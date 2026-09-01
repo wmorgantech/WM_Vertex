@@ -674,6 +674,43 @@ router.put('/enrollments/:id', can('trainee', 'manage'), ctrl.updateEnrollment);
 
 /**
  * @swagger
+ * /trainees/enrollments/{id}:
+ *   delete:
+ *     tags: [Trainees]
+ *     summary: Terminate a trainee (soft delete — deactivates the account, keeps the record)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: Enrollment not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.delete('/enrollments/:id', isSuperAdmin, ctrl.deleteEnrollment);
+
+/**
+ * @swagger
  * /trainees/enrollments/{id}/topics/{topicId}:
  *   patch:
  *     tags: [Trainees]

@@ -2,6 +2,7 @@ const router = require('express').Router();
 const authenticate = require('../middleware/auth');
 const { isSuperAdmin } = require('../middleware/rbac');
 const { can } = require('../middleware/permission');
+const upload = require('../middleware/upload');
 const ctrl = require('../controllers/college.controller');
 
 router.use(authenticate);
@@ -214,5 +215,83 @@ router.put('/:id', can('mou', 'manage'), ctrl.updateMou);
  *             schema: { $ref: '#/components/schemas/ApiError' }
  */
 router.delete('/:id', isSuperAdmin, ctrl.deleteMou);
+
+/**
+ * @swagger
+ * /mous/{id}/document:
+ *   post:
+ *     tags: [MOUs]
+ *     summary: Attach or replace the signed MOU document (PDF/JPG/PNG, max 5MB)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               file: { type: string, format: binary }
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: MOU not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.post('/:id/document', can('mou', 'manage'), upload.single('file'), ctrl.uploadMouDocument);
+
+/**
+ * @swagger
+ * /mous/{id}/document:
+ *   get:
+ *     tags: [MOUs]
+ *     summary: Download the attached MOU document
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+ *     responses:
+ *       200:
+ *         description: File stream
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: Not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.get('/:id/document', can('mou', 'manage'), ctrl.downloadMouDocument);
 
 module.exports = router;

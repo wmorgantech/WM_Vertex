@@ -31,3 +31,17 @@ async function shutdown() {
 
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
+// Log-only safety net so an unexpected error surfaces in the PM2 error log
+// instead of vanishing silently. Deliberately does not exit/restart the
+// process — PM2 already owns restart behavior, and Node's default behavior
+// for an uncaught exception (crash) is what we're specifically avoiding
+// turning into a silent, untraceable event.
+process.on('uncaughtException', (err) => {
+  // eslint-disable-next-line no-console
+  console.error('[uncaughtException]', err);
+});
+process.on('unhandledRejection', (reason) => {
+  // eslint-disable-next-line no-console
+  console.error('[unhandledRejection]', reason);
+});
