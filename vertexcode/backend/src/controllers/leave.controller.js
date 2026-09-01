@@ -49,6 +49,20 @@ async function createRequest(req, res) {
   const end = dateOnly(endDate);
   if (end < start) throw new ApiError(400, 'End date cannot be before start date');
 
+  // A PENDING or APPROVED request already occupies these days — REJECTED/CANCELLED
+  // requests don't, so they're excluded and don't block a resubmission.
+  const overlapping = await prisma.leaveRequest.findFirst({
+    where: {
+      userId: req.user.id,
+      status: { in: ['PENDING', 'APPROVED'] },
+      startDate: { lte: end },
+      endDate: { gte: start },
+    },
+  });
+  if (overlapping) {
+    throw new ApiError(409, 'You already have a pending or approved leave request that overlaps these dates');
+  }
+
   const request = await prisma.leaveRequest.create({
     data: { userId: req.user.id, leaveTypeCode, startDate: start, endDate: end, reason },
     include: { user: { select: { managerId: true, firstName: true, lastName: true } }, leaveType: true },

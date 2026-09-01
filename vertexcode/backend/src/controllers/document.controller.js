@@ -271,6 +271,10 @@ async function download(req, res) {
     throw new ApiError(403, 'You do not have permission to access this document');
   }
 
+  await prisma.internDocumentAudit.create({
+    data: { documentId: document.id, action: 'DOWNLOADED', actorId: req.user.id },
+  });
+
   return res.download(path.resolve(document.filePath), document.fileName);
 }
 

@@ -49,8 +49,17 @@ async function updateDesignation(req, res) {
 }
 
 async function deleteDesignation(req, res) {
-  const before = await prisma.designation.findUnique({ where: { id: req.params.id } });
+  const before = await prisma.designation.findUnique({
+    where: { id: req.params.id },
+    include: { _count: { select: { users: true, timesheets: true } } },
+  });
   if (!before) throw new ApiError(404, 'Designation not found');
+  if (before._count.users > 0) {
+    throw new ApiError(400, `Cannot delete: ${before._count.users} user(s) still use this designation. Reassign them first.`);
+  }
+  if (before._count.timesheets > 0) {
+    throw new ApiError(400, `Cannot delete: ${before._count.timesheets} timesheet entr(y/ies) still reference this designation.`);
+  }
   await prisma.designation.delete({ where: { id: req.params.id } });
   await recordAudit({ actorId: req.user.id, action: 'DELETED', module: 'DESIGNATION', entityId: before.id, entityLabel: before.name, before });
   return sendSuccess(res, 200, { message: 'Designation removed' });
@@ -93,8 +102,14 @@ async function updateLocation(req, res) {
 }
 
 async function deleteLocation(req, res) {
-  const before = await prisma.location.findUnique({ where: { id: req.params.id } });
+  const before = await prisma.location.findUnique({
+    where: { id: req.params.id },
+    include: { _count: { select: { users: true } } },
+  });
   if (!before) throw new ApiError(404, 'Location not found');
+  if (before._count.users > 0) {
+    throw new ApiError(400, `Cannot delete: ${before._count.users} user(s) still use this location. Reassign them first.`);
+  }
   await prisma.location.delete({ where: { id: req.params.id } });
   await recordAudit({ actorId: req.user.id, action: 'DELETED', module: 'LOCATION', entityId: before.id, entityLabel: before.name, before });
   return sendSuccess(res, 200, { message: 'Location removed' });

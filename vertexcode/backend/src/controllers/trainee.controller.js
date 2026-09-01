@@ -270,6 +270,34 @@ async function updateEnrollment(req, res) {
   return sendSuccess(res, 200, enrollment);
 }
 
+// DELETE /api/trainees/enrollments/:id — Super Admin only, soft delete.
+// The record is kept (completionStatus -> TERMINATED) for audit/history and
+// the trainee's account is deactivated, rather than removing any rows —
+// mirrors intern.controller.js's deleteEnrollment exactly.
+async function deleteEnrollment(req, res) {
+  const enrollment = await prisma.traineeEnrollment.findUnique({
+    where: { id: req.params.id },
+    include: { user: { select: { id: true, firstName: true, lastName: true } } },
+  });
+  if (!enrollment) throw new ApiError(404, 'Enrollment not found');
+
+  const updated = await prisma.traineeEnrollment.update({
+    where: { id: req.params.id },
+    data: { completionStatus: 'TERMINATED' },
+  });
+  await prisma.user.update({
+    where: { id: enrollment.userId },
+    data: { status: 'TERMINATED', exitDate: new Date() },
+  });
+
+  await recordAudit({
+    actorId: req.user.id, action: 'DELETED', module: 'TRAINEE_ENROLLMENT', entityId: enrollment.id,
+    entityLabel: `${enrollment.user.firstName} ${enrollment.user.lastName}`, before: enrollment, after: updated,
+  });
+
+  return sendSuccess(res, 200, { message: 'Trainee removed' });
+}
+
 // PUT /api/trainees/enrollments/me — Trainee self-service profile update
 const SELF_FIELDS = ['education', 'qualification', 'experienceYears'];
 async function updateMyEnrollment(req, res) {
@@ -390,7 +418,7 @@ async function addPayment(req, res) {
 module.exports = {
   listPrograms, getProgram, createProgram, updateProgram, deleteProgram,
   listTopics, createTopic, updateTopic, deleteTopic,
-  listEnrollments, getEnrollment, enrollTrainee, updateEnrollment, updateMyEnrollment, updateTopicProgress,
+  listEnrollments, getEnrollment, enrollTrainee, updateEnrollment, deleteEnrollment, updateMyEnrollment, updateTopicProgress,
   listSessions, createSession,
   listPayments, addPayment,
 };
