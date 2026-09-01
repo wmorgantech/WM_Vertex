@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -13,6 +13,7 @@ const textToList = (text) => text.split(',').map((s) => s.trim()).filter(Boolean
 
 export default function EmployeeDetail() {
   const { id } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user: currentUser } = useAuth();
   const isSuperAdmin = currentUser.role === 'SUPER_ADMIN';
 
@@ -72,6 +73,7 @@ export default function EmployeeDetail() {
     setProfileForm({
       firstName: user.firstName,
       lastName: user.lastName,
+      email: user.email,
       phone: user.phone || '',
       role: user.role,
       designation: user.designation || '',
@@ -79,9 +81,21 @@ export default function EmployeeDetail() {
       departmentId: user.departmentId || '',
       locationId: user.locationId || '',
       managerId: user.managerId || '',
+      joinDate: user.joinDate ? user.joinDate.slice(0, 10) : '',
     });
     setShowProfileModal(true);
   };
+
+  // Lets EmployeeList.jsx's "Edit" row action land directly in edit mode via
+  // /employees/:id?edit=1, instead of duplicating this modal on the list page.
+  useEffect(() => {
+    if (user && searchParams.get('edit') === '1') {
+      openProfileEdit();
+      searchParams.delete('edit');
+      setSearchParams(searchParams, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const handleSaveProfile = async (e) => {
     e.preventDefault();
@@ -93,6 +107,7 @@ export default function EmployeeDetail() {
         departmentId: profileForm.departmentId || null,
         locationId: profileForm.locationId || null,
         managerId: profileForm.managerId || null,
+        joinDate: profileForm.joinDate || null,
       });
       toast.success('Profile updated');
       setShowProfileModal(false);
@@ -211,6 +226,7 @@ export default function EmployeeDetail() {
           <form className="form-grid" onSubmit={handleSaveProfile}>
             <label>First Name<input required value={profileForm.firstName} onChange={(e) => setProfileForm({ ...profileForm, firstName: e.target.value })} /></label>
             <label>Last Name<input required value={profileForm.lastName} onChange={(e) => setProfileForm({ ...profileForm, lastName: e.target.value })} /></label>
+            <label>Email<input type="email" required value={profileForm.email} onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })} /></label>
             <label>Phone<input value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} /></label>
             <label>Role
               <select value={profileForm.role} onChange={(e) => setProfileForm({ ...profileForm, role: e.target.value })} disabled={!isSuperAdmin && (user.role === 'SUPER_ADMIN' || profileForm.role === 'SUPER_ADMIN')}>
@@ -230,6 +246,7 @@ export default function EmployeeDetail() {
                 {employmentTypes.map((et) => <option key={et.code} value={et.code}>{et.label}</option>)}
               </select>
             </label>
+            <label>Join Date<input type="date" required value={profileForm.joinDate} onChange={(e) => setProfileForm({ ...profileForm, joinDate: e.target.value })} /></label>
             <label>Department
               <select value={profileForm.departmentId} onChange={(e) => setProfileForm({ ...profileForm, departmentId: e.target.value })}>
                 <option value="">— None —</option>

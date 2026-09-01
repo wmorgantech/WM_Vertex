@@ -19,7 +19,7 @@ export default function ProjectDetail() {
 
   const columns = [
     { key: 'title', header: 'Task' },
-    { key: 'assignee', header: 'Assignee', render: (r) => `${r.assignee.firstName} ${r.assignee.lastName}` },
+    { key: 'assignee', header: 'Assignee', render: (r) => r.assignee ? `${r.assignee.firstName} ${r.assignee.lastName}` : '— Unassigned —' },
     { key: 'priority', header: 'Priority', render: (r) => <Badge value={r.priority} /> },
     { key: 'status', header: 'Status', render: (r) => <Badge value={r.status} /> },
     { key: 'progress', header: 'Progress', render: (r) => `${r.progress}%` },
@@ -32,9 +32,9 @@ export default function ProjectDetail() {
         <div className="card">
           <h3>Details</h3>
           <dl className="detail-list">
-            <dt>Manager</dt><dd>{project.manager.firstName} {project.manager.lastName}</dd>
+            <dt>Manager</dt><dd>{project.manager ? `${project.manager.firstName} ${project.manager.lastName}` : '—'}</dd>
             <dt>Status</dt><dd><Badge value={project.status} /></dd>
-            <dt>Members</dt><dd>{project.members.map((m) => `${m.user.firstName} ${m.user.lastName}`).join(', ') || '—'}</dd>
+            <dt>Members</dt><dd>{(project.members || []).map((m) => `${m.user.firstName} ${m.user.lastName}`).join(', ') || '—'}</dd>
           </dl>
         </div>
       </div>

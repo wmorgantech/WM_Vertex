@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Pencil, Trash2 } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -24,6 +24,8 @@ export default function Tasks() {
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', type: 'DAILY', priority: 'MEDIUM', dueDate: '', assigneeId: '', projectId: '' });
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [editForm, setEditForm] = useState({});
 
   const load = () => {
     setLoading(true);
@@ -73,6 +75,41 @@ export default function Tasks() {
     }
   };
 
+  const openEdit = (t) => {
+    setEditing(t);
+    setEditForm({
+      title: t.title, description: t.description || '', priority: t.priority,
+      dueDate: t.dueDate ? t.dueDate.slice(0, 10) : '',
+      assigneeId: t.assignee?.id || '', projectId: t.project?.id || '',
+    });
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.put(`/tasks/${editing.id}`, { ...editForm, projectId: editForm.projectId || null, assigneeId: editForm.assigneeId || null });
+      toast.success('Task updated');
+      setEditing(null);
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update task');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (t) => {
+    if (!window.confirm(`Delete task "${t.title}"? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/tasks/${t.id}`);
+      toast.success('Task removed');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete task');
+    }
+  };
+
   const columns = [
     { key: 'title', header: 'Task' },
     ...(isManager ? [{
@@ -92,6 +129,21 @@ export default function Tasks() {
         </select>
       ),
     },
+    ...(isManager ? [{
+      key: 'actions', header: '',
+      render: (r) => (
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openEdit(r)} aria-label="Edit">
+            <Pencil size={14} />
+          </button>
+          {user.role === 'SUPER_ADMIN' && (
+            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDelete(r)} aria-label="Delete">
+              <Trash2 size={14} />
+            </button>
+          )}
+        </div>
+      ),
+    }] : []),
   ];
 
   return (
@@ -160,6 +212,37 @@ export default function Tasks() {
             <div className="form-actions">
               <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Create'}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {editing && (
+        <Modal title={`Edit Task — ${editing.title}`} onClose={() => setEditing(null)}>
+          <form className="form-grid" onSubmit={handleSaveEdit}>
+            <label>Title<input required value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} /></label>
+            <label>Description<textarea value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} /></label>
+            <label>Priority
+              <select value={editForm.priority} onChange={(e) => setEditForm({ ...editForm, priority: e.target.value })}>
+                {priorities.map((p) => <option key={p.code} value={p.code}>{p.label}</option>)}
+              </select>
+            </label>
+            <label>Due Date<input type="date" value={editForm.dueDate} onChange={(e) => setEditForm({ ...editForm, dueDate: e.target.value })} /></label>
+            <label>Assignee
+              <select value={editForm.assigneeId} onChange={(e) => setEditForm({ ...editForm, assigneeId: e.target.value })}>
+                <option value="">— Not allocated —</option>
+                {users.map((u) => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+              </select>
+            </label>
+            <label>Project
+              <select value={editForm.projectId} onChange={(e) => setEditForm({ ...editForm, projectId: e.target.value })}>
+                <option value="">— None —</option>
+                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </label>
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
             </div>
           </form>
         </Modal>

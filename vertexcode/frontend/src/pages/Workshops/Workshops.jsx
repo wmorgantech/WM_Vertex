@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import CustomFieldsSection from '../../components/common/CustomFieldsSection';
 import toast from 'react-hot-toast';
 
 const STATUSES = ['LEAD', 'CONTACTED', 'DISCUSSION', 'PROPOSED', 'SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'FOLLOW_UP_REQUIRED'];
@@ -91,6 +92,17 @@ export default function Workshops() {
     }
   };
 
+  const handleDelete = async (w) => {
+    if (!window.confirm(`Delete workshop "${w.topic}"? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/workshops/${w.id}`);
+      toast.success('Workshop removed');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete workshop');
+    }
+  };
+
   const selectedCollege = colleges.find((c) => c.id === form.collegeId);
 
   const columns = [
@@ -106,8 +118,16 @@ export default function Workshops() {
     },
     {
       key: 'actions', header: '', render: (r) => (
-        (isManager || r.assignedEmployee?.id === user.id) &&
-        <button className="btn btn-ghost btn-sm" onClick={() => openEdit(r)}>Update</button>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {(isManager || r.assignedEmployee?.id === user.id) && (
+            <button className="btn btn-ghost btn-sm" onClick={() => openEdit(r)}>Update</button>
+          )}
+          {user.role === 'SUPER_ADMIN' && (
+            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDelete(r)} aria-label="Delete">
+              <Trash2 size={14} />
+            </button>
+          )}
+        </div>
       ),
     },
   ];
@@ -184,6 +204,7 @@ export default function Workshops() {
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
             </div>
           </form>
+          <CustomFieldsSection entityType="WORKSHOP" entityId={editing.id} />
         </Modal>
       )}
     </div>

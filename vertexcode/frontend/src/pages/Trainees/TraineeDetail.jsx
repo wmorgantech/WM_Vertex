@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import CustomFieldsSection from '../../components/common/CustomFieldsSection';
 import toast from 'react-hot-toast';
 
 const TOPIC_STATUSES = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED'];
@@ -175,6 +176,10 @@ export default function TraineeDetail() {
             ))}
           </ul>
         )}
+      </div>
+
+      <div style={{ marginTop: 20 }}>
+        <CustomFieldsSection entityType="TRAINEE" entityId={trainee.id} />
       </div>
 
       <div className="card" style={{ marginTop: 20 }}>

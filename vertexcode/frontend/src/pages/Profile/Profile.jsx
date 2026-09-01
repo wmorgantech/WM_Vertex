@@ -15,7 +15,7 @@ export default function Profile() {
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  const [passwordForm, setPasswordForm] = useState({ password: '', confirm: '' });
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', password: '', confirm: '' });
   const [savingPassword, setSavingPassword] = useState(false);
 
   const load = () => {
@@ -73,11 +73,26 @@ export default function Profile() {
       toast.error('Passwords do not match');
       return;
     }
+    if (!passwordForm.currentPassword) {
+      toast.error('Enter your current password');
+      return;
+    }
     setSavingPassword(true);
     try {
-      await api.put(`/users/${authUser.id}`, { password: passwordForm.password });
+      await api.put(`/users/${authUser.id}`, {
+        currentPassword: passwordForm.currentPassword,
+        password: passwordForm.password,
+      });
       toast.success('Password changed');
-      setPasswordForm({ password: '', confirm: '' });
+      setPasswordForm({ currentPassword: '', password: '', confirm: '' });
+      // A successful self-service change always clears any pending forced
+      // change — update locally so ProtectedRoute's redirect stops
+      // immediately, without waiting for a fresh /auth/me fetch.
+      setAuthUser((u) => {
+        const updated = { ...u, mustChangePassword: false };
+        localStorage.setItem('vertexwm_user', JSON.stringify(updated));
+        return updated;
+      });
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to change password');
     } finally {
@@ -90,6 +105,12 @@ export default function Profile() {
   return (
     <div>
       <PageHeader title="My Profile" subtitle="Your basic details — visible to your organization" />
+
+      {authUser.mustChangePassword && (
+        <div style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13 }}>
+          <strong>Password change required.</strong> Your administrator requires you to set a new password before you can continue using VertexWM.
+        </div>
+      )}
 
       <div className="card-grid">
         <div className="card">
@@ -135,7 +156,8 @@ export default function Profile() {
         <div className="card">
           <h3>Change Password</h3>
           <form className="form-grid" onSubmit={handleChangePassword}>
-            <label>New Password<input type="password" minLength={8} required value={passwordForm.password} onChange={(e) => setPasswordForm({ ...passwordForm, password: e.target.value })} /></label>
+            <label>Current Password<input type="password" autoComplete="current-password" required value={passwordForm.currentPassword} onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })} /></label>
+            <label>New Password<input type="password" autoComplete="new-password" minLength={8} required value={passwordForm.password} onChange={(e) => setPasswordForm({ ...passwordForm, password: e.target.value })} /></label>
             <label>Confirm Password<input type="password" minLength={8} required value={passwordForm.confirm} onChange={(e) => setPasswordForm({ ...passwordForm, confirm: e.target.value })} /></label>
             <div className="form-actions">
               <button type="submit" className="btn btn-secondary" disabled={savingPassword}>{savingPassword ? 'Saving...' : 'Change Password'}</button>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Eye, Pencil, KeyRound, Trash2, RotateCcw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
@@ -27,6 +27,12 @@ export default function EmployeeList() {
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+
+  const [managingAccount, setManagingAccount] = useState(null);
+  const [accountForm, setAccountForm] = useState({ password: '', confirm: '', mustChangePassword: true });
+  const [savingAccount, setSavingAccount] = useState(false);
+
+  const isSuperAdmin = currentUser.role === 'SUPER_ADMIN';
 
   const load = () => {
     setLoading(true);
@@ -82,6 +88,57 @@ export default function EmployeeList() {
     }
   };
 
+  const openManageAccount = (target) => {
+    setAccountForm({ password: '', confirm: '', mustChangePassword: true });
+    setManagingAccount(target);
+  };
+
+  const handleSaveAccount = async (e) => {
+    e.preventDefault();
+    if (accountForm.password.length < 8) {
+      toast.error('Password must be at least 8 characters');
+      return;
+    }
+    if (accountForm.password !== accountForm.confirm) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    setSavingAccount(true);
+    try {
+      await api.put(`/users/${managingAccount.id}`, {
+        password: accountForm.password,
+        mustChangePassword: accountForm.mustChangePassword,
+      });
+      toast.success('Password set');
+      setManagingAccount(null);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to set password');
+    } finally {
+      setSavingAccount(false);
+    }
+  };
+
+  const softDeleteUser = async (target) => {
+    if (!window.confirm(`Remove ${target.firstName} ${target.lastName}? Their account will be deactivated and the record kept for history — this can be undone with Restore.`)) return;
+    try {
+      await api.delete(`/users/${target.id}`);
+      toast.success('Employee removed');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to remove employee');
+    }
+  };
+
+  const restoreUser = async (target) => {
+    try {
+      await api.put(`/users/${target.id}`, { status: 'ACTIVE', exitDate: null });
+      toast.success('Employee restored');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to restore employee');
+    }
+  };
+
   const columns = [
     { key: 'name', header: 'Name', render: (r) => <Link to={`/employees/${r.id}`}>{r.firstName} {r.lastName}</Link> },
     { key: 'email', header: 'Email' },
@@ -91,15 +148,44 @@ export default function EmployeeList() {
     { key: 'role', header: 'Role', render: (r) => <Badge value={r.role} /> },
     { key: 'status', header: 'Status', render: (r) => <Badge value={r.status} /> },
     {
-      key: 'activation', header: '',
+      key: 'actions', header: 'Actions',
       render: (r) => {
-        // Admins can't deactivate a Super Admin; nobody deactivates themselves from this list.
+        // Admins can't manage a Super Admin; nobody manages themselves from this list
+        // (that's what /profile is for) — same rule already used for status toggling.
         const blocked = r.id === currentUser.id || (r.role === 'SUPER_ADMIN' && currentUser.role !== 'SUPER_ADMIN');
-        if (blocked) return null;
+        const isTerminated = r.status === 'TERMINATED';
         return (
-          <button className="btn btn-ghost btn-sm" onClick={() => toggleStatus(r)}>
-            {r.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
-          </button>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <Link to={`/employees/${r.id}`} className="btn btn-ghost btn-sm btn-icon" aria-label="View">
+              <Eye size={14} />
+            </Link>
+            {!blocked && (
+              <Link to={`/employees/${r.id}?edit=1`} className="btn btn-ghost btn-sm btn-icon" aria-label="Edit">
+                <Pencil size={14} />
+              </Link>
+            )}
+            {!blocked && (
+              <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openManageAccount(r)} aria-label="Manage Account">
+                <KeyRound size={14} />
+              </button>
+            )}
+            {!blocked && !isTerminated && (
+              <button className="btn btn-ghost btn-sm" onClick={() => toggleStatus(r)}>
+                {r.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+              </button>
+            )}
+            {isSuperAdmin && !blocked && (
+              isTerminated ? (
+                <button className="btn btn-ghost btn-sm" onClick={() => restoreUser(r)}>
+                  <RotateCcw size={14} /> Restore
+                </button>
+              ) : (
+                <button className="btn btn-ghost btn-sm btn-icon" onClick={() => softDeleteUser(r)} aria-label="Delete">
+                  <Trash2 size={14} />
+                </button>
+              )
+            )}
+          </div>
         );
       },
     },
@@ -168,6 +254,23 @@ export default function EmployeeList() {
             <div className="form-actions">
               <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Create'}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {managingAccount && (
+        <Modal title={`Manage Account — ${managingAccount.firstName} ${managingAccount.lastName}`} onClose={() => setManagingAccount(null)}>
+          <form className="form-grid" onSubmit={handleSaveAccount}>
+            <label>New Password<input type="password" autoComplete="new-password" minLength={8} required value={accountForm.password} onChange={(e) => setAccountForm({ ...accountForm, password: e.target.value })} /></label>
+            <label>Confirm Password<input type="password" autoComplete="new-password" minLength={8} required value={accountForm.confirm} onChange={(e) => setAccountForm({ ...accountForm, confirm: e.target.value })} /></label>
+            <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={accountForm.mustChangePassword} onChange={(e) => setAccountForm({ ...accountForm, mustChangePassword: e.target.checked })} />
+              Require password change on next login
+            </label>
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setManagingAccount(null)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={savingAccount}>{savingAccount ? 'Saving...' : 'Set Password'}</button>
             </div>
           </form>
         </Modal>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../api/axios';
 import PageHeader from '../../components/common/PageHeader';
@@ -14,6 +14,7 @@ const numOrNull = (v) => (v === '' || v === null || v === undefined ? null : Num
 
 export default function Trainees() {
   const { user } = useAuth();
+  const isSuperAdmin = user.role === 'SUPER_ADMIN';
   const [tab, setTab] = useState('enrollments');
   const [enrollments, setEnrollments] = useState([]);
   const [programs, setPrograms] = useState([]);
@@ -29,6 +30,10 @@ export default function Trainees() {
   const [enrollForm, setEnrollForm] = useState({ userId: '', programId: '', mentorId: '', totalFee: '', discount: '', finalFee: '' });
   const [topicForm, setTopicForm] = useState({ topic: '', sequence: '', expectedDurationHours: '' });
   const [saving, setSaving] = useState(false);
+  const [editingProgram, setEditingProgram] = useState(null);
+  const [programEditForm, setProgramEditForm] = useState({});
+  const [editingTopic, setEditingTopic] = useState(null);
+  const [topicEditForm, setTopicEditForm] = useState({});
 
   const load = () => {
     setLoading(true);
@@ -110,12 +115,107 @@ export default function Trainees() {
     }
   };
 
+  const handleTerminate = async (enrollment) => {
+    if (!window.confirm(`Remove ${enrollment.user.firstName} ${enrollment.user.lastName} as a trainee? This deactivates their account (soft delete) — the record is kept for history.`)) return;
+    try {
+      await api.delete(`/trainees/enrollments/${enrollment.id}`);
+      toast.success('Trainee removed');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to remove trainee');
+    }
+  };
+
+  const openProgramEdit = (p) => {
+    setEditingProgram(p);
+    setProgramEditForm({
+      name: p.name, description: p.description || '', technology: p.technology || '', duration: p.duration || '',
+      trainerId: p.trainer.id, mentorId: p.mentor?.id || '',
+      fee: p.fee ?? '', discount: p.discount ?? '', finalFee: p.finalFee ?? '',
+      startDate: p.startDate.slice(0, 10), endDate: p.endDate.slice(0, 10), status: p.status,
+    });
+  };
+
+  const handleSaveProgramEdit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.put(`/trainees/programs/${editingProgram.id}`, {
+        ...programEditForm,
+        fee: numOrNull(programEditForm.fee), discount: numOrNull(programEditForm.discount), finalFee: numOrNull(programEditForm.finalFee),
+      });
+      toast.success('Program updated');
+      setEditingProgram(null);
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update program');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteProgram = async (p) => {
+    if (!window.confirm(`Delete program "${p.name}"? This cannot be undone. The program must have no enrollments left in it.`)) return;
+    try {
+      await api.delete(`/trainees/programs/${p.id}`);
+      toast.success('Program removed');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete program');
+    }
+  };
+
+  const openTopicEdit = (t) => {
+    setEditingTopic(t);
+    setTopicEditForm({
+      topic: t.topic, description: t.description || '', sequence: t.sequence, expectedDurationHours: t.expectedDurationHours ?? '', active: t.active,
+    });
+  };
+
+  const handleSaveTopicEdit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.put(`/trainees/topics/${editingTopic.id}`, {
+        ...topicEditForm,
+        sequence: topicEditForm.sequence === '' ? 0 : parseInt(topicEditForm.sequence, 10),
+        expectedDurationHours: numOrNull(topicEditForm.expectedDurationHours),
+      });
+      toast.success('Topic updated');
+      setEditingTopic(null);
+      const { data } = await api.get('/trainees/topics', { params: { programId: selectedProgramId } });
+      setTopics(data.data);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update topic');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteTopic = async (t) => {
+    if (!window.confirm(`Delete topic "${t.topic}"? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/trainees/topics/${t.id}`);
+      toast.success('Topic removed');
+      const { data } = await api.get('/trainees/topics', { params: { programId: selectedProgramId } });
+      setTopics(data.data);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete topic');
+    }
+  };
+
   const enrollmentColumns = [
     { key: 'name', header: 'Trainee', render: (r) => <Link to={`/trainees/${r.id}`}>{r.user.firstName} {r.user.lastName}</Link> },
     { key: 'program', header: 'Program', render: (r) => r.program.name },
     { key: 'mentor', header: 'Mentor', render: (r) => r.mentor ? `${r.mentor.firstName} ${r.mentor.lastName}` : '—' },
     { key: 'progressPercent', header: 'Progress', render: (r) => `${r.progressPercent}%` },
     { key: 'completionStatus', header: 'Status', render: (r) => <Badge value={r.completionStatus} /> },
+    ...(isSuperAdmin ? [{
+      key: 'actions', header: '',
+      render: (r) => r.completionStatus !== 'TERMINATED' && (
+        <button className="btn btn-danger btn-sm" onClick={() => handleTerminate(r)}><Trash2 size={14} /> Remove</button>
+      ),
+    }] : []),
   ];
 
   const programColumns = [
@@ -126,6 +226,17 @@ export default function Trainees() {
     { key: 'endDate', header: 'End', render: (r) => new Date(r.endDate).toLocaleDateString() },
     { key: 'status', header: 'Status', render: (r) => <Badge value={r.status} /> },
     { key: 'count', header: 'Trainees', render: (r) => r._count?.enrollments ?? 0 },
+    {
+      key: 'actions', header: '',
+      render: (r) => (
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openProgramEdit(r)} aria-label="Edit"><Pencil size={14} /></button>
+          {isSuperAdmin && (
+            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDeleteProgram(r)} aria-label="Delete"><Trash2 size={14} /></button>
+          )}
+        </div>
+      ),
+    },
   ];
 
   const topicColumns = [
@@ -133,6 +244,17 @@ export default function Trainees() {
     { key: 'topic', header: 'Topic' },
     { key: 'expectedDurationHours', header: 'Hours', render: (r) => r.expectedDurationHours ?? '—' },
     { key: 'active', header: 'Status', render: (r) => <Badge value={r.active ? 'ACTIVE' : 'INACTIVE'} /> },
+    {
+      key: 'actions', header: '',
+      render: (r) => (
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openTopicEdit(r)} aria-label="Edit"><Pencil size={14} /></button>
+          {isSuperAdmin && (
+            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDeleteTopic(r)} aria-label="Delete"><Trash2 size={14} /></button>
+          )}
+        </div>
+      ),
+    },
   ];
 
   const potentialTrainees = users.filter((u) => !enrollments.some((e) => e.user.id === u.id) && u.role !== 'INTERN');
@@ -254,6 +376,61 @@ export default function Trainees() {
             <div className="form-actions">
               <button type="button" className="btn btn-ghost" onClick={() => setShowTopicModal(false)}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Add'}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {editingProgram && (
+        <Modal title={`Edit Program — ${editingProgram.name}`} onClose={() => setEditingProgram(null)}>
+          <form className="form-grid" onSubmit={handleSaveProgramEdit}>
+            <label>Name<input required value={programEditForm.name} onChange={(e) => setProgramEditForm({ ...programEditForm, name: e.target.value })} /></label>
+            <label>Technology<input value={programEditForm.technology} onChange={(e) => setProgramEditForm({ ...programEditForm, technology: e.target.value })} /></label>
+            <label>Duration<input value={programEditForm.duration} onChange={(e) => setProgramEditForm({ ...programEditForm, duration: e.target.value })} /></label>
+            <label>Trainer
+              <select required value={programEditForm.trainerId} onChange={(e) => setProgramEditForm({ ...programEditForm, trainerId: e.target.value })}>
+                {staffUsers.map((u) => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+              </select>
+            </label>
+            <label>Mentor
+              <select value={programEditForm.mentorId} onChange={(e) => setProgramEditForm({ ...programEditForm, mentorId: e.target.value })}>
+                <option value="">— None —</option>
+                {staffUsers.map((u) => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+              </select>
+            </label>
+            <label>Fee<input type="number" value={programEditForm.fee} onChange={(e) => setProgramEditForm({ ...programEditForm, fee: e.target.value })} /></label>
+            <label>Discount<input type="number" value={programEditForm.discount} onChange={(e) => setProgramEditForm({ ...programEditForm, discount: e.target.value })} /></label>
+            <label>Final Fee<input type="number" value={programEditForm.finalFee} onChange={(e) => setProgramEditForm({ ...programEditForm, finalFee: e.target.value })} /></label>
+            <label>Start Date<input type="date" required value={programEditForm.startDate} onChange={(e) => setProgramEditForm({ ...programEditForm, startDate: e.target.value })} /></label>
+            <label>End Date<input type="date" required value={programEditForm.endDate} onChange={(e) => setProgramEditForm({ ...programEditForm, endDate: e.target.value })} /></label>
+            <label>Status
+              <select value={programEditForm.status} onChange={(e) => setProgramEditForm({ ...programEditForm, status: e.target.value })}>
+                {['UPCOMING', 'ONGOING', 'COMPLETED', 'CANCELLED'].map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
+            <label>Description<textarea value={programEditForm.description} onChange={(e) => setProgramEditForm({ ...programEditForm, description: e.target.value })} /></label>
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setEditingProgram(null)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {editingTopic && (
+        <Modal title={`Edit Topic — ${editingTopic.topic}`} onClose={() => setEditingTopic(null)}>
+          <form className="form-grid" onSubmit={handleSaveTopicEdit}>
+            <label>Topic<input required value={topicEditForm.topic} onChange={(e) => setTopicEditForm({ ...topicEditForm, topic: e.target.value })} /></label>
+            <label>Sequence<input type="number" value={topicEditForm.sequence} onChange={(e) => setTopicEditForm({ ...topicEditForm, sequence: e.target.value })} /></label>
+            <label>Expected Hours<input type="number" value={topicEditForm.expectedDurationHours} onChange={(e) => setTopicEditForm({ ...topicEditForm, expectedDurationHours: e.target.value })} /></label>
+            <label>Description<textarea value={topicEditForm.description} onChange={(e) => setTopicEditForm({ ...topicEditForm, description: e.target.value })} /></label>
+            <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={topicEditForm.active} onChange={(e) => setTopicEditForm({ ...topicEditForm, active: e.target.checked })} />
+              Active
+            </label>
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setEditingTopic(null)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
             </div>
           </form>
         </Modal>
