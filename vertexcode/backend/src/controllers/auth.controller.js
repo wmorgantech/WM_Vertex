@@ -22,6 +22,7 @@ const publicUser = (u) => ({
   managerId: u.managerId,
   avatarUrl: u.avatarUrl,
   joinDate: u.joinDate,
+  mustChangePassword: u.mustChangePassword,
 });
 
 async function login(req, res) {

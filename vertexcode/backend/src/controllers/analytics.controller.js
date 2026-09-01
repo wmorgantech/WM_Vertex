@@ -24,7 +24,7 @@ async function overview(req, res) {
     upcomingWorkshops, workshopFollowUpsOverdue, activeMous, mousExpiringSoon,
     expenseTotalAgg, expenseLast30Agg, expenseByCategory,
   ] = await Promise.all([
-    prisma.user.count({ where: { role: { in: ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'] } } }),
+    prisma.user.count({ where: { role: { in: ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'] }, status: 'ACTIVE' } }),
     prisma.user.count({ where: { role: 'INTERN' } }),
     prisma.user.count({ where: { role: 'TRAINEE' } }),
     prisma.user.count({ where: { status: 'ACTIVE' } }),

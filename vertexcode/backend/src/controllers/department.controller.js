@@ -47,8 +47,14 @@ async function updateDepartment(req, res) {
 }
 
 async function deleteDepartment(req, res) {
-  const before = await prisma.department.findUnique({ where: { id: req.params.id } });
+  const before = await prisma.department.findUnique({
+    where: { id: req.params.id },
+    include: { _count: { select: { users: true } } },
+  });
   if (!before) throw new ApiError(404, 'Department not found');
+  if (before._count.users > 0) {
+    throw new ApiError(400, `Cannot delete: ${before._count.users} user(s) still belong to this department. Reassign them first.`);
+  }
   await prisma.department.delete({ where: { id: req.params.id } });
   await recordAudit({ actorId: req.user.id, action: 'DELETED', module: 'DEPARTMENT', entityId: before.id, entityLabel: before.name, before });
   return sendSuccess(res, 200, { message: 'Department removed' });

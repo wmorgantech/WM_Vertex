@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const prisma = require('../config/db');
 const ApiError = require('../utils/apiError');
 const { sendSuccess } = require('../utils/apiResponse');
@@ -326,6 +328,35 @@ async function updateMou(req, res) {
   return sendSuccess(res, 200, mou);
 }
 
+// POST /api/mous/:id/document — attach/replace the signed MOU document.
+// Reuses the same upload middleware/storage convention as intern documents
+// (middleware/upload.js); the old file is removed when a document is replaced,
+// mirroring document.controller.js's uploadDocument re-upload behavior.
+async function uploadMouDocument(req, res) {
+  const before = await prisma.mOU.findUnique({ where: { id: req.params.id } });
+  if (!before) throw new ApiError(404, 'MOU not found');
+  if (!req.file) throw new ApiError(400, 'A file is required');
+
+  if (before.documentPath) {
+    fs.unlink(before.documentPath, () => {});
+  }
+
+  const mou = await prisma.mOU.update({
+    where: { id: req.params.id },
+    data: { documentPath: req.file.path, documentName: req.file.originalname },
+  });
+  await recordAudit({ actorId: req.user.id, action: 'DOCUMENT_UPLOADED', module: 'MOU', entityId: mou.id, entityLabel: mou.mouType || mou.id, before, after: mou });
+  return sendSuccess(res, 200, mou);
+}
+
+// GET /api/mous/:id/document — download the attached MOU document
+async function downloadMouDocument(req, res) {
+  const mou = await prisma.mOU.findUnique({ where: { id: req.params.id } });
+  if (!mou) throw new ApiError(404, 'MOU not found');
+  if (!mou.documentPath) throw new ApiError(404, 'No document attached to this MOU');
+  return res.download(path.resolve(mou.documentPath), mou.documentName || 'mou-document');
+}
+
 async function deleteMou(req, res) {
   const before = await prisma.mOU.findUnique({ where: { id: req.params.id } });
   if (!before) throw new ApiError(404, 'MOU not found');
@@ -338,5 +369,5 @@ module.exports = {
   listColleges, getCollege, createCollege, updateCollege, deleteCollege,
   createCollegeDepartment, updateCollegeDepartment, deleteCollegeDepartment,
   listWorkshops, getWorkshop, createWorkshop, updateWorkshop, deleteWorkshop,
-  listMous, getMou, createMou, updateMou, deleteMou,
+  listMous, getMou, createMou, updateMou, deleteMou, uploadMouDocument, downloadMouDocument,
 };

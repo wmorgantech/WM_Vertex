@@ -274,6 +274,7 @@ model User {
   status                   EmploymentStatus        @default(ACTIVE)
   joinDate                 DateTime                @default(now())
   exitDate                 DateTime?
+  mustChangePassword       Boolean                 @default(false)
   avatarUrl                String?
   departmentId             String?
   managerId                String?
@@ -901,6 +902,7 @@ enum DocumentAuditAction {
   SUBMITTED
   APPROVED
   REJECTED
+  DOWNLOADED
 }
 
 enum InternshipCategory {
