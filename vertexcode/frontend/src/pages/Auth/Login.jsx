@@ -16,13 +16,6 @@ const ROLES = [
   { value: 'INTERN', label: 'Intern' },
 ];
 
-const DEMO_ACCOUNTS = [
-  { role: 'SUPER_ADMIN', label: 'Super Admin', email: 'superadmin@vertexwm.com' },
-  { role: 'ADMIN', label: 'Admin', email: 'admin.eng@vertexwm.com' },
-  { role: 'EMPLOYEE', label: 'Employee', email: 'vijay@gmail.com' },
-  { role: 'INTERN', label: 'Intern', email: 'intern1@vertexwm.com' },
-];
-
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const inputClass =
@@ -89,13 +82,6 @@ export default function Login() {
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const handleDemoClick = (acc) => {
-    setRole(acc.role);
-    setEmail(acc.email);
-    setEmailError('');
-    setFormError('');
   };
 
   return (
@@ -201,27 +187,6 @@ export default function Login() {
             )}
           </button>
         </form>
-      </div>
-
-      <div className="mt-5 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
-        <p className="mb-2.5 text-xs font-medium text-zinc-400">
-          Demo credentials <span className="text-zinc-600">(password: Password123!)</span>
-        </p>
-        <ul className="space-y-1.5">
-          {DEMO_ACCOUNTS.map((acc) => (
-            <li key={acc.email} className="flex items-center justify-between gap-3 text-xs">
-              <span className="text-zinc-500">{acc.label}</span>
-              <button
-                type="button"
-                onClick={() => handleDemoClick(acc)}
-                disabled={submitting}
-                className="rounded font-mono text-zinc-300 underline-offset-2 hover:text-violet-400 hover:underline disabled:pointer-events-none"
-              >
-                {acc.email}
-              </button>
-            </li>
-          ))}
-        </ul>
       </div>
     </div>
   );
