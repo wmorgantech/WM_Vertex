@@ -739,6 +739,30 @@ input, select, textarea { font-family: inherit; }
   transition: border-color 0.15s;
 }
 .search-input:hover, .toolbar select:hover { border-color: #c7cbd4; }
+
+/* --- Pagination --- */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.pagination-summary { font-size: 13px; color: var(--text-muted); }
+.pagination-controls { display: flex; align-items: center; gap: 8px; }
+.pagination-page { font-size: 13px; color: var(--text); white-space: nowrap; }
+
+/* --- Compact monospace id cell (truncated uuid, full value in title attr) --- */
+.id-cell {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: default;
+}
+
 .tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
 .tab {
   border: none;
@@ -814,6 +838,15 @@ input, select, textarea { font-family: inherit; }
 
 /* --- Forms --- */
 .form-grid { display: flex; flex-direction: column; gap: 14px; }
+/* Marks a form as actively in edit mode (vs. a read-only field/value display
+   right above it) — a subtle bordered panel with a faint highlight backdrop
+   makes the transition from "viewing" to "editing" visually unambiguous. */
+.editing-panel {
+  background: color-mix(in srgb, var(--brand) 4%, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
 .form-grid label { font-size: 13px; font-weight: 600; color: var(--text-muted); display: flex; flex-direction: column; gap: 5px; }
 .form-grid input, .form-grid select, .form-grid textarea {
   padding: 9px 12px;

@@ -123,13 +123,19 @@ export default function SuperAdminDashboard() {
         />
         <KpiCard label="Pending Internship Approvals" value={documents.pendingApplications} icon={ClipboardCheck} accent="warning" />
         <KpiCard label="Tasks Not Allocated" value={tasks.unallocated} icon={UserX} accent="destructive" />
-        <KpiCard label="Offer Letters" value={offerLetters.generated} hint={`${offerLetters.pending} pending`} icon={FileText} accent="info" />
-        <KpiCard label="Certificates" value={certificates.generated} hint={`${certificates.eligiblePending} ready to issue`} icon={Award} accent="success" />
+        {offerLetters && (
+          <KpiCard label="Offer Letters" value={offerLetters.generated} hint={`${offerLetters.pending} pending`} icon={FileText} accent="info" />
+        )}
+        {certificates && (
+          <KpiCard label="Certificates" value={certificates.generated} hint={`${certificates.eligiblePending} ready to issue`} icon={Award} accent="success" />
+        )}
         <KpiCard label="Upcoming Workshops" value={businessDevelopment.upcomingWorkshops} icon={Presentation} accent="info" />
         <KpiCard label="Workshop Follow-ups" value={businessDevelopment.workshopFollowUpsOverdue} icon={ClipboardCheck} accent={businessDevelopment.workshopFollowUpsOverdue > 0 ? 'destructive' : 'success'} />
         <KpiCard label="Active MOUs" value={businessDevelopment.activeMous} icon={FileSignature} accent="primary" />
         <KpiCard label="MOUs Expiring Soon" value={businessDevelopment.mousExpiringSoon} icon={FileSignature} accent={businessDevelopment.mousExpiringSoon > 0 ? 'warning' : 'success'} />
-        <KpiCard label="Total Expenses" value={`₹${finance.totalExpenses.toLocaleString()}`} hint={`₹${finance.last30DaysExpenses.toLocaleString()} last 30 days`} icon={IndianRupee} accent="warning" />
+        {finance && (
+          <KpiCard label="Total Expenses" value={`₹${finance.totalExpenses.toLocaleString()}`} hint={`₹${finance.last30DaysExpenses.toLocaleString()} last 30 days`} icon={IndianRupee} accent="warning" />
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

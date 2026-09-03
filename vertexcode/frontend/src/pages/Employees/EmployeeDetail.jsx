@@ -1,15 +1,71 @@
 import { useEffect, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
-import api from '../../api/axios';
-import { useAuth } from '../../context/AuthContext';
-import PageHeader from '../../components/common/PageHeader';
-import Badge from '../../components/common/Badge';
-import Modal from '../../components/common/Modal';
-import CustomFieldsSection from '../../components/common/CustomFieldsSection';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, Mail, Phone, Pencil } from 'lucide-react';
+import api from '@/api/axios';
+import { useAuth } from '@/context/AuthContext';
+import Badge from '@/components/shared/Badge';
+import Modal from '@/components/common/Modal';
+import CustomFieldsSection from '@/components/common/CustomFieldsSection';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import toast from 'react-hot-toast';
 
 const listToText = (arr) => (arr || []).join(', ');
 const textToList = (text) => text.split(',').map((s) => s.trim()).filter(Boolean);
+
+const STATUS_OPTIONS = [
+  { value: 'ACTIVE', label: 'Active' },
+  { value: 'ON_LEAVE', label: 'On Leave' },
+  { value: 'SUSPENDED', label: 'Suspended' },
+  { value: 'TERMINATED', label: 'Terminated' },
+  { value: 'ALUMNI', label: 'Alumni' },
+];
+
+function initials(person) {
+  return `${person?.firstName?.[0] || ''}${person?.lastName?.[0] || ''}`.toUpperCase();
+}
+
+function SectionHeading({ children, action }) {
+  return (
+    <div className="mb-4 flex items-center justify-between">
+      <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{children}</h2>
+      {action}
+    </div>
+  );
+}
+
+function Field({ icon: Icon, label, value, className }) {
+  return (
+    <div className={`flex items-start gap-2.5 ${className || ''}`}>
+      {Icon && <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
+      <div className="min-w-0">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="text-sm font-medium text-foreground">{value ?? '—'}</p>
+      </div>
+    </div>
+  );
+}
+
+function TagList({ label, items }) {
+  return (
+    <div className="sm:col-span-2">
+      <p className="mb-1.5 text-xs text-muted-foreground">{label}</p>
+      {items?.length ? (
+        <div className="flex flex-wrap gap-1.5">
+          {items.map((item) => (
+            <span key={item} className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground">
+              {item}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm font-medium text-foreground">—</p>
+      )}
+    </div>
+  );
+}
 
 export default function EmployeeDetail() {
   const { id } = useParams();
@@ -159,65 +215,132 @@ export default function EmployeeDetail() {
   if (!user) return <div className="empty-state">Employee not found.</div>;
 
   return (
-    <div>
-      <PageHeader title={`${user.firstName} ${user.lastName}`} subtitle={user.designation || user.role} />
+    <div className="pb-10">
+      <Link
+        to="/employees"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="size-4" />
+        Employees
+      </Link>
 
-      <div className="card-grid">
-        <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3>Profile</h3>
-            <button className="btn btn-ghost btn-sm" onClick={openProfileEdit}>Edit</button>
+      {/* Header */}
+      <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-4">
+          <Avatar className="size-14 text-base">
+            <AvatarFallback>{initials(user)}</AvatarFallback>
+          </Avatar>
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                {user.firstName} {user.lastName}
+              </h1>
+              <Badge value={user.status} />
+            </div>
+            <p className="text-sm text-muted-foreground">{user.designation || '—'}</p>
+            <p className="text-xs text-muted-foreground">
+              {user.role.replace(/_/g, ' ')} · {user.department?.name || 'No department'} · {user.location?.name || 'No location'}
+            </p>
           </div>
-          <dl className="detail-list">
-            <dt>Email</dt><dd>{user.email}</dd>
-            <dt>Phone</dt><dd>{user.phone || '—'}</dd>
-            <dt>Role</dt><dd><Badge value={user.role} /></dd>
-            <dt>Designation</dt><dd>{user.designation || '—'}</dd>
-            <dt>Employment Type</dt><dd>{user.employmentType}</dd>
-            <dt>Department</dt><dd>{user.department?.name || '—'}</dd>
-            <dt>Location</dt><dd>{user.location?.name || '—'}</dd>
-            <dt>Manager</dt><dd>{user.manager ? `${user.manager.firstName} ${user.manager.lastName}` : '—'}</dd>
-            <dt>Join Date</dt><dd>{new Date(user.joinDate).toLocaleDateString()}</dd>
-          </dl>
+        </div>
+        <Button onClick={openProfileEdit}>
+          <Pencil className="size-4" />
+          Edit Profile
+        </Button>
+      </div>
+
+      <Separator className="mt-6 mb-8" />
+
+      {/* Content */}
+      <div className="grid grid-cols-1 gap-x-12 gap-y-8 lg:grid-cols-3">
+        <div className="space-y-8 lg:col-span-2">
+          <section>
+            <SectionHeading>Contact</SectionHeading>
+            <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
+              <Field icon={Mail} label="Email" value={user.email} />
+              <Field icon={Phone} label="Phone" value={user.phone} />
+            </div>
+          </section>
+
+          <Separator />
+
+          <section>
+            <SectionHeading>Work Information</SectionHeading>
+            <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
+              <Field label="Role" value={user.role.replace(/_/g, ' ')} />
+              <Field label="Designation" value={user.designation} />
+              <Field label="Employment Type" value={user.employmentType} />
+              <Field label="Department" value={user.department?.name} />
+              <Field label="Location" value={user.location?.name} />
+              <Field label="Manager" value={user.manager ? `${user.manager.firstName} ${user.manager.lastName}` : null} />
+              <Field label="Join Date" value={user.joinDate ? new Date(user.joinDate).toLocaleDateString() : null} />
+            </div>
+          </section>
+
+          <Separator />
+
+          <section>
+            <SectionHeading action={<Button variant="ghost" size="sm" onClick={openEdit}><Pencil className="size-3.5" /> Edit</Button>}>
+              Personal Information
+            </SectionHeading>
+            <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
+              <Field label="Gender" value={user.gender} />
+              <Field label="Date of Birth" value={user.dateOfBirth ? new Date(user.dateOfBirth).toLocaleDateString() : null} />
+              <Field label="Experience" value={user.experienceYears != null ? `${user.experienceYears} yrs` : null} />
+              <Field className="sm:col-span-2" label="Address" value={user.address} />
+              <TagList label="Skills" items={user.skills} />
+              <TagList label="Technology Stack" items={user.technologyStack} />
+              <TagList label="Certifications" items={user.certifications} />
+            </div>
+          </section>
         </div>
 
-        <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3>Personal & Professional</h3>
-            <button className="btn btn-ghost btn-sm" onClick={openEdit}>Edit</button>
-          </div>
-          <dl className="detail-list">
-            <dt>Gender</dt><dd>{user.gender || '—'}</dd>
-            <dt>Date of Birth</dt><dd>{user.dateOfBirth ? new Date(user.dateOfBirth).toLocaleDateString() : '—'}</dd>
-            <dt>Address</dt><dd>{user.address || '—'}</dd>
-            <dt>Experience</dt><dd>{user.experienceYears != null ? `${user.experienceYears} yrs` : '—'}</dd>
-            <dt>Skills</dt><dd>{user.skills?.length ? user.skills.join(', ') : '—'}</dd>
-            <dt>Technology Stack</dt><dd>{user.technologyStack?.length ? user.technologyStack.join(', ') : '—'}</dd>
-            <dt>Certifications</dt><dd>{user.certifications?.length ? user.certifications.join(', ') : '—'}</dd>
-          </dl>
-        </div>
+        <div className="space-y-8">
+          <section>
+            <SectionHeading>Employment Status</SectionHeading>
+            <div className="flex items-center gap-2">
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUS_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button className="mt-3 w-full" onClick={handleStatusUpdate} disabled={status === user.status}>
+              Update Status
+            </Button>
+          </section>
 
-        <div className="card">
-          <h3>Employment Status</h3>
-          <select value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="ACTIVE">Active</option>
-            <option value="ON_LEAVE">On Leave</option>
-            <option value="SUSPENDED">Suspended</option>
-            <option value="TERMINATED">Terminated</option>
-            <option value="ALUMNI">Alumni</option>
-          </select>
-          <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={handleStatusUpdate}>Update Status</button>
-        </div>
+          <Separator />
 
-        <CustomFieldsSection entityType="EMPLOYEE" entityId={user.id} />
+          <section>
+            <SectionHeading>Direct Reports</SectionHeading>
+            {user.directReports?.length ? (
+              <ul className="space-y-3">
+                {user.directReports.map((r) => (
+                  <li key={r.id} className="flex items-center gap-2.5">
+                    <Avatar className="size-7 text-[10px]">
+                      <AvatarFallback>{initials(r)}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">{r.firstName} {r.lastName}</p>
+                      <p className="truncate text-xs text-muted-foreground">{r.designation || r.role}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No direct reports.</p>
+            )}
+          </section>
 
-        <div className="card">
-          <h3>Direct Reports</h3>
-          {user.directReports?.length ? (
-            <ul className="simple-list">
-              {user.directReports.map((r) => <li key={r.id}>{r.firstName} {r.lastName} — {r.designation || r.role}</li>)}
-            </ul>
-          ) : <div className="empty-state">No direct reports.</div>}
+          <Separator />
+
+          <CustomFieldsSection entityType="EMPLOYEE" entityId={user.id} />
         </div>
       </div>
 

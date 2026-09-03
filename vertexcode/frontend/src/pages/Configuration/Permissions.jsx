@@ -17,12 +17,17 @@ const MODULE_ACTIONS = {
   intern: ['manage'],
   trainee: ['manage'],
   workupdate: ['review'],
+  college: ['manage'],
+  mou: ['manage'],
+  workshop: ['manage'],
+  leave: ['approve'],
 };
 
 const MODULE_LABELS = {
   department: 'Departments', project: 'Projects', task: 'Tasks', timesheet: 'Timesheets',
   analytics: 'Analytics', attendance: 'Attendance', user: 'Users', document: 'Intern Documents',
   intern: 'Interns', trainee: 'Trainees', workupdate: 'Work Updates',
+  college: 'Colleges', mou: 'MOUs', workshop: 'Workshops', leave: 'Leave',
 };
 
 export default function Permissions() {
