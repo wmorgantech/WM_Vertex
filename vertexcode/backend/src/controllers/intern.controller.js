@@ -118,7 +118,7 @@ async function listEnrollableUsers(req, res) {
 // --- Enrollments -------------------------------------------------------------
 
 async function listEnrollments(req, res) {
-  const { batchId, mentorId, completionStatus, search } = req.query;
+  const { batchId, mentorId, completionStatus, search, page, limit } = req.query;
   const searchClause = search ? {
     user: {
       OR: [
@@ -154,16 +154,28 @@ async function listEnrollments(req, res) {
     };
   }
 
-  const enrollments = await prisma.internEnrollment.findMany({
-    where,
-    include: {
-      user: { select: { id: true, firstName: true, lastName: true, email: true, status: true } },
-      batch: true,
-      mentor: { select: { id: true, firstName: true, lastName: true } },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
-  return sendSuccess(res, 200, enrollments);
+  // Pagination is opt-in — other callers (e.g. the intern's own dashboard)
+  // rely on this endpoint returning their full, unbounded result set, so a
+  // request with no page/limit keeps returning exactly what it does today.
+  const paginate = page !== undefined || limit !== undefined;
+  const take = paginate ? Math.min(parseInt(limit, 10) || 25, 100) : undefined;
+  const skip = paginate ? (Math.max(parseInt(page, 10), 1) - 1) * take : undefined;
+
+  const [enrollments, total] = await Promise.all([
+    prisma.internEnrollment.findMany({
+      where,
+      include: {
+        user: { select: { id: true, firstName: true, lastName: true, email: true, status: true } },
+        batch: true,
+        mentor: { select: { id: true, firstName: true, lastName: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      ...(paginate && { take, skip }),
+    }),
+    paginate ? prisma.internEnrollment.count({ where }) : Promise.resolve(undefined),
+  ]);
+
+  return sendSuccess(res, 200, enrollments, paginate ? { total, page: Math.max(parseInt(page, 10), 1) || 1, limit: take } : undefined);
 }
 
 async function enrollIntern(req, res) {
@@ -230,9 +242,10 @@ async function updateEnrollment(req, res) {
   return sendSuccess(res, 200, enrollment);
 }
 
-// DELETE /api/interns/enrollments/:id — Super Admin only, soft delete.
-// The record is kept (completionStatus -> TERMINATED) for audit/history and
-// the intern's account is deactivated, rather than removing any rows.
+// DELETE /api/interns/enrollments/:id — gated by intern:manage (Super Admin
+// or Admin, see intern.routes.js), soft delete only. The record is kept
+// (completionStatus -> TERMINATED) for audit/history and the intern's
+// account is deactivated, rather than removing any rows.
 async function deleteEnrollment(req, res) {
   const enrollment = await prisma.internEnrollment.findUnique({
     where: { id: req.params.id },

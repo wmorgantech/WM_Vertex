@@ -12,11 +12,17 @@ const publicUser = (u) => {
 
 // GET /api/users  (list, filterable) — Admin/Super Admin only
 async function listUsers(req, res) {
-  const { role, departmentId, status, employmentType, search, page = 1, limit = 25 } = req.query;
+  const { role, departmentId, designation, status, employmentType, search, page = 1, limit = 25 } = req.query;
+
+  // `role` accepts a single value or a comma-separated list (e.g. the
+  // Employees page sends "EMPLOYEE,ADMIN,SUPER_ADMIN" to exclude interns/
+  // trainees server-side instead of truncating a paginated page client-side).
+  const roles = role ? role.split(',').map((r) => r.trim()).filter(Boolean) : null;
 
   const where = {
-    ...(role && { role }),
+    ...(roles && roles.length && { role: roles.length === 1 ? roles[0] : { in: roles } }),
     ...(departmentId && { departmentId }),
+    ...(designation && { designation }),
     ...(status && { status }),
     ...(employmentType && { employmentType }),
     ...(search && {
@@ -83,6 +89,12 @@ async function createUser(req, res) {
 
   if (req.user.role === 'ADMIN' && role === 'SUPER_ADMIN') {
     throw new ApiError(403, 'Admins cannot create Super Admin accounts');
+  }
+  // Only a Super Admin may create an Admin account — otherwise any Admin
+  // could mint a brand-new Admin peer, the same escalation updateUser
+  // already blocks for promoting an *existing* user to Admin.
+  if (req.user.role === 'ADMIN' && role === 'ADMIN') {
+    throw new ApiError(403, 'Admins cannot create Admin accounts');
   }
 
   const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
@@ -169,6 +181,18 @@ async function updateUser(req, res) {
 
   if (req.user.role === 'ADMIN' && (target.role === 'SUPER_ADMIN' || data.role === 'SUPER_ADMIN')) {
     throw new ApiError(403, 'Admins cannot modify Super Admin accounts');
+  }
+  // Only a Super Admin may grant the Admin role itself — otherwise any Admin
+  // could promote an arbitrary user to their own privilege level.
+  if (req.user.role === 'ADMIN' && data.role === 'ADMIN') {
+    throw new ApiError(403, 'Admins cannot assign the Admin role');
+  }
+  // Soft-delete/deactivate (status -> SUSPENDED or TERMINATED) on someone
+  // else's account is Super-Admin-only, matching the dedicated soft-delete
+  // endpoint's own gate below — an Admin may still set other status values
+  // (e.g. ON_LEAVE, or ACTIVE to restore) on accounts they manage.
+  if (req.user.role === 'ADMIN' && !isSelf && ['SUSPENDED', 'TERMINATED'].includes(data.status)) {
+    throw new ApiError(403, 'Only a Super Admin can deactivate or remove an employee');
   }
 
   const user = await prisma.user.update({ where: { id: target.id }, data });

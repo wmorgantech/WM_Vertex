@@ -13,6 +13,7 @@ const dayStart = (d = new Date()) => {
   return new Date(Date.UTC(local.getFullYear(), local.getMonth(), local.getDate()));
 };
 const LATE_THRESHOLD_HOUR = 9; // 09:00 local
+const ATTENDANCE_STATUSES = ['PRESENT', 'LATE', 'ABSENT', 'HALF_DAY', 'ON_LEAVE', 'HOLIDAY', 'WEEKEND'];
 
 function hoursBetween(a, b) {
   return Math.round(((b - a) / 3600000) * 100) / 100;
@@ -93,16 +94,28 @@ async function listAttendance(req, res) {
 async function markAttendance(req, res) {
   const { userId, date, status, workHours, notes } = req.body;
   if (!userId || !date || !status) throw new ApiError(400, 'userId, date and status are required');
+  if (!ATTENDANCE_STATUSES.includes(status)) {
+    throw new ApiError(400, `status must be one of: ${ATTENDANCE_STATUSES.join(', ')}`);
+  }
 
-  const before = await prisma.attendance.findUnique({ where: { userId_date: { userId, date: dayStart(date) } } });
+  // Date-only comparison via the same dayStart() convention used everywhere
+  // else in this file — a raw `new Date(date) > new Date()` would also flag
+  // "later today" as a false positive/negative depending on time-of-day.
+  // An invalid `date` string produces an Invalid Date here, and `>` against
+  // an Invalid Date is always false either way, so this check is a no-op
+  // for that case and existing invalid-date handling below is unaffected.
+  const targetDate = dayStart(date);
+  if (targetDate > dayStart()) throw new ApiError(400, 'Cannot mark attendance for a future date');
+
+  const before = await prisma.attendance.findUnique({ where: { userId_date: { userId, date: targetDate } } });
   const attendance = await prisma.attendance.upsert({
-    where: { userId_date: { userId, date: dayStart(date) } },
+    where: { userId_date: { userId, date: targetDate } },
     update: { status, workHours, notes },
-    create: { userId, date: dayStart(date), status, workHours, notes },
+    create: { userId, date: targetDate, status, workHours, notes },
   });
   await recordAudit({
     actorId: req.user.id, action: before ? 'UPDATED' : 'CREATED', module: 'ATTENDANCE',
-    entityId: attendance.id, entityLabel: `${userId} — ${dayStart(date).toISOString().slice(0, 10)}`, before, after: attendance,
+    entityId: attendance.id, entityLabel: `${userId} — ${targetDate.toISOString().slice(0, 10)}`, before, after: attendance,
   });
   return sendSuccess(res, 200, attendance);
 }
