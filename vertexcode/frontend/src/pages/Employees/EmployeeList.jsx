@@ -7,6 +7,7 @@ import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import Pagination from '../../components/common/Pagination';
 import toast from 'react-hot-toast';
 import { downloadReport } from '../../lib/download';
 
@@ -14,6 +15,14 @@ const emptyForm = {
   email: '', password: '', firstName: '', lastName: '', role: 'EMPLOYEE',
   designation: '', employmentType: 'FULL_TIME', departmentId: '', managerId: '', locationId: '',
 };
+
+const PAGE_SIZE = 25;
+// The Employees page only ever shows Employee/Admin/Super Admin accounts —
+// Interns and Trainees have their own dedicated modules. Sent as the
+// baseline `role` filter (backend accepts a comma-separated list) so
+// exclusion happens server-side and pagination totals stay correct.
+const EMPLOYEE_ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'];
+const ROLE_LABELS = { EMPLOYEE: 'Employee', ADMIN: 'Admin', SUPER_ADMIN: 'Super Admin' };
 
 export default function EmployeeList() {
   const { user: currentUser } = useAuth();
@@ -24,6 +33,11 @@ export default function EmployeeList() {
   const [employmentTypes, setEmploymentTypes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [designationFilter, setDesignationFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
@@ -33,18 +47,29 @@ export default function EmployeeList() {
   const [savingAccount, setSavingAccount] = useState(false);
 
   const isSuperAdmin = currentUser.role === 'SUPER_ADMIN';
+  const hasActiveFilters = !!(search || roleFilter || departmentFilter || designationFilter);
 
   const load = () => {
     setLoading(true);
     Promise.all([
-      api.get('/users', { params: { role: undefined, search: search || undefined } }),
+      api.get('/users', {
+        params: {
+          role: roleFilter || EMPLOYEE_ROLES.join(','),
+          departmentId: departmentFilter || undefined,
+          designation: designationFilter || undefined,
+          search: search || undefined,
+          page,
+          limit: PAGE_SIZE,
+        },
+      }),
       api.get('/departments'),
       api.get('/masters/designations'),
       api.get('/masters/locations'),
       api.get('/masters/employment-types'),
     ])
       .then(([u, d, des, loc, et]) => {
-        setUsers(u.data.data.filter((x) => x.role !== 'INTERN' && x.role !== 'TRAINEE'));
+        setUsers(u.data.data);
+        setMeta(u.data.meta || null);
         setDepartments(d.data.data);
         setDesignations(des.data.data.filter((x) => x.active));
         setLocations(loc.data.data.filter((x) => x.active));
@@ -53,7 +78,17 @@ export default function EmployeeList() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, [search]);
+  // Any change to search/filters returns to page 1; page changes alone
+  // (via Pagination's onPageChange -> setPage) leave the filters untouched.
+  useEffect(() => { setPage(1); }, [search, roleFilter, departmentFilter, designationFilter]);
+  useEffect(load, [search, roleFilter, departmentFilter, designationFilter, page]);
+
+  const clearFilters = () => {
+    setSearch('');
+    setRoleFilter('');
+    setDepartmentFilter('');
+    setDesignationFilter('');
+  };
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -140,6 +175,10 @@ export default function EmployeeList() {
   };
 
   const columns = [
+    {
+      key: 'id', header: 'ID',
+      render: (r) => <span className="id-cell" title={r.id}>{r.id.slice(0, 8)}…</span>,
+    },
     { key: 'name', header: 'Name', render: (r) => <Link to={`/employees/${r.id}`}>{r.firstName} {r.lastName}</Link> },
     { key: 'email', header: 'Email' },
     { key: 'designation', header: 'Designation' },
@@ -156,31 +195,35 @@ export default function EmployeeList() {
         const isTerminated = r.status === 'TERMINATED';
         return (
           <div style={{ display: 'flex', gap: 4 }}>
-            <Link to={`/employees/${r.id}`} className="btn btn-ghost btn-sm btn-icon" aria-label="View">
+            <Link to={`/employees/${r.id}`} className="btn btn-ghost btn-sm btn-icon" aria-label="View" title="View">
               <Eye size={14} />
             </Link>
             {!blocked && (
-              <Link to={`/employees/${r.id}?edit=1`} className="btn btn-ghost btn-sm btn-icon" aria-label="Edit">
+              <Link to={`/employees/${r.id}?edit=1`} className="btn btn-ghost btn-sm btn-icon" aria-label="Edit" title="Edit">
                 <Pencil size={14} />
               </Link>
             )}
             {!blocked && (
-              <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openManageAccount(r)} aria-label="Manage Account">
+              <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openManageAccount(r)} aria-label="Manage Account" title="Manage Account">
                 <KeyRound size={14} />
               </button>
             )}
-            {!blocked && !isTerminated && (
-              <button className="btn btn-ghost btn-sm" onClick={() => toggleStatus(r)}>
+            {isSuperAdmin && !blocked && !isTerminated && (
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => toggleStatus(r)}
+                title={r.status === 'ACTIVE' ? 'Deactivate employee' : 'Activate employee'}
+              >
                 {r.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
               </button>
             )}
             {isSuperAdmin && !blocked && (
               isTerminated ? (
-                <button className="btn btn-ghost btn-sm" onClick={() => restoreUser(r)}>
+                <button className="btn btn-ghost btn-sm" onClick={() => restoreUser(r)} title="Restore employee">
                   <RotateCcw size={14} /> Restore
                 </button>
               ) : (
-                <button className="btn btn-ghost btn-sm btn-icon" onClick={() => softDeleteUser(r)} aria-label="Delete">
+                <button className="btn btn-ghost btn-sm btn-icon" onClick={() => softDeleteUser(r)} aria-label="Delete" title="Delete (soft-delete)">
                   <Trash2 size={14} />
                 </button>
               )
@@ -211,9 +254,29 @@ export default function EmployeeList() {
 
       <div className="toolbar">
         <input className="search-input" placeholder="Search by name or email..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} aria-label="Filter by role">
+          <option value="">All roles</option>
+          {EMPLOYEE_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+        </select>
+        <select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)} aria-label="Filter by department">
+          <option value="">All departments</option>
+          {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
+        <select value={designationFilter} onChange={(e) => setDesignationFilter(e.target.value)} aria-label="Filter by designation">
+          <option value="">All designations</option>
+          {designations.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+        </select>
+        {hasActiveFilters && (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>Clear Filters</button>
+        )}
       </div>
 
-      {loading ? <div className="page-loading">Loading...</div> : <DataTable columns={columns} rows={users} />}
+      {loading ? <div className="page-loading">Loading...</div> : (
+        <>
+          <DataTable columns={columns} rows={users} />
+          <Pagination meta={meta} onPageChange={setPage} />
+        </>
+      )}
 
       {showModal && (
         <Modal title="Add Employee" onClose={() => setShowModal(false)}>
@@ -231,7 +294,7 @@ export default function EmployeeList() {
             <label>Role
               <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
                 <option value="EMPLOYEE">Employee</option>
-                <option value="ADMIN">Admin</option>
+                {isSuperAdmin && <option value="ADMIN">Admin</option>}
               </select>
             </label>
             <label>Employment Type

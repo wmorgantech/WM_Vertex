@@ -1,20 +1,24 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Pencil } from 'lucide-react';
+import { Plus, Trash2, Pencil, Eye } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import Pagination from '../../components/common/Pagination';
 import CustomFieldsSection from '../../components/common/CustomFieldsSection';
 import toast from 'react-hot-toast';
 import { downloadReport } from '../../lib/download';
 
 const COMPLETION_STATUSES = ['IN_PROGRESS', 'COMPLETED', 'TERMINATED', 'EXTENDED', 'CONVERTED_TO_EMPLOYEE'];
 const BATCH_STATUSES = ['UPCOMING', 'ONGOING', 'COMPLETED', 'CANCELLED'];
+const PAGE_SIZE = 25;
 
 export default function Interns() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const isManager = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
   const isSuperAdmin = user.role === 'SUPER_ADMIN';
 
@@ -27,6 +31,8 @@ export default function Interns() {
   const [batchFilter, setBatchFilter] = useState('');
   const [mentorFilter, setMentorFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState(null);
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [batchForm, setBatchForm] = useState({ name: '', program: '', startDate: '', endDate: '', description: '' });
@@ -48,17 +54,23 @@ export default function Interns() {
         batchId: batchFilter || undefined,
         mentorId: mentorFilter || undefined,
         completionStatus: statusFilter || undefined,
+        page,
+        limit: PAGE_SIZE,
       },
     });
     Promise.all([enrollmentsCall, api.get('/interns/batches'), usersCall])
       .then(([e, b, u]) => {
         setEnrollments(e.data.data);
+        setMeta(e.data.meta || null);
         setBatches(b.data.data);
         setUsers(u.data.data);
       })
       .finally(() => setLoading(false));
   };
-  useEffect(load, [search, batchFilter, mentorFilter, statusFilter]);
+  // Filter/search changes return to page 1; a bare page change (Pagination's
+  // onPageChange) leaves the active filters untouched.
+  useEffect(() => { setPage(1); }, [search, batchFilter, mentorFilter, statusFilter]);
+  useEffect(load, [search, batchFilter, mentorFilter, statusFilter, page]);
 
   const handleCreateBatch = async (e) => {
     e.preventDefault();
@@ -180,18 +192,34 @@ export default function Interns() {
     { key: 'performanceRating', header: 'Rating', render: (r) => r.performanceRating ?? '—' },
     { key: 'completionStatus', header: 'Status', render: (r) => <Badge value={r.completionStatus} /> },
     {
-      key: 'actions', header: '',
+      key: 'actions', header: 'Actions',
       render: (r) => (
-        <>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button
+            className="btn btn-ghost btn-sm btn-icon"
+            onClick={() => navigate(`/interns/${r.id}`, { state: { enrollment: r } })}
+            aria-label="View intern"
+            title="View"
+          >
+            <Eye size={14} />
+          </button>
           {isManager && (
-            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openEnrollEdit(r)} aria-label="Edit enrollment">
+            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openEnrollEdit(r)} aria-label="Edit enrollment" title="Edit">
               <Pencil size={14} />
             </button>
           )}
-          {isSuperAdmin && (
-            <button className="btn btn-danger btn-sm" onClick={() => handleDelete(r)}><Trash2 size={14} /> Remove</button>
+          {/* Deactivate is soft-delete only (completionStatus -> TERMINATED +
+              account deactivated — see handleDelete/backend deleteEnrollment).
+              Gated the same as Edit (isManager) since the backend now checks
+              the same intern:manage permission for both DELETE and PUT
+              /interns/enrollments/:id — Super Admin and Admin both qualify,
+              Employees (even ones who can add interns) do not. */}
+          {isManager && (
+            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDelete(r)} aria-label="Deactivate intern" title="Deactivate (soft delete)">
+              <Trash2 size={14} />
+            </button>
           )}
-        </>
+        </div>
       ),
     },
   ];
@@ -267,9 +295,14 @@ export default function Interns() {
       )}
 
       {loading ? <div className="page-loading">Loading...</div> : (
-        tab === 'enrollments'
-          ? <DataTable columns={enrollmentColumns} rows={enrollments} />
-          : <DataTable columns={batchColumns} rows={batches} />
+        tab === 'enrollments' ? (
+          <>
+            <DataTable columns={enrollmentColumns} rows={enrollments} />
+            <Pagination meta={meta} onPageChange={setPage} />
+          </>
+        ) : (
+          <DataTable columns={batchColumns} rows={batches} />
+        )
       )}
 
       {showBatchModal && (
