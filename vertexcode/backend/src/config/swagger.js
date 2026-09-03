@@ -18,8 +18,16 @@ const swaggerSpec = swaggerJsdoc({
         '`accessToken` from the response, click **Authorize** below, and paste it ' +
         '(the "Bearer " prefix is added automatically).',
     },
+    // Deliberately NOT process.env.APP_URL — that var is the frontend's public
+    // URL (used to build links in emails/PDFs) and is a different host than
+    // this API in production (frontend: vertex.wmorgantech.com, API:
+    // vertex.api.wmorgantech.com). Reusing it here pointed Swagger's "Try it
+    // out" requests at the frontend's domain, which doesn't proxy /api to
+    // this backend at all — every request failed as a cross-origin fetch
+    // before any HTTP response, i.e. "Failed to fetch". This needs the API's
+    // own public URL specifically.
     servers: [
-      { url: (process.env.APP_URL || `http://localhost:${process.env.PORT || 5111}`) + '/api', description: 'Current environment' },
+      { url: (process.env.API_PUBLIC_URL || `http://localhost:${process.env.PORT || 5111}`) + '/api', description: 'Current environment' },
     ],
     components: {
       securitySchemes: {
@@ -64,6 +72,7 @@ const swaggerSpec = swaggerJsdoc({
             managerId: { type: 'string', format: 'uuid', nullable: true },
             avatarUrl: { type: 'string', nullable: true },
             joinDate: { type: 'string', format: 'date-time' },
+            mustChangePassword: { type: 'boolean', description: 'When true, the frontend forces this user to change their password before accessing anything else.' },
           },
         },
         LoginResponse: {

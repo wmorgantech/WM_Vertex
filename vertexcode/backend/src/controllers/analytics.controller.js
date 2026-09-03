@@ -89,17 +89,21 @@ async function overview(req, res) {
     pendingApprovals: { timesheets: pendingTimesheets, workUpdates: pendingWorkUpdates },
     documents: { pendingVerifications, verifiedInterns, rejectedDocuments, pendingApplications, recentSubmissions },
     businessDevelopment: { upcomingWorkshops, workshopFollowUpsOverdue, activeMous, mousExpiringSoon },
-    finance: {
+  };
+
+  // Finance / Reports / Offer Letters / Certificates / Audit Logs are Super-Admin-only
+  // per the permission spec — not merely hidden by the frontend, actually absent from
+  // the response for any other role so an Admin can't read them by inspecting network
+  // traffic. Admin has no Expenses module access at all (expense.routes.js is
+  // hardcoded isSuperAdmin), so the finance totals/category breakdown must not leak
+  // here either.
+  if (req.user.role === 'SUPER_ADMIN') {
+    payload.finance = {
       totalExpenses: expenseTotalAgg._sum.amount || 0,
       last30DaysExpenses: expenseLast30Agg._sum.amount || 0,
       expensesByCategory: expenseByCategory.map((c) => ({ category: c.categoryCode, total: c._sum.amount || 0 })),
-    },
-  };
+    };
 
-  // Reports / Offer Letters / Certificates / Audit Logs are Super-Admin-only per the
-  // permission spec — not merely hidden by the frontend, actually absent from the
-  // response for any other role so an Admin can't read them by inspecting network traffic.
-  if (req.user.role === 'SUPER_ADMIN') {
     const categoryBreakdown = enrollmentsWithDocs.reduce((acc, e) => {
       const key = e.category || 'UNCATEGORIZED';
       acc[key] = (acc[key] || 0) + 1;

@@ -311,6 +311,7 @@ model User {
   managedProjects          Project[]               @relation("ProjectManager")
   projectMembers           ProjectMember[]
   refreshTokens            RefreshToken[]
+  passwordResetTokens      PasswordResetToken[]
   assignedTasks            Task[]                  @relation("TaskAssignee")
   createdTasks             Task[]                  @relation("TaskCreator")
   approvedTimesheets       Timesheet[]             @relation("TimesheetApprover")
@@ -344,6 +345,23 @@ model RefreshToken {
   createdAt DateTime @default(now())
   revoked   Boolean  @default(false)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Only a SHA-256 hash of the raw token is ever stored (the raw, single-use
+// token is emailed to the user and never persisted) — unlike RefreshToken
+// above, which intentionally stores the verifiable JWT itself since that
+// token is meant to be looked up/revoked by its own value, not compared
+// against user-submitted input the way a password-reset token is.
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model InternshipBatch {
