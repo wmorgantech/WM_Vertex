@@ -2,7 +2,6 @@ import { Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import UserMenu from '@/components/layout/UserMenu';
-import NotificationBell from '@/components/layout/NotificationBell';
 import GlobalSearch from '@/components/layout/GlobalSearch';
 import { useAuth } from '@/context/AuthContext';
 
@@ -31,7 +30,6 @@ export default function TopBar({ onMenuClick }) {
         <Badge variant="secondary" className="hidden sm:inline-flex">
           {ROLE_LABELS[user?.role] || user?.role}
         </Badge>
-        <NotificationBell />
         <UserMenu />
       </div>
     </header>

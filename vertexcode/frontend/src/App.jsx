@@ -11,6 +11,7 @@ import Dashboard from './pages/Dashboard/Dashboard';
 import EmployeeList from './pages/Employees/EmployeeList';
 import EmployeeDetail from './pages/Employees/EmployeeDetail';
 import Interns from './pages/Interns/Interns';
+import InternDetail from './pages/Interns/InternDetail';
 import Departments from './pages/Departments/Departments';
 import Projects from './pages/Projects/Projects';
 import ProjectDetail from './pages/Projects/ProjectDetail';
@@ -89,6 +90,7 @@ export default function App() {
 
               <Route element={<RoleRoute roles={INTERN_PAGE_ROLES} />}>
                 <Route path="/interns" element={<Interns />} />
+                <Route path="/interns/:id" element={<InternDetail />} />
               </Route>
 
               <Route element={<RoleRoute roles={ENQUIRY_PAGE_ROLES} />}>

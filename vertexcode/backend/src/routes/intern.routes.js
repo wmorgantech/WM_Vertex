@@ -508,7 +508,11 @@ router.put('/enrollments/:id', can('intern', 'manage'), ctrl.updateEnrollment);
  *   delete:
  *     tags: [Interns]
  *     summary: Soft-delete (terminate) an intern enrollment
- *     description: Terminates the enrollment and deactivates the associated user.
+ *     description: >
+ *       Terminates the enrollment and deactivates the associated user. Soft
+ *       delete only — no rows are removed. Gated the same as editing an
+ *       enrollment (intern:manage), so Super Admin and any Admin holding
+ *       that permission can both perform it.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -531,7 +535,7 @@ router.put('/enrollments/:id', can('intern', 'manage'), ctrl.updateEnrollment);
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ApiError' }
  *       403:
- *         description: Forbidden — Super Admin only
+ *         description: Forbidden — requires the intern:manage permission
  *         content:
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ApiError' }
@@ -541,7 +545,13 @@ router.put('/enrollments/:id', can('intern', 'manage'), ctrl.updateEnrollment);
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ApiError' }
  */
-router.delete('/enrollments/:id', isSuperAdmin, ctrl.deleteEnrollment);
+// Same gate as PUT /enrollments/:id (updateEnrollment) — this is a soft
+// delete (completionStatus -> TERMINATED, user.status -> TERMINATED, see
+// deleteEnrollment), functionally an update despite the DELETE verb, so it
+// belongs behind the same intern:manage permission as every other
+// enrollment-management action rather than the hardcoded Super-Admin-only
+// gate used for genuine hard deletes (e.g. deleteBatch below).
+router.delete('/enrollments/:id', can('intern', 'manage'), ctrl.deleteEnrollment);
 
 /**
  * @swagger
