@@ -9,6 +9,7 @@ import Modal from '../../components/common/Modal';
 import Pagination from '../../components/common/Pagination';
 import TableActions from '../../components/common/TableActions';
 import DetailField from '../../components/common/DetailField';
+import SearchableSelect from '../../components/common/SearchableSelect';
 import CustomFieldsSection from '../../components/common/CustomFieldsSection';
 import toast from 'react-hot-toast';
 import { downloadReport } from '../../lib/download';
@@ -312,10 +313,12 @@ export default function Interns() {
         <Modal title="Enroll Intern" onClose={() => setShowEnrollModal(false)}>
           <form className="form-grid" onSubmit={handleEnroll}>
             <label>Intern
-              <select required value={enrollForm.userId} onChange={(e) => setEnrollForm({ ...enrollForm, userId: e.target.value })}>
-                <option value="">Select user...</option>
-                {potentialInterns.map((u) => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
-              </select>
+              <SearchableSelect
+                options={potentialInterns.map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`, sublabel: u.email }))}
+                value={enrollForm.userId}
+                onChange={(val) => setEnrollForm({ ...enrollForm, userId: val })}
+                placeholder="Search by name or email..."
+              />
             </label>
             <label>Batch
               <select required value={enrollForm.batchId} onChange={(e) => setEnrollForm({ ...enrollForm, batchId: e.target.value })}>
@@ -340,7 +343,7 @@ export default function Interns() {
       )}
 
       {viewingEnrollment && (
-        <Modal title={`${viewingEnrollment.user.firstName} ${viewingEnrollment.user.lastName}`} onClose={() => setViewingEnrollment(null)}>
+        <Modal size="wide" title={`${viewingEnrollment.user.firstName} ${viewingEnrollment.user.lastName}`} onClose={() => setViewingEnrollment(null)}>
           <div className="detail-card">
             <div className="detail-card-header">
               <Badge value={viewingEnrollment.completionStatus} />

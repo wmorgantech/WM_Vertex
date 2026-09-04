@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -7,6 +7,8 @@ import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import StatCard from '../../components/common/StatCard';
 import Modal from '../../components/common/Modal';
+import TableActions from '../../components/common/TableActions';
+import DetailField from '../../components/common/DetailField';
 import toast from 'react-hot-toast';
 import { downloadReport } from '../../lib/download';
 
@@ -20,6 +22,7 @@ const EMPTY_FORM = {
 export default function Expenses() {
   const { user } = useAuth();
   const isSuperAdmin = user.role === 'SUPER_ADMIN';
+  const [viewing, setViewing] = useState(null);
 
   const [expenses, setExpenses] = useState([]);
   const [summary, setSummary] = useState(null);
@@ -145,13 +148,14 @@ export default function Expenses() {
     { key: 'linked', header: 'Linked To', render: linkedLabel },
     { key: 'recordedBy', header: 'Recorded By', render: (r) => `${r.recordedBy.firstName} ${r.recordedBy.lastName}` },
     {
-      key: 'actions', header: '', align: 'actions', render: (r) => (
-        <div className="row-actions">
-          <button className="btn btn-ghost btn-sm" onClick={() => openEdit(r)}>
-            <Pencil size={14} /> Edit
-          </button>
-          {isSuperAdmin && <button className="btn btn-danger btn-sm" onClick={() => handleDelete(r)}><Trash2 size={14} /> Delete</button>}
-        </div>
+      key: 'actions', header: 'Actions', align: 'actions', render: (r) => (
+        <TableActions
+          actions={[
+            { key: 'view', icon: Eye, label: 'View', onClick: () => setViewing(r) },
+            { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openEdit(r) },
+            isSuperAdmin && { key: 'trash', icon: Trash2, label: 'Delete', danger: true, onClick: () => handleDelete(r) },
+          ]}
+        />
       ),
     },
   ];
@@ -204,6 +208,29 @@ export default function Expenses() {
 
       {loading ? <div className="page-loading">Loading...</div> : (
         <DataTable columns={columns} rows={expenses} emptyMessage="No expenses recorded yet." />
+      )}
+
+      {viewing && (
+        <Modal size="wide" title={viewing.title} onClose={() => setViewing(null)}>
+          <div className="detail-card">
+            <div className="detail-card-header">
+              <Badge value={viewing.category.code} />
+              <span className="detail-field-value">₹{viewing.amount.toLocaleString()}</span>
+            </div>
+            <div className="detail-grid">
+              <DetailField label="Date" value={new Date(viewing.expenseDate).toLocaleDateString()} />
+              <DetailField label="Payment Mode" value={viewing.paymentMode} />
+              <DetailField label="Vendor" value={viewing.vendor} />
+              <DetailField label="Reference" value={viewing.reference} />
+              <DetailField label="Linked To" value={linkedLabel(viewing)} />
+              <DetailField label="Recorded By" value={`${viewing.recordedBy.firstName} ${viewing.recordedBy.lastName}`} />
+              <DetailField full label="Description" value={viewing.description} />
+            </div>
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setViewing(null)}>Close</button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {showModal && (

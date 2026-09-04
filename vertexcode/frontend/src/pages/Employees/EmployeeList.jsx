@@ -221,10 +221,7 @@ export default function EmployeeList() {
   const columns = [
     { key: 'id', header: 'ID', render: (r) => r.employeeCode || '—' },
     { key: 'name', header: 'Name', render: (r) => <Link className="name-cell" to={`/employees/${r.id}`}>{r.firstName} {r.lastName}</Link> },
-    { key: 'email', header: 'Email' },
     { key: 'designation', header: 'Designation' },
-    { key: 'department', header: 'Department', render: (r) => r.department?.name || '—' },
-    { key: 'location', header: 'Location', render: (r) => r.location?.name || '—' },
     { key: 'role', header: 'Role', render: (r) => <Badge value={r.role} /> },
     { key: 'status', header: 'Status', render: (r) => <Badge value={r.status} /> },
     {
@@ -338,30 +335,47 @@ export default function EmployeeList() {
       )}
 
       {viewingUser && (
-        <Modal title={`${viewingUser.firstName} ${viewingUser.lastName}`} onClose={() => setViewingUser(null)}>
+        <Modal size="wide" title={`${viewingUser.firstName} ${viewingUser.lastName}`} onClose={() => setViewingUser(null)}>
           <div className="detail-card">
             <div className="detail-card-header">
+              <span className="detail-field-value">{viewingUser.employeeCode}</span>
               <Badge value={viewingUser.role} />
               <Badge value={viewingUser.status} />
-              <span className="detail-field-label">{viewingUser.employeeCode}</span>
             </div>
-            <div className="detail-grid">
-              <DetailField icon={Mail} label="Email" value={viewingUser.email} />
-              <DetailField icon={Phone} label="Phone" value={viewingUser.phone} />
-              <DetailField label="Designation" value={viewingUser.designation} />
-              <DetailField label="Employment Type" value={viewingUser.employmentType} />
-              <DetailField label="Department" value={viewingUser.department?.name} />
-              <DetailField label="Location" value={viewingUser.location?.name} />
-              <DetailField label="Manager" value={viewingUser.manager ? `${viewingUser.manager.firstName} ${viewingUser.manager.lastName}` : null} />
-              <DetailField label="Join Date" value={viewingUser.joinDate ? new Date(viewingUser.joinDate).toLocaleDateString() : null} />
-              <DetailField label="Gender" value={viewingUser.gender} />
-              <DetailField label="Date of Birth" value={viewingUser.dateOfBirth ? new Date(viewingUser.dateOfBirth).toLocaleDateString() : null} />
-              <DetailField label="Experience" value={viewingUser.experienceYears != null ? `${viewingUser.experienceYears} yrs` : null} />
-              <DetailField label="Address" value={viewingUser.address} />
-              <DetailField label="Skills" value={listToText(viewingUser.skills) || null} />
-              <DetailField label="Technology Stack" value={listToText(viewingUser.technologyStack) || null} />
-              <DetailField label="Certifications" value={listToText(viewingUser.certifications) || null} />
+
+            <div className="detail-section">
+              <p className="detail-section-title">Contact</p>
+              <div className="detail-grid">
+                <DetailField icon={Mail} label="Email" value={viewingUser.email} />
+                <DetailField icon={Phone} label="Phone" value={viewingUser.phone} />
+              </div>
             </div>
+
+            <div className="detail-section">
+              <p className="detail-section-title">Employment Information</p>
+              <div className="detail-grid">
+                <DetailField label="Designation" value={viewingUser.designation} />
+                <DetailField label="Employment Type" value={viewingUser.employmentType} />
+                <DetailField label="Department" value={viewingUser.department?.name} />
+                <DetailField label="Location" value={viewingUser.location?.name} />
+                <DetailField label="Manager" value={viewingUser.manager ? `${viewingUser.manager.firstName} ${viewingUser.manager.lastName}` : null} />
+                <DetailField label="Join Date" value={viewingUser.joinDate ? new Date(viewingUser.joinDate).toLocaleDateString() : null} />
+              </div>
+            </div>
+
+            <div className="detail-section">
+              <p className="detail-section-title">Personal Information</p>
+              <div className="detail-grid">
+                <DetailField label="Gender" value={viewingUser.gender} />
+                <DetailField label="Date of Birth" value={viewingUser.dateOfBirth ? new Date(viewingUser.dateOfBirth).toLocaleDateString() : null} />
+                <DetailField label="Experience" value={viewingUser.experienceYears != null ? `${viewingUser.experienceYears} yrs` : null} />
+                <DetailField full label="Address" value={viewingUser.address} />
+                <DetailField full label="Skills" value={listToText(viewingUser.skills) || null} />
+                <DetailField full label="Technology Stack" value={listToText(viewingUser.technologyStack) || null} />
+                <DetailField full label="Certifications" value={listToText(viewingUser.certifications) || null} />
+              </div>
+            </div>
+
             <div className="form-actions">
               <button type="button" className="btn btn-ghost" onClick={() => setViewingUser(null)}>Close</button>
             </div>

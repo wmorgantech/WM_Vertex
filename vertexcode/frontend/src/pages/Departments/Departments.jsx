@@ -126,7 +126,7 @@ export default function Departments() {
       )}
 
       {viewing && (
-        <Modal title={viewing.name} onClose={() => setViewing(null)}>
+        <Modal size="wide" title={viewing.name} onClose={() => setViewing(null)}>
           <div className="detail-card">
             <div className="detail-grid">
               <DetailField full label="Description" value={viewing.description} />
