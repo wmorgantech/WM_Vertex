@@ -20,7 +20,7 @@ export default function TableActions({ actions }) {
           aria-label={label}
           title={label}
         >
-          <Icon size={16} strokeWidth={2.25} />
+          <Icon size={18} strokeWidth={2.5} />
         </button>
       ))}
     </div>
