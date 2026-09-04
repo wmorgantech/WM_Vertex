@@ -214,8 +214,16 @@ input, select, textarea { font-family: inherit; }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
 /* --- Shared table row-action icons (View/Edit/Trash/...) — one treatment
-   used identically across every admin list/table via TableActions.jsx --- */
-.table-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+   used identically across every admin list/table via TableActions.jsx ---
+   nowrap + flex-shrink:0 on each button means the row's natural width is
+   always exactly (n buttons × 34px + gaps) and never wraps or gets
+   squeezed — table-layout is auto (not fixed), so the browser sizes the
+   Actions column to fit that width per page automatically: a 2-action page
+   doesn't inherit a 5-action page's width, and nothing ever breaks onto a
+   second line. If a row is ever too narrow overall, the existing
+   .table-wrap { overflow-x: auto } lets the table scroll horizontally
+   instead of wrapping this row internally. */
+.table-actions { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; width: max-content; }
 .table-action-btn {
   display: inline-flex;
   align-items: center;
@@ -223,6 +231,7 @@ input, select, textarea { font-family: inherit; }
   width: 34px;
   height: 34px;
   padding: 0;
+  flex-shrink: 0;
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;

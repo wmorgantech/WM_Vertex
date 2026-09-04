@@ -20,6 +20,9 @@ const emptyForm = {
 export default function Enquiries() {
   const { user } = useAuth();
   const isManager = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
+  // Admin gets a deliberately minimal create/edit form (see below) — Super
+  // Admin's and Employee's experience are both unchanged from before.
+  const isAdmin = user.role === 'ADMIN';
   const [enquiries, setEnquiries] = useState([]);
   const [staffUsers, setStaffUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -170,16 +173,20 @@ export default function Enquiries() {
             <label>Contact Name<input required value={form.contactName} onChange={(e) => setForm({ ...form, contactName: e.target.value })} /></label>
             <label>Company<input value={form.companyName} onChange={(e) => setForm({ ...form, companyName: e.target.value })} /></label>
             <label>Email<input type="email" value={form.contactEmail} onChange={(e) => setForm({ ...form, contactEmail: e.target.value })} /></label>
-            <label>Phone<input value={form.contactPhone} onChange={(e) => setForm({ ...form, contactPhone: e.target.value })} /></label>
-            <label>Subject<input required value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} /></label>
-            <label>Description<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
-            <label>Source
-              <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })}>
-                {SOURCES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
-              </select>
-            </label>
+            <label>Phone<input required={isAdmin} value={form.contactPhone} onChange={(e) => setForm({ ...form, contactPhone: e.target.value })} /></label>
+            <label>{isAdmin ? 'Requirement / Enquiry Details' : 'Subject'}<input required value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} /></label>
+            {!isAdmin && (
+              <>
+                <label>Description<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
+                <label>Source
+                  <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })}>
+                    {SOURCES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+                  </select>
+                </label>
+              </>
+            )}
             <label>Follow-up Date<input type="date" value={form.followUpDate} onChange={(e) => setForm({ ...form, followUpDate: e.target.value })} /></label>
-            {isManager && (
+            {isManager && !isAdmin && (
               <label>Assigned Employee
                 <select value={form.assignedEmployeeId} onChange={(e) => setForm({ ...form, assignedEmployeeId: e.target.value })}>
                   <option value="">— None —</option>
@@ -204,7 +211,7 @@ export default function Enquiries() {
               </select>
             </label>
             <label>Follow-up Date<input type="date" value={editForm.followUpDate} onChange={(e) => setEditForm({ ...editForm, followUpDate: e.target.value })} /></label>
-            {isManager && (
+            {isManager && !isAdmin && (
               <label>Assigned Employee
                 <select value={editForm.assignedEmployeeId} onChange={(e) => setEditForm({ ...editForm, assignedEmployeeId: e.target.value })}>
                   <option value="">— None —</option>
@@ -212,8 +219,12 @@ export default function Enquiries() {
                 </select>
               </label>
             )}
-            <label>Next Action<input value={editForm.nextAction} onChange={(e) => setEditForm({ ...editForm, nextAction: e.target.value })} /></label>
-            <label>Remarks<textarea value={editForm.remarks} onChange={(e) => setEditForm({ ...editForm, remarks: e.target.value })} /></label>
+            {!isAdmin && (
+              <>
+                <label>Next Action<input value={editForm.nextAction} onChange={(e) => setEditForm({ ...editForm, nextAction: e.target.value })} /></label>
+                <label>Remarks<textarea value={editForm.remarks} onChange={(e) => setEditForm({ ...editForm, remarks: e.target.value })} /></label>
+              </>
+            )}
             <div className="form-actions">
               <button type="button" className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
