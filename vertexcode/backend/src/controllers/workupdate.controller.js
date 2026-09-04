@@ -13,6 +13,9 @@ const WORK_UPDATE_STATUSES = ['SUBMITTED', 'REVIEWED', 'FLAGGED'];
 
 async function listWorkUpdates(req, res) {
   const { userId, status, from, to, departmentId } = req.query;
+  if (status && !WORK_UPDATE_STATUSES.includes(status)) {
+    throw new ApiError(400, `status must be one of: ${WORK_UPDATE_STATUSES.join(', ')}`);
+  }
   const isManagerRole = ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role);
 
   const where = {

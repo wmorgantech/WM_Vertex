@@ -75,6 +75,9 @@ async function myAttendance(req, res) {
 // GET /api/attendance — team/org view (managers)
 async function listAttendance(req, res) {
   const { userId, from, to, status, departmentId } = req.query;
+  if (status && !ATTENDANCE_STATUSES.includes(status)) {
+    throw new ApiError(400, `status must be one of: ${ATTENDANCE_STATUSES.join(', ')}`);
+  }
   const attendance = await prisma.attendance.findMany({
     where: {
       ...(userId && { userId }),
