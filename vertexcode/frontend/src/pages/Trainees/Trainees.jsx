@@ -1,20 +1,28 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye, Mail } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../api/axios';
 import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import TableActions from '../../components/common/TableActions';
+import DetailField from '../../components/common/DetailField';
 import toast from 'react-hot-toast';
 import { downloadReport } from '../../lib/download';
 import { useAuth } from '../../context/AuthContext';
 
 const numOrNull = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
+const COMPLETION_STATUSES = ['IN_PROGRESS', 'COMPLETED', 'TERMINATED', 'EXTENDED', 'CONVERTED_TO_EMPLOYEE'];
 
 export default function Trainees() {
   const { user } = useAuth();
+  const isManager = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
   const isSuperAdmin = user.role === 'SUPER_ADMIN';
+  const [viewingTrainee, setViewingTrainee] = useState(null);
+  const [editingTrainee, setEditingTrainee] = useState(null);
+  const [traineeEditForm, setTraineeEditForm] = useState({});
+  const [savingTraineeEdit, setSavingTraineeEdit] = useState(false);
   const [tab, setTab] = useState('enrollments');
   const [enrollments, setEnrollments] = useState([]);
   const [programs, setPrograms] = useState([]);
@@ -126,6 +134,43 @@ export default function Trainees() {
     }
   };
 
+  const openTraineeEdit = (r) => {
+    setEditingTrainee(r);
+    setTraineeEditForm({
+      mentorId: r.mentor?.id || '',
+      completionStatus: r.completionStatus,
+      trainingStartDate: r.trainingStartDate ? r.trainingStartDate.slice(0, 10) : '',
+      trainingEndDate: r.trainingEndDate ? r.trainingEndDate.slice(0, 10) : '',
+      totalFee: r.totalFee ?? '',
+      discount: r.discount ?? '',
+      finalFee: r.finalFee ?? '',
+      notes: r.notes || '',
+    });
+  };
+
+  const handleSaveTraineeEdit = async (e) => {
+    e.preventDefault();
+    setSavingTraineeEdit(true);
+    try {
+      await api.put(`/trainees/enrollments/${editingTrainee.id}`, {
+        ...traineeEditForm,
+        mentorId: traineeEditForm.mentorId || null,
+        trainingStartDate: traineeEditForm.trainingStartDate || null,
+        trainingEndDate: traineeEditForm.trainingEndDate || null,
+        totalFee: numOrNull(traineeEditForm.totalFee),
+        discount: numOrNull(traineeEditForm.discount),
+        finalFee: numOrNull(traineeEditForm.finalFee),
+      });
+      toast.success('Trainee enrollment updated');
+      setEditingTrainee(null);
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update trainee enrollment');
+    } finally {
+      setSavingTraineeEdit(false);
+    }
+  };
+
   const openProgramEdit = (p) => {
     setEditingProgram(p);
     setProgramEditForm({
@@ -210,12 +255,18 @@ export default function Trainees() {
     { key: 'mentor', header: 'Mentor', render: (r) => r.mentor ? `${r.mentor.firstName} ${r.mentor.lastName}` : '—' },
     { key: 'progressPercent', header: 'Progress', render: (r) => `${r.progressPercent}%` },
     { key: 'completionStatus', header: 'Status', render: (r) => <Badge value={r.completionStatus} /> },
-    ...(isSuperAdmin ? [{
-      key: 'actions', header: '',
-      render: (r) => r.completionStatus !== 'TERMINATED' && (
-        <button className="btn btn-danger btn-sm" onClick={() => handleTerminate(r)}><Trash2 size={14} /> Remove</button>
+    {
+      key: 'actions', header: 'Actions',
+      render: (r) => (
+        <TableActions
+          actions={[
+            { key: 'view', icon: Eye, label: 'View', onClick: () => setViewingTrainee(r) },
+            isManager && { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openTraineeEdit(r) },
+            isSuperAdmin && r.completionStatus !== 'TERMINATED' && { key: 'trash', icon: Trash2, label: 'Deactivate (soft delete)', danger: true, onClick: () => handleTerminate(r) },
+          ]}
+        />
       ),
-    }] : []),
+    },
   ];
 
   const programColumns = [
@@ -227,14 +278,14 @@ export default function Trainees() {
     { key: 'status', header: 'Status', render: (r) => <Badge value={r.status} /> },
     { key: 'count', header: 'Trainees', render: (r) => r._count?.enrollments ?? 0 },
     {
-      key: 'actions', header: '',
+      key: 'actions', header: 'Actions',
       render: (r) => (
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openProgramEdit(r)} aria-label="Edit"><Pencil size={14} /></button>
-          {isSuperAdmin && (
-            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDeleteProgram(r)} aria-label="Delete"><Trash2 size={14} /></button>
-          )}
-        </div>
+        <TableActions
+          actions={[
+            { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openProgramEdit(r) },
+            isSuperAdmin && { key: 'trash', icon: Trash2, label: 'Delete', danger: true, onClick: () => handleDeleteProgram(r) },
+          ]}
+        />
       ),
     },
   ];
@@ -245,14 +296,14 @@ export default function Trainees() {
     { key: 'expectedDurationHours', header: 'Hours', render: (r) => r.expectedDurationHours ?? '—' },
     { key: 'active', header: 'Status', render: (r) => <Badge value={r.active ? 'ACTIVE' : 'INACTIVE'} /> },
     {
-      key: 'actions', header: '',
+      key: 'actions', header: 'Actions',
       render: (r) => (
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openTopicEdit(r)} aria-label="Edit"><Pencil size={14} /></button>
-          {isSuperAdmin && (
-            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDeleteTopic(r)} aria-label="Delete"><Trash2 size={14} /></button>
-          )}
-        </div>
+        <TableActions
+          actions={[
+            { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openTopicEdit(r) },
+            isSuperAdmin && { key: 'trash', icon: Trash2, label: 'Delete', danger: true, onClick: () => handleDeleteTopic(r) },
+          ]}
+        />
       ),
     },
   ];
@@ -376,6 +427,56 @@ export default function Trainees() {
             <div className="form-actions">
               <button type="button" className="btn btn-ghost" onClick={() => setShowTopicModal(false)}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Add'}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {viewingTrainee && (
+        <Modal title={`${viewingTrainee.user.firstName} ${viewingTrainee.user.lastName}`} onClose={() => setViewingTrainee(null)}>
+          <div className="detail-card">
+            <div className="detail-card-header">
+              <Badge value={viewingTrainee.completionStatus} />
+            </div>
+            <div className="detail-grid">
+              <DetailField icon={Mail} label="Email" value={viewingTrainee.user.email} />
+              <DetailField label="Program" value={viewingTrainee.program?.name} />
+              <DetailField label="Mentor" value={viewingTrainee.mentor ? `${viewingTrainee.mentor.firstName} ${viewingTrainee.mentor.lastName}` : null} />
+              <DetailField label="Progress" value={`${viewingTrainee.progressPercent ?? 0}%`} />
+              <DetailField label="Total Fee" value={viewingTrainee.totalFee != null ? `₹${viewingTrainee.totalFee.toLocaleString()}` : null} />
+              <DetailField label="Final Fee" value={viewingTrainee.finalFee != null ? `₹${viewingTrainee.finalFee.toLocaleString()}` : null} />
+              <DetailField full label="Notes" value={viewingTrainee.notes} />
+            </div>
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setViewingTrainee(null)}>Close</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {editingTrainee && (
+        <Modal title={`Edit Enrollment — ${editingTrainee.user.firstName} ${editingTrainee.user.lastName}`} onClose={() => setEditingTrainee(null)}>
+          <form className="form-grid" onSubmit={handleSaveTraineeEdit}>
+            <label>Mentor
+              <select value={traineeEditForm.mentorId} onChange={(e) => setTraineeEditForm({ ...traineeEditForm, mentorId: e.target.value })}>
+                <option value="">— None —</option>
+                {staffUsers.map((u) => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+              </select>
+            </label>
+            <label>Completion Status
+              <select value={traineeEditForm.completionStatus} onChange={(e) => setTraineeEditForm({ ...traineeEditForm, completionStatus: e.target.value })}>
+                {COMPLETION_STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+              </select>
+            </label>
+            <label>Training Start Date<input type="date" value={traineeEditForm.trainingStartDate} onChange={(e) => setTraineeEditForm({ ...traineeEditForm, trainingStartDate: e.target.value })} /></label>
+            <label>Training End Date<input type="date" value={traineeEditForm.trainingEndDate} onChange={(e) => setTraineeEditForm({ ...traineeEditForm, trainingEndDate: e.target.value })} /></label>
+            <label>Total Fee<input type="number" value={traineeEditForm.totalFee} onChange={(e) => setTraineeEditForm({ ...traineeEditForm, totalFee: e.target.value })} /></label>
+            <label>Discount<input type="number" value={traineeEditForm.discount} onChange={(e) => setTraineeEditForm({ ...traineeEditForm, discount: e.target.value })} /></label>
+            <label>Final Fee<input type="number" value={traineeEditForm.finalFee} onChange={(e) => setTraineeEditForm({ ...traineeEditForm, finalFee: e.target.value })} /></label>
+            <label>Notes<textarea value={traineeEditForm.notes} onChange={(e) => setTraineeEditForm({ ...traineeEditForm, notes: e.target.value })} /></label>
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setEditingTrainee(null)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={savingTraineeEdit}>{savingTraineeEdit ? 'Saving...' : 'Save'}</button>
             </div>
           </form>
         </Modal>
