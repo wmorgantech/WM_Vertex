@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import TableActions from '../../components/common/TableActions';
+import DetailField from '../../components/common/DetailField';
 import toast from 'react-hot-toast';
 import { downloadReport } from '../../lib/download';
 
 export default function Tasks() {
   const { user } = useAuth();
   const isManager = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
+  const [viewing, setViewing] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [users, setUsers] = useState([]);
   const [projects, setProjects] = useState([]);
@@ -130,18 +133,15 @@ export default function Tasks() {
       ),
     },
     ...(isManager ? [{
-      key: 'actions', header: '',
+      key: 'actions', header: 'Actions',
       render: (r) => (
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openEdit(r)} aria-label="Edit">
-            <Pencil size={14} />
-          </button>
-          {user.role === 'SUPER_ADMIN' && (
-            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDelete(r)} aria-label="Delete">
-              <Trash2 size={14} />
-            </button>
-          )}
-        </div>
+        <TableActions
+          actions={[
+            { key: 'view', icon: Eye, label: 'View', onClick: () => setViewing(r) },
+            { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openEdit(r) },
+            user.role === 'SUPER_ADMIN' && { key: 'trash', icon: Trash2, label: 'Delete', danger: true, onClick: () => handleDelete(r) },
+          ]}
+        />
       ),
     }] : []),
   ];
@@ -170,12 +170,10 @@ export default function Tasks() {
           {statuses.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
         </select>
         {isManager && (
-          <button
-            className={`btn ${unallocatedOnly ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => setUnallocatedOnly((v) => !v)}
-          >
+          <label className={`filter-chip${unallocatedOnly ? ' is-active' : ''}`}>
+            <input type="checkbox" checked={unallocatedOnly} onChange={(e) => setUnallocatedOnly(e.target.checked)} />
             Not Allocated Only
-          </button>
+          </label>
         )}
       </div>
 
@@ -214,6 +212,28 @@ export default function Tasks() {
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Create'}</button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {viewing && (
+        <Modal size="wide" title={viewing.title} onClose={() => setViewing(null)}>
+          <div className="detail-card">
+            <div className="detail-card-header">
+              <Badge value={viewing.priority} />
+              <Badge value={viewing.status} />
+            </div>
+            <div className="detail-grid">
+              <DetailField label="Assignee" value={viewing.assignee ? `${viewing.assignee.firstName} ${viewing.assignee.lastName}` : 'Not allocated'} />
+              <DetailField label="Project" value={viewing.project?.name} />
+              <DetailField label="Type" value={viewing.type} />
+              <DetailField label="Due Date" value={viewing.dueDate ? new Date(viewing.dueDate).toLocaleDateString() : null} />
+              <DetailField label="Progress" value={`${viewing.progress}%`} />
+              <DetailField full label="Description" value={viewing.description} />
+            </div>
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setViewing(null)}>Close</button>
+            </div>
+          </div>
         </Modal>
       )}
 

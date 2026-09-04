@@ -371,7 +371,7 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
         )];
         if (reasons.length === 0) return null;
         return (
-          <div style={{ background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13 }}>
+          <div className="ts-reject-banner">
             <strong>Rejected:</strong> {reasons.join(' · ')}
           </div>
         );

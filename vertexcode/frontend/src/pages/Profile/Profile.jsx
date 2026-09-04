@@ -197,14 +197,16 @@ export default function Profile() {
       <div className="grid grid-cols-1 gap-x-12 gap-y-8 lg:grid-cols-3">
         <div className="space-y-8 lg:col-span-2">
           <section>
-            <SectionHeading>Work Information</SectionHeading>
+            <SectionHeading>Account Information</SectionHeading>
             <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
               <Field icon={Mail} label="Email" value={profile.email} />
               <Field label="Role" value={profile.role.replace(/_/g, ' ')} />
+              <Field label="Status" value={profile.status?.replace(/_/g, ' ')} />
               <Field label="Designation" value={profile.designation} />
               <Field label="Department" value={profile.department?.name} />
               <Field label="Location" value={profile.location?.name} />
               <Field label="Join Date" value={profile.joinDate ? new Date(profile.joinDate).toLocaleDateString() : null} />
+              <Field label="Created" value={profile.createdAt ? new Date(profile.createdAt).toLocaleDateString() : null} />
             </div>
             <p className="mt-3 text-xs text-muted-foreground">
               Name, role, department and designation are managed by your administrator.
@@ -255,7 +257,8 @@ export default function Profile() {
 
         <div className="space-y-8">
           <section>
-            <SectionHeading>Change Password</SectionHeading>
+            <SectionHeading>Security</SectionHeading>
+            <p className="mb-4 text-xs text-muted-foreground">Change your password to keep your account secure.</p>
             <form className="form-grid" onSubmit={handleChangePassword}>
               <label>Current Password<input type="password" autoComplete="current-password" required value={passwordForm.currentPassword} onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })} /></label>
               <label>New Password<input type="password" autoComplete="new-password" minLength={8} required value={passwordForm.password} onChange={(e) => setPasswordForm({ ...passwordForm, password: e.target.value })} /></label>

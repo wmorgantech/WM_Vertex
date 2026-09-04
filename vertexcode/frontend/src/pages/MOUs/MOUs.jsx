@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Eye, Pencil } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import TableActions from '../../components/common/TableActions';
+import DetailField from '../../components/common/DetailField';
 import toast from 'react-hot-toast';
 import { downloadReport } from '../../lib/download';
 
@@ -18,6 +20,7 @@ const emptyForm = {
 
 export default function MOUs() {
   const { user } = useAuth();
+  const [viewing, setViewing] = useState(null);
   const [mous, setMous] = useState([]);
   const [colleges, setColleges] = useState([]);
   const [staffUsers, setStaffUsers] = useState([]);
@@ -136,15 +139,14 @@ export default function MOUs() {
       },
     },
     {
-      key: 'actions', header: '', render: (r) => (
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button className="btn btn-ghost btn-sm" onClick={() => openEdit(r)}>Update</button>
-          {user.role === 'SUPER_ADMIN' && (
-            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDelete(r)} aria-label="Delete">
-              <Trash2 size={14} />
-            </button>
-          )}
-        </div>
+      key: 'actions', header: 'Actions', render: (r) => (
+        <TableActions
+          actions={[
+            { key: 'view', icon: Eye, label: 'View', onClick: () => setViewing(r) },
+            { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openEdit(r) },
+            user.role === 'SUPER_ADMIN' && { key: 'trash', icon: Trash2, label: 'Delete', danger: true, onClick: () => handleDelete(r) },
+          ]}
+        />
       ),
     },
   ];
@@ -189,6 +191,42 @@ export default function MOUs() {
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Create'}</button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {viewing && (
+        <Modal size="wide" title={viewing.mouType || 'MOU'} onClose={() => setViewing(null)}>
+          <div className="detail-card">
+            <div className="detail-card-header">
+              <Badge value={viewing.status} />
+              {viewing.expired && <Badge value="EXPIRED" />}
+              {viewing.expiringSoon && !viewing.expired && <Badge value="EXPIRING_SOON" label={`Expiring in ${viewing.daysToExpiry}d`} />}
+            </div>
+            <div className="detail-grid">
+              <DetailField label="College" value={viewing.college?.name} />
+              <DetailField label="Contact Person" value={viewing.contactPerson} />
+              <DetailField label="Assigned To" value={viewing.assignedEmployee ? `${viewing.assignedEmployee.firstName} ${viewing.assignedEmployee.lastName}` : null} />
+              <DetailField label="Start Date" value={viewing.startDate ? new Date(viewing.startDate).toLocaleDateString() : null} />
+              <DetailField label="End Date" value={viewing.endDate ? new Date(viewing.endDate).toLocaleDateString() : null} />
+              <DetailField label="Signed Date" value={viewing.signedDate ? new Date(viewing.signedDate).toLocaleDateString() : null} />
+              <DetailField label="Renewal Date" value={viewing.renewalDate ? new Date(viewing.renewalDate).toLocaleDateString() : null} />
+              <DetailField label="Document" value={viewing.documentName || 'Not attached'} />
+              <DetailField full label="Purpose" value={viewing.purpose} />
+              <DetailField full label="Remarks" value={viewing.remarks} />
+            </div>
+            {viewing.documentPath && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => downloadReport(`/mous/${viewing.id}/document`, viewing.documentName || 'mou-document').catch(() => toast.error('Failed to download document'))}
+              >
+                Download Document
+              </button>
+            )}
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setViewing(null)}>Close</button>
+            </div>
+          </div>
         </Modal>
       )}
 
