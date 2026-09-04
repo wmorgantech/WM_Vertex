@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Pencil, Eye } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Plus, Trash2, Pencil, Eye, Mail } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -8,19 +7,22 @@ import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import Pagination from '../../components/common/Pagination';
+import TableActions from '../../components/common/TableActions';
+import DetailField from '../../components/common/DetailField';
 import CustomFieldsSection from '../../components/common/CustomFieldsSection';
 import toast from 'react-hot-toast';
 import { downloadReport } from '../../lib/download';
 
 const COMPLETION_STATUSES = ['IN_PROGRESS', 'COMPLETED', 'TERMINATED', 'EXTENDED', 'CONVERTED_TO_EMPLOYEE'];
 const BATCH_STATUSES = ['UPCOMING', 'ONGOING', 'COMPLETED', 'CANCELLED'];
+const CATEGORY_LABELS = { FREE_INTERNSHIP: 'Free Internship', JOT: 'Job Oriented Training (JOT)' };
 const PAGE_SIZE = 25;
 
 export default function Interns() {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const isManager = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
   const isSuperAdmin = user.role === 'SUPER_ADMIN';
+  const [viewingEnrollment, setViewingEnrollment] = useState(null);
 
   const [tab, setTab] = useState('enrollments');
   const [enrollments, setEnrollments] = useState([]);
@@ -194,32 +196,19 @@ export default function Interns() {
     {
       key: 'actions', header: 'Actions',
       render: (r) => (
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button
-            className="btn btn-ghost btn-sm btn-icon"
-            onClick={() => navigate(`/interns/${r.id}`, { state: { enrollment: r } })}
-            aria-label="View intern"
-            title="View"
-          >
-            <Eye size={14} />
-          </button>
-          {isManager && (
-            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openEnrollEdit(r)} aria-label="Edit enrollment" title="Edit">
-              <Pencil size={14} />
-            </button>
-          )}
-          {/* Deactivate is soft-delete only (completionStatus -> TERMINATED +
-              account deactivated — see handleDelete/backend deleteEnrollment).
-              Gated the same as Edit (isManager) since the backend now checks
-              the same intern:manage permission for both DELETE and PUT
-              /interns/enrollments/:id — Super Admin and Admin both qualify,
-              Employees (even ones who can add interns) do not. */}
-          {isManager && (
-            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDelete(r)} aria-label="Deactivate intern" title="Deactivate (soft delete)">
-              <Trash2 size={14} />
-            </button>
-          )}
-        </div>
+        <TableActions
+          actions={[
+            { key: 'view', icon: Eye, label: 'View', onClick: () => setViewingEnrollment(r) },
+            isManager && { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openEnrollEdit(r) },
+            // Soft delete only (completionStatus -> TERMINATED + account
+            // deactivated — see handleDelete/backend deleteEnrollment).
+            // Gated the same as Edit (isManager) since the backend checks
+            // the same intern:manage permission for both DELETE and PUT
+            // /interns/enrollments/:id — Super Admin and Admin both
+            // qualify, Employees (even ones who can add interns) do not.
+            isManager && { key: 'trash', icon: Trash2, label: 'Deactivate (soft delete)', danger: true, onClick: () => handleDelete(r) },
+          ]}
+        />
       ),
     },
   ];
@@ -232,16 +221,14 @@ export default function Interns() {
     { key: 'status', header: 'Status', render: (r) => <Badge value={r.status} /> },
     { key: 'count', header: 'Interns', render: (r) => r._count?.enrollments ?? 0 },
     {
-      key: 'actions', header: '',
+      key: 'actions', header: 'Actions',
       render: (r) => (
-        <>
-          {isManager && <button className="btn btn-ghost btn-sm" onClick={() => openBatchEdit(r)}>Edit</button>}
-          {isSuperAdmin && (
-            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDeleteBatch(r)} aria-label="Delete batch">
-              <Trash2 size={14} />
-            </button>
-          )}
-        </>
+        <TableActions
+          actions={[
+            isManager && { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openBatchEdit(r) },
+            isSuperAdmin && { key: 'trash', icon: Trash2, label: 'Delete batch', danger: true, onClick: () => handleDeleteBatch(r) },
+          ]}
+        />
       ),
     },
   ];
@@ -264,14 +251,14 @@ export default function Interns() {
               </>
             )}
             {isManager && <button className="btn btn-secondary" onClick={() => setShowBatchModal(true)}><Plus size={14} /> New Batch</button>}
-            <button className="btn btn-primary" onClick={() => setShowEnrollModal(true)}><Plus size={14} /> Enroll Intern</button>
+            <button className="btn btn-primary" onClick={() => setShowEnrollModal(true)}><Plus size={14} /> New Intern</button>
           </>
         )}
       />
 
       <div className="tabs">
-        <button className={`tab ${tab === 'enrollments' ? 'active' : ''}`} onClick={() => setTab('enrollments')}>Enrollments</button>
-        {isManager && <button className={`tab ${tab === 'batches' ? 'active' : ''}`} onClick={() => setTab('batches')}>Batches</button>}
+        <button className={`tab ${tab === 'enrollments' ? 'active' : ''}`} onClick={() => setTab('enrollments')}>Intern List</button>
+        {isManager && <button className={`tab ${tab === 'batches' ? 'active' : ''}`} onClick={() => setTab('batches')}>Enroll Batch</button>}
       </div>
 
       {tab === 'enrollments' && (
@@ -349,6 +336,29 @@ export default function Interns() {
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Enroll'}</button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {viewingEnrollment && (
+        <Modal title={`${viewingEnrollment.user.firstName} ${viewingEnrollment.user.lastName}`} onClose={() => setViewingEnrollment(null)}>
+          <div className="detail-card">
+            <div className="detail-card-header">
+              <Badge value={viewingEnrollment.completionStatus} />
+              {viewingEnrollment.category && <Badge value={viewingEnrollment.category} label={CATEGORY_LABELS[viewingEnrollment.category]} />}
+            </div>
+            <div className="detail-grid">
+              <DetailField icon={Mail} label="Email" value={viewingEnrollment.user.email} />
+              <DetailField label="Batch" value={viewingEnrollment.batch?.name} />
+              <DetailField label="Mentor" value={viewingEnrollment.mentor ? `${viewingEnrollment.mentor.firstName} ${viewingEnrollment.mentor.lastName}` : null} />
+              <DetailField label="Progress" value={`${viewingEnrollment.progressPercent ?? 0}%`} />
+              <DetailField label="Performance Rating" value={viewingEnrollment.performanceRating ?? null} />
+              <DetailField label="Stipend" value={viewingEnrollment.stipend != null ? `₹${viewingEnrollment.stipend.toLocaleString()}` : null} />
+              <DetailField full label="Notes" value={viewingEnrollment.notes} />
+            </div>
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setViewingEnrollment(null)}>Close</button>
+            </div>
+          </div>
         </Modal>
       )}
 

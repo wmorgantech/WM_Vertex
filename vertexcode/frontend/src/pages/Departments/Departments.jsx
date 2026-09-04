@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
 import Modal from '../../components/common/Modal';
+import TableActions from '../../components/common/TableActions';
+import DetailField from '../../components/common/DetailField';
 import toast from 'react-hot-toast';
 
 export default function Departments() {
@@ -17,6 +19,8 @@ export default function Departments() {
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(null);
   const [editForm, setEditForm] = useState({ name: '', description: '' });
+  const [viewing, setViewing] = useState(null);
+  const [viewLoading, setViewLoading] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -38,6 +42,15 @@ export default function Departments() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const openView = (d) => {
+    setViewing({ ...d, users: null });
+    setViewLoading(true);
+    api.get(`/departments/${d.id}`)
+      .then(({ data }) => setViewing(data.data))
+      .catch(() => toast.error('Failed to load department details'))
+      .finally(() => setViewLoading(false));
   };
 
   const openEdit = (d) => {
@@ -77,18 +90,15 @@ export default function Departments() {
     { key: 'head', header: 'Head', render: (r) => r.head ? `${r.head.firstName} ${r.head.lastName}` : '—' },
     { key: 'count', header: 'Members', render: (r) => r._count?.users ?? 0 },
     {
-      key: 'actions', header: '',
+      key: 'actions', header: 'Actions',
       render: (r) => (
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openEdit(r)} aria-label="Edit">
-            <Pencil size={14} />
-          </button>
-          {isSuperAdmin && (
-            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDelete(r)} aria-label="Delete">
-              <Trash2 size={14} />
-            </button>
-          )}
-        </div>
+        <TableActions
+          actions={[
+            { key: 'view', icon: Eye, label: 'View', onClick: () => openView(r) },
+            { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openEdit(r) },
+            isSuperAdmin && { key: 'trash', icon: Trash2, label: 'Delete', danger: true, onClick: () => handleDelete(r) },
+          ]}
+        />
       ),
     },
   ];
@@ -112,6 +122,33 @@ export default function Departments() {
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Create'}</button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {viewing && (
+        <Modal title={viewing.name} onClose={() => setViewing(null)}>
+          <div className="detail-card">
+            <div className="detail-grid">
+              <DetailField full label="Description" value={viewing.description} />
+              <DetailField label="Head" value={viewing.head ? `${viewing.head.firstName} ${viewing.head.lastName}` : null} />
+              <DetailField label="Members" value={viewing.users ? viewing.users.length : viewing._count?.users ?? 0} />
+            </div>
+            {viewLoading ? (
+              <p className="empty-state" style={{ padding: 0, textAlign: 'left' }}>Loading members...</p>
+            ) : viewing.users && viewing.users.length > 0 && (
+              <div>
+                <p className="detail-field-label" style={{ marginBottom: 8 }}>Team</p>
+                <div className="detail-grid">
+                  {viewing.users.map((u) => (
+                    <DetailField key={u.id} label={u.designation || u.role} value={`${u.firstName} ${u.lastName}`} />
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setViewing(null)}>Close</button>
+            </div>
+          </div>
         </Modal>
       )}
 
