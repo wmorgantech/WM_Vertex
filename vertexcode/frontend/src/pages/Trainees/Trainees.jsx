@@ -433,7 +433,7 @@ export default function Trainees() {
       )}
 
       {viewingTrainee && (
-        <Modal title={`${viewingTrainee.user.firstName} ${viewingTrainee.user.lastName}`} onClose={() => setViewingTrainee(null)}>
+        <Modal size="wide" title={`${viewingTrainee.user.firstName} ${viewingTrainee.user.lastName}`} onClose={() => setViewingTrainee(null)}>
           <div className="detail-card">
             <div className="detail-card-header">
               <Badge value={viewingTrainee.completionStatus} />

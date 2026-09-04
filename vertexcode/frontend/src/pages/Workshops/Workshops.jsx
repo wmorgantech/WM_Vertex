@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Eye, Pencil } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import TableActions from '../../components/common/TableActions';
+import DetailField from '../../components/common/DetailField';
 import CustomFieldsSection from '../../components/common/CustomFieldsSection';
 import toast from 'react-hot-toast';
 
@@ -19,6 +21,7 @@ const emptyForm = {
 export default function Workshops() {
   const { user } = useAuth();
   const isManager = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
+  const [viewing, setViewing] = useState(null);
   const [workshops, setWorkshops] = useState([]);
   const [colleges, setColleges] = useState([]);
   const [staffUsers, setStaffUsers] = useState([]);
@@ -117,17 +120,14 @@ export default function Workshops() {
         : (r.followUpDate ? new Date(r.followUpDate).toLocaleDateString() : '—'),
     },
     {
-      key: 'actions', header: '', render: (r) => (
-        <div style={{ display: 'flex', gap: 4 }}>
-          {(isManager || r.assignedEmployee?.id === user.id) && (
-            <button className="btn btn-ghost btn-sm" onClick={() => openEdit(r)}>Update</button>
-          )}
-          {user.role === 'SUPER_ADMIN' && (
-            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDelete(r)} aria-label="Delete">
-              <Trash2 size={14} />
-            </button>
-          )}
-        </div>
+      key: 'actions', header: 'Actions', render: (r) => (
+        <TableActions
+          actions={[
+            { key: 'view', icon: Eye, label: 'View', onClick: () => setViewing(r) },
+            (isManager || r.assignedEmployee?.id === user.id) && { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openEdit(r) },
+            user.role === 'SUPER_ADMIN' && { key: 'trash', icon: Trash2, label: 'Delete', danger: true, onClick: () => handleDelete(r) },
+          ]}
+        />
       ),
     },
   ];
@@ -183,6 +183,37 @@ export default function Workshops() {
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Create'}</button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {viewing && (
+        <Modal size="wide" title={viewing.topic} onClose={() => setViewing(null)}>
+          <div className="detail-card">
+            <div className="detail-card-header">
+              <Badge value={viewing.status} />
+              {viewing.followUpOverdue && <Badge value="OVERDUE" label="Follow-up Overdue" />}
+            </div>
+            <div className="detail-grid">
+              <DetailField label="College" value={viewing.college?.name} />
+              <DetailField label="Department" value={viewing.collegeDepartment?.name} />
+              <DetailField label="Technology" value={viewing.technology} />
+              <DetailField label="Contact Person" value={viewing.contactPerson} />
+              <DetailField label="Contact Number" value={viewing.contactNumber} />
+              <DetailField label="Assigned To" value={viewing.assignedEmployee ? `${viewing.assignedEmployee.firstName} ${viewing.assignedEmployee.lastName}` : null} />
+              <DetailField label="Trainer" value={viewing.trainer ? `${viewing.trainer.firstName} ${viewing.trainer.lastName}` : null} />
+              <DetailField label="Proposed Date" value={viewing.proposedDate ? new Date(viewing.proposedDate).toLocaleDateString() : null} />
+              <DetailField label="Duration" value={viewing.duration} />
+              <DetailField label="Expected Participants" value={viewing.expectedParticipants} />
+              <DetailField label="Actual Participants" value={viewing.actualParticipants} />
+              <DetailField label="Follow-up Date" value={viewing.followUpDate ? new Date(viewing.followUpDate).toLocaleDateString() : null} />
+              <DetailField label="Next Action" value={viewing.nextAction} />
+              <DetailField full label="Discussion Notes" value={viewing.discussionNotes} />
+              <DetailField full label="Remarks" value={viewing.remarks} />
+            </div>
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setViewing(null)}>Close</button>
+            </div>
+          </div>
         </Modal>
       )}
 
