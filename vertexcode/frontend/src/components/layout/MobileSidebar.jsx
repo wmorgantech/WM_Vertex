@@ -42,7 +42,7 @@ export default function MobileSidebar({ open, onOpenChange }) {
                     }
                   >
                     <item.icon className="size-4 shrink-0" />
-                    <span className="truncate">{item.label}</span>
+                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
                   </NavLink>
                 ))}
               </div>

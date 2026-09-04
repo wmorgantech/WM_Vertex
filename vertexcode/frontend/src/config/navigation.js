@@ -80,8 +80,17 @@ const FINANCE_GROUP = {
   items: [{ to: '/expenses', label: 'Expenses', icon: IndianRupee }],
 };
 
+// Super Admin doesn't need the Enquiries workflow (it's an Admin/Employee
+// business-development tool) — dropped from the shared MANAGER_GROUPS list
+// for Super Admin's nav only. Admin still gets the full, unmodified
+// MANAGER_GROUPS (including Enquiries) below. This is a navigation-only
+// change: the /enquiries route, its API, and Admin's access are untouched.
 const SUPER_ADMIN_GROUPS = [
-  ...MANAGER_GROUPS,
+  ...MANAGER_GROUPS.map((group) =>
+    group.label === 'Business Development'
+      ? { ...group, items: group.items.filter((item) => item.to !== '/enquiries') }
+      : group
+  ),
   FINANCE_GROUP,
   {
     label: 'Configuration',

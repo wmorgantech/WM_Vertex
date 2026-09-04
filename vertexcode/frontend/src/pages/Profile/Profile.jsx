@@ -7,6 +7,7 @@ import Badge from '@/components/common/Badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import { Card } from '@/components/ui/card';
 import toast from 'react-hot-toast';
 
 const listToText = (arr) => (arr || []).join(', ');
@@ -164,37 +165,38 @@ export default function Profile() {
         </div>
       )}
 
-      {/* Header */}
-      <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-4">
-          <Avatar className="size-14 text-base">
-            <AvatarFallback>{initials(profile)}</AvatarFallback>
-          </Avatar>
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-                {profile.firstName} {profile.lastName}
-              </h1>
-              <Badge value={profile.role} />
+      <Card className="mt-4 gap-0 p-6 md:p-8">
+        {/* Header */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-4">
+            <Avatar className="size-14 text-base">
+              <AvatarFallback>{initials(profile)}</AvatarFallback>
+            </Avatar>
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  {profile.firstName} {profile.lastName}
+                </h1>
+                <Badge value={profile.role} />
+              </div>
+              <p className="text-sm text-muted-foreground">{profile.email}</p>
+              <p className="text-xs text-muted-foreground">
+                {profile.designation || 'No designation'} · {profile.department?.name || 'No department'} · {profile.location?.name || 'No location'}
+              </p>
             </div>
-            <p className="text-sm text-muted-foreground">{profile.email}</p>
-            <p className="text-xs text-muted-foreground">
-              {profile.designation || 'No designation'} · {profile.department?.name || 'No department'} · {profile.location?.name || 'No location'}
-            </p>
           </div>
+          {!editing && (
+            <Button onClick={() => setEditing(true)}>
+              <Pencil className="size-4" />
+              Edit Profile
+            </Button>
+          )}
         </div>
-        {!editing && (
-          <Button onClick={() => setEditing(true)}>
-            <Pencil className="size-4" />
-            Edit Profile
-          </Button>
-        )}
-      </div>
 
-      <Separator className="mt-6 mb-8" />
+        <Separator className="mt-6 mb-8" />
 
-      {/* Content */}
-      <div className="grid grid-cols-1 gap-x-12 gap-y-8 lg:grid-cols-3">
+        {/* Content */}
+        <div className="grid grid-cols-1 gap-x-12 gap-y-8 lg:grid-cols-3">
         <div className="space-y-8 lg:col-span-2">
           <section>
             <SectionHeading>Account Information</SectionHeading>
@@ -270,6 +272,7 @@ export default function Profile() {
           </section>
         </div>
       </div>
+      </Card>
     </div>
   );
 }

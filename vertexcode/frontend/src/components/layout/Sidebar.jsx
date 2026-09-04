@@ -34,7 +34,7 @@ function NavItem({ item, collapsed }) {
       }
     >
       <item.icon className="size-4 shrink-0" />
-      {!collapsed && <span className="truncate">{item.label}</span>}
+      {!collapsed && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
     </NavLink>
   );
 

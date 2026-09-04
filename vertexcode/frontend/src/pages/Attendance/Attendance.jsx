@@ -5,8 +5,18 @@ import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import StatCard from '../../components/common/StatCard';
+import Pagination from '../../components/common/Pagination';
 import toast from 'react-hot-toast';
 import { downloadReport } from '../../lib/download';
+
+// The attendance list/summary endpoints don't support server-side pagination
+// (confirmed: GET /attendance and /attendance/me are unbounded findMany calls
+// with no page/limit params) — rather than change that backend behavior,
+// this paginates client-side over the already-loaded, already-fetched
+// dataset using the same shared Pagination component every server-paginated
+// page already uses (it only needs a {total, page, limit} meta object — it
+// doesn't care whether that came from the API or was computed locally).
+const PAGE_SIZE = 15;
 
 export default function Attendance() {
   const { user } = useAuth();
@@ -15,15 +25,19 @@ export default function Attendance() {
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [clocking, setClocking] = useState(false);
+  const [page, setPage] = useState(1);
 
   const load = () => {
     setLoading(true);
     const listCall = isManager ? api.get('/attendance') : api.get('/attendance/me');
     Promise.all([listCall, api.get('/attendance/summary')])
-      .then(([r, s]) => { setRecords(r.data.data); setSummary(s.data.data); })
+      .then(([r, s]) => { setRecords(r.data.data); setSummary(s.data.data); setPage(1); })
       .finally(() => setLoading(false));
   };
   useEffect(load, []);
+
+  const pagedRecords = records.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const paginationMeta = { total: records.length, page, limit: PAGE_SIZE };
 
   const handleClock = async (type) => {
     setClocking(true);
@@ -80,7 +94,12 @@ export default function Attendance() {
         </div>
       )}
 
-      {loading ? <div className="page-loading">Loading...</div> : <DataTable columns={columns} rows={records} />}
+      {loading ? <div className="page-loading">Loading...</div> : (
+        <>
+          <DataTable columns={columns} rows={pagedRecords} />
+          <Pagination meta={paginationMeta} onPageChange={setPage} />
+        </>
+      )}
     </div>
   );
 }
