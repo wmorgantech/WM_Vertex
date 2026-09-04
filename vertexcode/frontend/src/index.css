@@ -212,6 +212,46 @@ input, select, textarea { font-family: inherit; }
 .btn-sm { padding: 5px 10px; font-size: 12px; gap: 4px; }
 .btn-icon { padding: 8px; }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* --- Shared table row-action icons (View/Edit/Trash/...) — one treatment
+   used identically across every admin list/table via TableActions.jsx --- */
+.table-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.table-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.table-action-btn:hover { background: #f3f4f6; color: var(--text); border-color: var(--border); }
+.table-action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.table-action-btn:disabled:hover { background: transparent; color: var(--text-muted); border-color: transparent; }
+.table-action-btn--danger:hover { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+
+/* Keeps a person/record name on a single line — the table itself already
+   scrolls horizontally (.table-wrap { overflow-x: auto }) rather than
+   forcing an individual name to wrap or get clipped. */
+.name-cell { white-space: nowrap; }
+
+/* --- Read-only "View" card content, shown inside Modal for row-level View
+   actions (Employees/Interns/Trainees/Departments) — one shared layout. --- */
+.detail-card { display: flex; flex-direction: column; gap: 16px; }
+.detail-card-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.detail-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px 20px; }
+@media (max-width: 560px) { .detail-grid { grid-template-columns: 1fr; } }
+.detail-field { display: flex; align-items: flex-start; gap: 8px; }
+.detail-field-icon { color: var(--text-muted); margin-top: 3px; flex-shrink: 0; }
+.detail-field-label { font-size: 12px; color: var(--text-muted); margin: 0 0 2px; }
+.detail-field-value { font-size: 14px; color: var(--text); margin: 0; font-weight: 500; }
+.detail-field-full { grid-column: 1 / -1; }
+
 .btn:focus-visible,
 .search-input:focus-visible,
 .toolbar select:focus-visible,
@@ -219,7 +259,8 @@ input, select, textarea { font-family: inherit; }
 .form-grid select:focus-visible,
 .form-grid textarea:focus-visible,
 .tab:focus-visible,
-.sidebar-link:focus-visible {
+.sidebar-link:focus-visible,
+.table-action-btn:focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
 }
@@ -754,14 +795,6 @@ input, select, textarea { font-family: inherit; }
 .pagination-summary { font-size: 13px; color: var(--text-muted); }
 .pagination-controls { display: flex; align-items: center; gap: 8px; }
 .pagination-page { font-size: 13px; color: var(--text); white-space: nowrap; }
-
-/* --- Compact monospace id cell (truncated uuid, full value in title attr) --- */
-.id-cell {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  color: var(--text-muted);
-  cursor: default;
-}
 
 .tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
 .tab {

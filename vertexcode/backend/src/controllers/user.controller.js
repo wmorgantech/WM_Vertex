@@ -37,7 +37,7 @@ async function listUsers(req, res) {
   const take = Math.min(parseInt(limit, 10) || 25, 100);
   const skip = (Math.max(parseInt(page, 10), 1) - 1) * take;
 
-  const [items, total] = await Promise.all([
+  const [items, total, allIds] = await Promise.all([
     prisma.user.findMany({
       where,
       include: {
@@ -50,9 +50,18 @@ async function listUsers(req, res) {
       skip,
     }),
     prisma.user.count({ where }),
+    // A human-friendly display code (EMP101, EMP102, ...) for the UI, since
+    // the real primary key is a UUID. Ranked by creation order across the
+    // WHOLE organization — not `where`-scoped — so the same person always
+    // shows the same code regardless of the active search/filter/page; a
+    // secondary `id` sort keeps the rank deterministic for any same-instant
+    // rows. id-only projection keeps this cheap even at a few thousand users.
+    prisma.user.findMany({ select: { id: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] }),
   ]);
+  const employeeCodeById = new Map(allIds.map((u, i) => [u.id, `EMP${100 + i + 1}`]));
+  const withCode = items.map((u) => ({ ...publicUser(u), employeeCode: employeeCodeById.get(u.id) }));
 
-  return sendSuccess(res, 200, items.map(publicUser), { total, page: Number(page), limit: take });
+  return sendSuccess(res, 200, withCode, { total, page: Number(page), limit: take });
 }
 
 // GET /api/users/:id
