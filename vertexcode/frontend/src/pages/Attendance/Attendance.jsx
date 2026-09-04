@@ -73,7 +73,7 @@ export default function Attendance() {
       {summary && (
         <div className="stat-grid">
           <StatCard label="Total Days Logged" value={summary.totalDays} accent="blue" />
-          <StatCard label="Total Hours" value={summary.totalHours} accent="green" />
+          <StatCard label="Total Hours" value={`${summary.totalHours.toFixed(2)} hrs`} accent="green" />
           <StatCard label="Present" value={summary.PRESENT || 0} accent="green" />
           <StatCard label="Late" value={summary.LATE || 0} accent="amber" />
           <StatCard label="Absent" value={summary.ABSENT || 0} accent="red" />

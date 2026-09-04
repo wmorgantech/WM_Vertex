@@ -1,22 +1,26 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import {
+  Plus, Trash2, ArrowLeft, ChevronRight, Briefcase, MapPin, UserCog, GraduationCap,
+  ListTodo, Flag, CircleCheck, ClipboardCheck, CalendarDays, Receipt,
+} from 'lucide-react';
 import api from '../../api/axios';
 import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
 import Modal from '../../components/common/Modal';
+import TableActions from '../../components/common/TableActions';
 import toast from 'react-hot-toast';
 
 const TABS = [
-  { key: 'designations', label: 'Designations' },
-  { key: 'locations', label: 'Locations' },
-  { key: 'employment-types', label: 'Employment Types' },
-  { key: 'college-types', label: 'College Types' },
-  { key: 'task-types', label: 'Task Types' },
-  { key: 'task-priorities', label: 'Task Priorities' },
-  { key: 'task-statuses', label: 'Task Statuses' },
-  { key: 'timesheet-statuses', label: 'Timesheet Statuses' },
-  { key: 'leave-types', label: 'Leave Types' },
-  { key: 'expense-categories', label: 'Expense Categories' },
+  { key: 'designations', label: 'Designations', description: 'Job titles assigned to employees', icon: Briefcase },
+  { key: 'locations', label: 'Locations', description: 'Office/work locations', icon: MapPin },
+  { key: 'employment-types', label: 'Employment Types', description: 'Full-time, part-time, intern, etc.', icon: UserCog },
+  { key: 'college-types', label: 'College Types', description: 'Categories of partner institutions', icon: GraduationCap },
+  { key: 'task-types', label: 'Task Types', description: 'Classifications for tasks', icon: ListTodo },
+  { key: 'task-priorities', label: 'Task Priorities', description: 'Priority levels for tasks', icon: Flag },
+  { key: 'task-statuses', label: 'Task Statuses', description: 'Workflow states for tasks', icon: CircleCheck },
+  { key: 'timesheet-statuses', label: 'Timesheet Statuses', description: 'Workflow states for timesheets', icon: ClipboardCheck },
+  { key: 'leave-types', label: 'Leave Types', description: 'Categories of leave requests', icon: CalendarDays },
+  { key: 'expense-categories', label: 'Expense Categories', description: 'Categories for recorded expenses', icon: Receipt },
 ];
 
 const CODE_LABEL_TABS = ['employment-types', 'college-types', 'task-types', 'task-priorities', 'task-statuses', 'timesheet-statuses', 'leave-types', 'expense-categories'];
@@ -42,7 +46,9 @@ const EMPTY_FORMS = {
 };
 
 export default function Masters() {
-  const [tab, setTab] = useState('designations');
+  // null = the category grid landing view; a TABS key = drilled into that
+  // category's existing list/CRUD view (unchanged from before this redesign).
+  const [tab, setTab] = useState(null);
   const [rows, setRows] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -51,6 +57,7 @@ export default function Masters() {
   const [saving, setSaving] = useState(false);
 
   const load = () => {
+    if (!tab) return;
     setLoading(true);
     Promise.all([
       api.get(`/masters/${tab}`),
@@ -64,7 +71,7 @@ export default function Masters() {
   };
   useEffect(load, [tab]);
 
-  useEffect(() => setForm(EMPTY_FORMS[tab]), [tab]);
+  useEffect(() => { if (tab) setForm(EMPTY_FORMS[tab]); }, [tab]);
 
   const idKey = (row) => (CODE_LABEL_TABS.includes(tab) ? row.code : row.id);
 
@@ -160,37 +167,57 @@ export default function Masters() {
     ],
   };
 
-  const columns = [
+  const columns = tab ? [
     ...baseColumns[tab],
     { key: 'active', header: 'Status', render: (r) => (
       <button className={`btn btn-ghost btn-sm`} onClick={() => toggleActive(r)}>
         {r.active ? 'Active' : 'Inactive'}
       </button>
     ) },
-    { key: 'actions', header: '', render: (r) => (
-      <button className="btn btn-danger btn-sm" onClick={() => handleDelete(r)}><Trash2 size={14} /> Remove</button>
-    ) },
-  ];
+    {
+      key: 'actions', header: 'Actions', render: (r) => (
+        <TableActions actions={[{ key: 'trash', icon: Trash2, label: 'Remove', danger: true, onClick: () => handleDelete(r) }]} />
+      ),
+    },
+  ] : [];
+
+  if (!tab) {
+    return (
+      <div>
+        <PageHeader
+          title="Master Data"
+          subtitle="Configurable lists used across the platform instead of hardcoded values"
+        />
+        <div className="masters-grid">
+          {TABS.map((t) => {
+            const Icon = t.icon;
+            return (
+              <button key={t.key} type="button" className="masters-card" onClick={() => setTab(t.key)}>
+                <span className="masters-card-icon"><Icon size={20} /></span>
+                <span className="masters-card-body">
+                  <span className="masters-card-title">{t.label}</span>
+                  <span className="masters-card-desc">{t.description}</span>
+                </span>
+                <ChevronRight size={16} className="masters-card-arrow" />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
+      <button type="button" className="masters-back" onClick={() => setTab(null)}>
+        <ArrowLeft size={14} /> Master Data
+      </button>
+
       <PageHeader
-        title="Configuration — Master Data"
-        subtitle="Configurable lists used across the platform instead of hardcoded values"
+        title={TABS.find((t) => t.key === tab).label}
+        subtitle={TABS.find((t) => t.key === tab).description}
         actions={<button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> Add {TABS.find((t) => t.key === tab).label.replace(/s$/, '')}</button>}
       />
-
-      <div className="toolbar">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            className={`btn ${tab === t.key ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => setTab(t.key)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
 
       {loading ? <div className="page-loading">Loading...</div> : <DataTable columns={columns} rows={rows} />}
 

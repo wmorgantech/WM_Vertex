@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import TableActions from '../../components/common/TableActions';
+import DetailField from '../../components/common/DetailField';
 import CustomFieldsSection from '../../components/common/CustomFieldsSection';
 import toast from 'react-hot-toast';
 
@@ -15,6 +17,7 @@ const emptyDeptForm = { name: '', contactPerson: '', contactEmail: '' };
 export default function Colleges() {
   const { user } = useAuth();
   const isSuperAdmin = user.role === 'SUPER_ADMIN';
+  const [viewing, setViewing] = useState(null);
   const [colleges, setColleges] = useState([]);
   const [types, setTypes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -115,29 +118,25 @@ export default function Colleges() {
     { key: 'type', header: 'Type', render: (r) => r.type?.label || '—' },
     { key: 'city', header: 'City', render: (r) => r.city || '—' },
     { key: 'contactPerson', header: 'Contact', render: (r) => r.contactPerson || '—' },
-    { key: 'departments', header: 'Departments', render: (r) => r.departments?.length ?? 0 },
     { key: 'workshops', header: 'Workshops', render: (r) => r._count?.workshops ?? 0 },
     { key: 'mous', header: 'MOUs', render: (r) => r._count?.mous ?? 0 },
     { key: 'active', header: 'Status', render: (r) => <Badge value={r.active ? 'ACTIVE' : 'INACTIVE'} /> },
     {
       key: 'expand', header: '', render: (r) => (
         <button className="btn btn-ghost btn-sm" onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}>
-          {expandedId === r.id ? 'Hide depts' : 'Departments'}
+          {expandedId === r.id ? 'Hide depts' : 'Manage depts'}
         </button>
       ),
     },
     {
-      key: 'actions', header: '', render: (r) => (
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openEdit(r)} aria-label="Edit">
-            <Pencil size={14} />
-          </button>
-          {isSuperAdmin && (
-            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDelete(r)} aria-label="Delete">
-              <Trash2 size={14} />
-            </button>
-          )}
-        </div>
+      key: 'actions', header: 'Actions', render: (r) => (
+        <TableActions
+          actions={[
+            { key: 'view', icon: Eye, label: 'View', onClick: () => setViewing(r) },
+            { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openEdit(r) },
+            isSuperAdmin && { key: 'trash', icon: Trash2, label: 'Delete', danger: true, onClick: () => handleDelete(r) },
+          ]}
+        />
       ),
     },
   ];
@@ -178,6 +177,45 @@ export default function Colleges() {
             <CustomFieldsSection entityType="COLLEGE" entityId={expanded.id} />
           </div>
         </div>
+      )}
+
+      {viewing && (
+        <Modal size="wide" title={viewing.name} onClose={() => setViewing(null)}>
+          <div className="detail-card">
+            <div className="detail-card-header">
+              <Badge value={viewing.active ? 'ACTIVE' : 'INACTIVE'} />
+              {viewing.type?.label && <span className="detail-field-value">{viewing.type.label}</span>}
+            </div>
+            <div className="detail-section">
+              <p className="detail-section-title">College Information</p>
+              <div className="detail-grid">
+                <DetailField label="University" value={viewing.university} />
+                <DetailField label="City" value={viewing.city} />
+                <DetailField label="State" value={viewing.state} />
+                <DetailField label="Contact Person" value={viewing.contactPerson} />
+                <DetailField label="Phone" value={viewing.phone} />
+                <DetailField label="Email" value={viewing.email} />
+                <DetailField label="Workshops" value={viewing._count?.workshops ?? 0} />
+                <DetailField label="MOUs" value={viewing._count?.mous ?? 0} />
+              </div>
+            </div>
+            <div className="detail-section">
+              <p className="detail-section-title">Departments</p>
+              {viewing.departments?.length ? (
+                <div className="detail-grid">
+                  {viewing.departments.map((d) => (
+                    <DetailField key={d.id} label={d.name} value={d.contactPerson || d.contactEmail || '—'} />
+                  ))}
+                </div>
+              ) : (
+                <p className="detail-field-value">No departments recorded.</p>
+              )}
+            </div>
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setViewing(null)}>Close</button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {showModal && (
