@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const prisma = require('../config/db');
 const ApiError = require('../utils/apiError');
 const { sendSuccess } = require('../utils/apiResponse');
@@ -35,6 +36,51 @@ const OFFER_LETTER_DIR = path.join(__dirname, '../../uploads/offer-letters');
 const CERTIFICATE_DIR = path.join(__dirname, '../../uploads/certificates');
 fs.mkdirSync(OFFER_LETTER_DIR, { recursive: true });
 fs.mkdirSync(CERTIFICATE_DIR, { recursive: true });
+
+// --- Intern Profiles ---------------------------------------------------------
+// Creating an intern PROFILE is deliberately separate from enrolling them in
+// a batch (see enrollIntern below) — an intern can exist in the system before
+// ever being assigned to a batch. No InternEnrollment row is created here.
+
+// POST /api/interns — create an intern profile only (Admin/Super Admin, or a
+// Senior Full Stack Developer employee — see canAddIntern in intern.routes.js)
+async function createIntern(req, res) {
+  const { email, password, firstName, lastName, phone, designation, departmentId, managerId, locationId, joinDate } = req.body;
+
+  if (!email || !password || !firstName || !lastName) {
+    throw new ApiError(400, 'email, password, firstName and lastName are required');
+  }
+
+  const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+  if (existing) throw new ApiError(409, 'A user with this email already exists');
+
+  const hashed = await bcrypt.hash(password, 10);
+
+  const user = await prisma.user.create({
+    data: {
+      email: email.toLowerCase(),
+      password: hashed,
+      firstName,
+      lastName,
+      phone,
+      role: 'INTERN',
+      employmentType: 'INTERN',
+      designation: designation || null,
+      departmentId: departmentId || null,
+      managerId: managerId || null,
+      locationId: locationId || null,
+      joinDate: joinDate ? new Date(joinDate) : new Date(),
+    },
+  });
+
+  const { password: _pw, ...safeUser } = user;
+  await recordAudit({
+    actorId: req.user.id, action: 'CREATED', module: 'INTERN', entityId: user.id,
+    entityLabel: `${user.firstName} ${user.lastName}`, after: safeUser,
+  });
+
+  return sendSuccess(res, 201, safeUser);
+}
 
 // --- Batches ---------------------------------------------------------------
 
@@ -101,14 +147,15 @@ async function deleteBatch(req, res) {
   return sendSuccess(res, 200, { message: 'Batch removed' });
 }
 
-// GET /api/interns/enrollable-users — minimal user list for the "add intern"
-// picker. Deliberately narrower than GET /users (which requires the broader
-// user:view permission) so a Senior Full Stack Developer can add interns
-// without being handed full HR visibility over every account.
+// GET /api/interns/enrollable-users — minimal user list for the "Enroll to
+// Batch" picker: existing intern profiles (role=INTERN) not yet enrolled in
+// any batch. Deliberately narrower than GET /users (which requires the
+// broader user:view permission) so a Senior Full Stack Developer can enroll
+// interns without being handed full HR visibility over every account.
 async function listEnrollableUsers(req, res) {
   const enrolledUserIds = (await prisma.internEnrollment.findMany({ select: { userId: true } })).map((e) => e.userId);
   const users = await prisma.user.findMany({
-    where: { id: { notIn: enrolledUserIds }, role: 'EMPLOYEE' },
+    where: { id: { notIn: enrolledUserIds }, role: 'INTERN' },
     select: { id: true, firstName: true, lastName: true, email: true, role: true },
     orderBy: { firstName: 'asc' },
   });
@@ -178,6 +225,10 @@ async function listEnrollments(req, res) {
   return sendSuccess(res, 200, enrollments, paginate ? { total, page: Math.max(parseInt(page, 10), 1) || 1, limit: take } : undefined);
 }
 
+// POST /api/interns/enrollments — enroll an EXISTING intern profile into a
+// batch. The intern profile must already exist (see createIntern above); this
+// never creates or modifies a User row, only the enrollment linking them to
+// a batch.
 async function enrollIntern(req, res) {
   const { userId, batchId, mentorId, stipend, notes, category } = req.body;
   if (!userId || !batchId) throw new ApiError(400, 'userId and batchId are required');
@@ -187,10 +238,20 @@ async function enrollIntern(req, res) {
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new ApiError(404, 'User not found');
+  if (user.role !== 'INTERN') {
+    throw new ApiError(400, 'This user does not have an intern profile — create one first');
+  }
 
-  // Whoever adds an intern without naming a mentor becomes the default mentor,
-  // so they keep visibility of the record they just created (SUPER_ADMIN sees
-  // everything regardless, so this only matters for Admins/Employees adding).
+  const batch = await prisma.internshipBatch.findUnique({ where: { id: batchId } });
+  if (!batch) throw new ApiError(404, 'Batch not found');
+
+  const existingEnrollment = await prisma.internEnrollment.findUnique({ where: { userId } });
+  if (existingEnrollment) throw new ApiError(409, 'This intern is already enrolled in a batch');
+
+  // Whoever enrolls an intern without naming a mentor becomes the default
+  // mentor, so they keep visibility of the record they just created
+  // (SUPER_ADMIN sees everything regardless, so this only matters for
+  // Admins/Employees enrolling).
   const effectiveMentorId = mentorId || (req.user.role !== 'SUPER_ADMIN' ? req.user.id : null);
 
   const enrollment = await prisma.internEnrollment.create({
@@ -199,11 +260,6 @@ async function enrollIntern(req, res) {
   await recordAudit({
     actorId: req.user.id, action: 'CREATED', module: 'INTERN_ENROLLMENT', entityId: enrollment.id,
     entityLabel: `${user.firstName} ${user.lastName}`, after: enrollment,
-  });
-
-  await prisma.user.update({
-    where: { id: userId },
-    data: { role: user.role === 'SUPER_ADMIN' || user.role === 'ADMIN' ? user.role : 'INTERN', employmentType: 'INTERN' },
   });
 
   return sendSuccess(res, 201, enrollment);
@@ -517,6 +573,7 @@ async function downloadCertificate(req, res) {
 }
 
 module.exports = {
+  createIntern,
   listBatches, getBatch, createBatch, updateBatch, deleteBatch,
   listEnrollments, listEnrollableUsers, enrollIntern, updateEnrollment, deleteEnrollment, updateMyEnrollment,
   finalApprove, generateOfferLetter, downloadOfferLetter, generateCertificate, downloadCertificate,

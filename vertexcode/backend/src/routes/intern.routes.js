@@ -23,6 +23,70 @@ router.use(authenticate);
 
 /**
  * @swagger
+ * /interns:
+ *   post:
+ *     tags: [Interns]
+ *     summary: Create an intern profile
+ *     description: >
+ *       Creates a new intern profile (a User with role=INTERN) only — this
+ *       does NOT enroll the intern in a batch. Enrollment is a separate,
+ *       later step (see POST /interns/enrollments).
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password, firstName, lastName]
+ *             properties:
+ *               email: { type: string, format: email }
+ *               password: { type: string, format: password, minLength: 8 }
+ *               firstName: { type: string }
+ *               lastName: { type: string }
+ *               phone: { type: string }
+ *               designation: { type: string }
+ *               departmentId: { type: string, format: uuid }
+ *               managerId: { type: string, format: uuid }
+ *               locationId: { type: string, format: uuid }
+ *               joinDate: { type: string, format: date }
+ *     responses:
+ *       201:
+ *         description: Created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/ApiSuccess'
+ *                 - type: object
+ *                   properties:
+ *                     data: { $ref: '#/components/schemas/User' }
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       409:
+ *         description: A user with this email already exists
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.post('/', canAddIntern, ctrl.createIntern);
+
+/**
+ * @swagger
  * /interns/batches:
  *   get:
  *     tags: [Interns]
@@ -298,8 +362,8 @@ router.get('/enrollments', ctrl.listEnrollments);
  * /interns/enrollable-users:
  *   get:
  *     tags: [Interns]
- *     summary: List employees eligible to be enrolled as interns
- *     description: Returns users with role=EMPLOYEE that are not yet enrolled in an internship.
+ *     summary: List intern profiles eligible to be enrolled in a batch
+ *     description: Returns users with role=INTERN that are not yet enrolled in a batch.
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -333,8 +397,11 @@ router.get('/enrollable-users', canAddIntern, ctrl.listEnrollableUsers);
  * /interns/enrollments:
  *   post:
  *     tags: [Interns]
- *     summary: Enroll a user as an intern
- *     description: Converts the target user's role to INTERN.
+ *     summary: Enroll an existing intern into a batch
+ *     description: >
+ *       The target user must already have an intern profile (role=INTERN —
+ *       see POST /interns) and must not already be enrolled in a batch.
+ *       This never creates or modifies a User row.
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -374,6 +441,16 @@ router.get('/enrollable-users', canAddIntern, ctrl.listEnrollableUsers);
  *             schema: { $ref: '#/components/schemas/ApiError' }
  *       403:
  *         description: Forbidden
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: User or batch not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       409:
+ *         description: This intern is already enrolled in a batch
  *         content:
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ApiError' }

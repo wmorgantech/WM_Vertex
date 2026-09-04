@@ -29,6 +29,7 @@ export default function Interns() {
   const [enrollments, setEnrollments] = useState([]);
   const [batches, setBatches] = useState([]);
   const [users, setUsers] = useState([]);
+  const [enrollableInterns, setEnrollableInterns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [batchFilter, setBatchFilter] = useState('');
@@ -38,8 +39,12 @@ export default function Interns() {
   const [meta, setMeta] = useState(null);
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [showEnrollModal, setShowEnrollModal] = useState(false);
+  const [showNewInternModal, setShowNewInternModal] = useState(false);
   const [batchForm, setBatchForm] = useState({ name: '', program: '', startDate: '', endDate: '', description: '' });
   const [enrollForm, setEnrollForm] = useState({ userId: '', batchId: '', mentorId: '' });
+  const emptyNewInternForm = { email: '', password: '', firstName: '', lastName: '', phone: '', designation: '' };
+  const [newInternForm, setNewInternForm] = useState(emptyNewInternForm);
+  const [savingNewIntern, setSavingNewIntern] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingEnrollment, setEditingEnrollment] = useState(null);
   const [enrollEditForm, setEnrollEditForm] = useState({});
@@ -48,9 +53,11 @@ export default function Interns() {
 
   const load = () => {
     setLoading(true);
-    // Managers get the full user directory (for mentor assignment too);
-    // anyone else who can add interns gets a minimal, scoped picker list.
-    const usersCall = isManager ? api.get('/users') : api.get('/interns/enrollable-users');
+    // Managers get the full user directory (for mentor assignment); everyone
+    // who can enroll interns gets the scoped "not yet enrolled intern" list
+    // (existing intern profiles, role=INTERN, no batch yet) regardless of role.
+    const usersCall = isManager ? api.get('/users') : Promise.resolve({ data: { data: [] } });
+    const enrollableCall = api.get('/interns/enrollable-users');
     const enrollmentsCall = api.get('/interns/enrollments', {
       params: {
         search: search || undefined,
@@ -61,12 +68,13 @@ export default function Interns() {
         limit: PAGE_SIZE,
       },
     });
-    Promise.all([enrollmentsCall, api.get('/interns/batches'), usersCall])
-      .then(([e, b, u]) => {
+    Promise.all([enrollmentsCall, api.get('/interns/batches'), usersCall, enrollableCall])
+      .then(([e, b, u, en]) => {
         setEnrollments(e.data.data);
         setMeta(e.data.meta || null);
         setBatches(b.data.data);
         setUsers(u.data.data);
+        setEnrollableInterns(en.data.data);
       })
       .finally(() => setLoading(false));
   };
@@ -87,6 +95,22 @@ export default function Interns() {
       toast.error(err.response?.data?.message || 'Failed to create batch');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCreateIntern = async (e) => {
+    e.preventDefault();
+    setSavingNewIntern(true);
+    try {
+      await api.post('/interns', { ...newInternForm, phone: newInternForm.phone || null, designation: newInternForm.designation || null });
+      toast.success('Intern profile created');
+      setShowNewInternModal(false);
+      setNewInternForm(emptyNewInternForm);
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to create intern profile');
+    } finally {
+      setSavingNewIntern(false);
     }
   };
 
@@ -234,10 +258,6 @@ export default function Interns() {
     },
   ];
 
-  const potentialInterns = isManager
-    ? users.filter((u) => !enrollments.some((e) => e.user.id === u.id))
-    : users; // already excludes enrolled users server-side
-
   return (
     <div>
       <PageHeader
@@ -252,7 +272,8 @@ export default function Interns() {
               </>
             )}
             {isManager && <button className="btn btn-secondary" onClick={() => setShowBatchModal(true)}><Plus size={14} /> New Batch</button>}
-            <button className="btn btn-primary" onClick={() => setShowEnrollModal(true)}><Plus size={14} /> New Intern</button>
+            <button className="btn btn-secondary" onClick={() => setShowEnrollModal(true)}><Plus size={14} /> Enroll to Batch</button>
+            <button className="btn btn-primary" onClick={() => setShowNewInternModal(true)}><Plus size={14} /> New Intern</button>
           </>
         )}
       />
@@ -309,12 +330,32 @@ export default function Interns() {
         </Modal>
       )}
 
+      {showNewInternModal && (
+        <Modal title="New Intern" onClose={() => setShowNewInternModal(false)}>
+          <form className="form-grid" onSubmit={handleCreateIntern}>
+            <label>First name<input required value={newInternForm.firstName} onChange={(e) => setNewInternForm({ ...newInternForm, firstName: e.target.value })} /></label>
+            <label>Last name<input required value={newInternForm.lastName} onChange={(e) => setNewInternForm({ ...newInternForm, lastName: e.target.value })} /></label>
+            <label>Email<input type="email" required value={newInternForm.email} onChange={(e) => setNewInternForm({ ...newInternForm, email: e.target.value })} /></label>
+            <label>Temporary password<input type="password" required value={newInternForm.password} onChange={(e) => setNewInternForm({ ...newInternForm, password: e.target.value })} /></label>
+            <label>Phone<input value={newInternForm.phone} onChange={(e) => setNewInternForm({ ...newInternForm, phone: e.target.value })} /></label>
+            <label>Designation<input value={newInternForm.designation} onChange={(e) => setNewInternForm({ ...newInternForm, designation: e.target.value })} placeholder="e.g. Software Intern" /></label>
+            <p className="empty-state" style={{ padding: 0, textAlign: 'left', marginTop: -4 }}>
+              This only creates the intern's profile. Use "Enroll to Batch" afterward to assign them to a batch.
+            </p>
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setShowNewInternModal(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={savingNewIntern}>{savingNewIntern ? 'Creating...' : 'Create'}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
       {showEnrollModal && (
-        <Modal title="Enroll Intern" onClose={() => setShowEnrollModal(false)}>
+        <Modal title="Enroll Intern into Batch" onClose={() => setShowEnrollModal(false)}>
           <form className="form-grid" onSubmit={handleEnroll}>
             <label>Intern
               <SearchableSelect
-                options={potentialInterns.map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`, sublabel: u.email }))}
+                options={enrollableInterns.map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`, sublabel: u.email }))}
                 value={enrollForm.userId}
                 onChange={(val) => setEnrollForm({ ...enrollForm, userId: val })}
                 placeholder="Search by name or email..."
