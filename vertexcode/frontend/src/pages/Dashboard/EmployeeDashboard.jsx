@@ -152,7 +152,7 @@ export default function EmployeeDashboard() {
     .map((t) => ({
       id: t.id,
       title: t.title,
-      subtitle: t.project?.name || 'No project',
+      subtitle: `${t.project?.name || 'No project'}${t.createdBy ? ` · Assigned by ${t.createdBy.firstName} ${t.createdBy.lastName}` : ''}`,
       meta: new Date(t.dueDate).toLocaleDateString(),
       badgeValue: t.status,
     }));

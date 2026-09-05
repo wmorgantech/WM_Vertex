@@ -121,6 +121,7 @@ export default function Tasks() {
         ? `${r.assignee.firstName} ${r.assignee.lastName}`
         : <span className="badge badge-red">NOT ALLOCATED</span>,
     }] : []),
+    { key: 'createdBy', header: 'Assigned By', render: (r) => r.createdBy ? `${r.createdBy.firstName} ${r.createdBy.lastName}` : '—' },
     { key: 'project', header: 'Project', render: (r) => r.project?.name || '—' },
     { key: 'priority', header: 'Priority', render: (r) => <Badge value={r.priority} /> },
     { key: 'dueDate', header: 'Due', render: (r) => r.dueDate ? new Date(r.dueDate).toLocaleDateString() : '—' },
@@ -224,6 +225,7 @@ export default function Tasks() {
             </div>
             <div className="detail-grid">
               <DetailField label="Assignee" value={viewing.assignee ? `${viewing.assignee.firstName} ${viewing.assignee.lastName}` : 'Not allocated'} />
+              <DetailField label="Assigned By" value={viewing.createdBy ? `${viewing.createdBy.firstName} ${viewing.createdBy.lastName}` : null} />
               <DetailField label="Project" value={viewing.project?.name} />
               <DetailField label="Type" value={viewing.type} />
               <DetailField label="Due Date" value={viewing.dueDate ? new Date(viewing.dueDate).toLocaleDateString() : null} />
