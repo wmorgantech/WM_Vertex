@@ -30,6 +30,7 @@ export default function Interns() {
   const [batches, setBatches] = useState([]);
   const [users, setUsers] = useState([]);
   const [enrollableInterns, setEnrollableInterns] = useState([]);
+  const [designations, setDesignations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [batchFilter, setBatchFilter] = useState('');
@@ -68,12 +69,13 @@ export default function Interns() {
         limit: PAGE_SIZE,
       },
     });
-    Promise.all([enrollmentsCall, api.get('/interns/batches'), usersCall, enrollableCall])
-      .then(([e, b, u, en]) => {
+    Promise.all([enrollmentsCall, api.get('/interns/batches'), usersCall, enrollableCall, api.get('/masters/designations')])
+      .then(([e, b, u, en, des]) => {
         setEnrollments(e.data.data);
         setMeta(e.data.meta || null);
         setBatches(b.data.data);
         setUsers(u.data.data);
+        setDesignations(des.data.data.filter((d) => d.active));
         setEnrollableInterns(en.data.data);
       })
       .finally(() => setLoading(false));
@@ -338,7 +340,12 @@ export default function Interns() {
             <label>Email<input type="email" required value={newInternForm.email} onChange={(e) => setNewInternForm({ ...newInternForm, email: e.target.value })} /></label>
             <label>Temporary password<input type="password" required value={newInternForm.password} onChange={(e) => setNewInternForm({ ...newInternForm, password: e.target.value })} /></label>
             <label>Phone<input value={newInternForm.phone} onChange={(e) => setNewInternForm({ ...newInternForm, phone: e.target.value })} /></label>
-            <label>Designation<input value={newInternForm.designation} onChange={(e) => setNewInternForm({ ...newInternForm, designation: e.target.value })} placeholder="e.g. Software Intern" /></label>
+            <label>Designation
+              <select value={newInternForm.designation} onChange={(e) => setNewInternForm({ ...newInternForm, designation: e.target.value })}>
+                <option value="">— None —</option>
+                {designations.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+              </select>
+            </label>
             <p className="empty-state" style={{ padding: 0, textAlign: 'left', marginTop: -4 }}>
               This only creates the intern's profile. Use "Enroll to Batch" afterward to assign them to a batch.
             </p>

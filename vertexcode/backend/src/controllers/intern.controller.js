@@ -54,6 +54,15 @@ async function createIntern(req, res) {
   const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
   if (existing) throw new ApiError(409, 'A user with this email already exists');
 
+  // designation is a foreign key to Designation.name (schema.prisma), not a
+  // free-text label — an unrecognized value would otherwise reach Prisma
+  // and surface as a raw P2003 ("Related record constraint violation")
+  // instead of a clear, actionable message.
+  if (designation) {
+    const designationRow = await prisma.designation.findUnique({ where: { name: designation } });
+    if (!designationRow) throw new ApiError(400, `Unknown designation: "${designation}". It must match an existing designation exactly.`);
+  }
+
   const hashed = await bcrypt.hash(password, 10);
 
   let user;
