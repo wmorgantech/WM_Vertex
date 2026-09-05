@@ -52,6 +52,10 @@ export default function EmployeeList() {
   const [roleFilter, setRoleFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [designationFilter, setDesignationFilter] = useState('');
+  // Default view is ACTIVE-only; "All Statuses" (empty value) is the escape
+  // hatch that keeps inactive/terminated employees reachable for Restore —
+  // same underlying data as before, just no longer shown by default.
+  const [statusFilter, setStatusFilter] = useState('ACTIVE');
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState(null);
   const [showModal, setShowModal] = useState(false);
@@ -68,7 +72,7 @@ export default function EmployeeList() {
   const [savingAccount, setSavingAccount] = useState(false);
 
   const isSuperAdmin = currentUser.role === 'SUPER_ADMIN';
-  const hasActiveFilters = !!(search || roleFilter || departmentFilter || designationFilter);
+  const hasActiveFilters = !!(search || roleFilter || departmentFilter || designationFilter || statusFilter !== 'ACTIVE');
 
   const load = () => {
     setLoading(true);
@@ -78,6 +82,7 @@ export default function EmployeeList() {
           role: roleFilter || EMPLOYEE_ROLES.join(','),
           departmentId: departmentFilter || undefined,
           designation: designationFilter || undefined,
+          status: statusFilter || undefined,
           search: search || undefined,
           page,
           limit: PAGE_SIZE,
@@ -103,14 +108,15 @@ export default function EmployeeList() {
 
   // Any change to search/filters returns to page 1; page changes alone
   // (via Pagination's onPageChange -> setPage) leave the filters untouched.
-  useEffect(() => { setPage(1); }, [search, roleFilter, departmentFilter, designationFilter]);
-  useEffect(load, [search, roleFilter, departmentFilter, designationFilter, page]);
+  useEffect(() => { setPage(1); }, [search, roleFilter, departmentFilter, designationFilter, statusFilter]);
+  useEffect(load, [search, roleFilter, departmentFilter, designationFilter, statusFilter, page]);
 
   const clearFilters = () => {
     setSearch('');
     setRoleFilter('');
     setDepartmentFilter('');
     setDesignationFilter('');
+    setStatusFilter('ACTIVE');
   };
 
   const handleCreate = async (e) => {
@@ -277,6 +283,10 @@ export default function EmployeeList() {
         <select value={designationFilter} onChange={(e) => setDesignationFilter(e.target.value)} aria-label="Filter by designation">
           <option value="">All designations</option>
           {designations.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+        </select>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
+          <option value="ACTIVE">Active</option>
+          <option value="">All Statuses</option>
         </select>
         {hasActiveFilters && (
           <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>Clear Filters</button>
