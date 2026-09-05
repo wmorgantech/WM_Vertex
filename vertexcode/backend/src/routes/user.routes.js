@@ -37,7 +37,8 @@ const updateUserValidators = [
  *         schema: { type: string }
  *       - name: status
  *         in: query
- *         schema: { type: string, enum: [ACTIVE, ON_LEAVE, SUSPENDED, TERMINATED, ALUMNI] }
+ *         description: A single status, or a comma-separated list (e.g. "ACTIVE,TERMINATED")
+ *         schema: { type: string }
  *       - name: employmentType
  *         in: query
  *         schema: { type: string }

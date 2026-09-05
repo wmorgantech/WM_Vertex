@@ -37,7 +37,24 @@ const PAGE_SIZE = 25;
 // baseline `role` filter (backend accepts a comma-separated list) so
 // exclusion happens server-side and pagination totals stay correct.
 const EMPLOYEE_ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'];
-const ROLE_LABELS = { EMPLOYEE: 'Employee', ADMIN: 'Admin', SUPER_ADMIN: 'Super Admin' };
+
+// Role filter options — each resolves to the exact comma-separated `role`
+// list already supported by GET /users (role.split(',') -> {in: [...]}), so
+// this is a pure frontend mapping, no backend change needed. Super Admin is
+// deliberately folded into every option except its own, so switching the
+// role filter never accidentally hides Super Admin accounts.
+const ROLE_FILTER_OPTIONS = [
+  { value: 'EMPLOYEE', label: 'Employee', roles: ['EMPLOYEE', 'SUPER_ADMIN'] },
+  { value: 'ADMIN', label: 'Admin', roles: ['ADMIN', 'SUPER_ADMIN'] },
+  { value: 'SUPER_ADMIN', label: 'Super Admin', roles: ['SUPER_ADMIN'] },
+  { value: 'ALL', label: 'All', roles: EMPLOYEE_ROLES },
+];
+
+// The backend keeps the real EmploymentStatus value TERMINATED (unchanged —
+// see schema.prisma); this page must never show that word to a user, so
+// every place a status renders goes through this label override.
+const STATUS_DISPLAY_LABELS = { TERMINATED: 'INACTIVE' };
+const displayStatus = (status) => STATUS_DISPLAY_LABELS[status] || status;
 
 export default function EmployeeList() {
   const { user: currentUser } = useAuth();
@@ -49,16 +66,23 @@ export default function EmployeeList() {
   const [managers, setManagers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [roleFilter, setRoleFilter] = useState('');
+  // Default scope is "Employee" (Employee + Super Admin) — Admin accounts are
+  // opt-in via the role filter, never shown by default.
+  const [roleFilter, setRoleFilter] = useState('EMPLOYEE');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [designationFilter, setDesignationFilter] = useState('');
-  // Active/All/Trash tabs replace the old generic status dropdown. Active and
-  // All behave exactly as before (status=ACTIVE, and no status filter at all,
-  // respectively) — Trash is new: status is forced to TERMINATED so deleted
-  // employees get a dedicated, purpose-built view instead of being mixed in
-  // under a generic "All Statuses" option.
+  // Single source of truth for the status scope, driven by TWO synchronized
+  // controls: the Active/All/Trash tabs, and the Status filter dropdown
+  // (Active/Inactive/All) placed alongside the other filters. They both set
+  // this same value, so picking one always keeps the other in sync — e.g.
+  // choosing "Inactive" in the Status filter is the same state as clicking
+  // the Trash tab, just reached a different way.
+  // "All" is explicitly ACTIVE,TERMINATED (backend now supports a
+  // comma-separated status list, mirroring the existing role filter) — never
+  // an unfiltered request, so ON_LEAVE/SUSPENDED/ALUMNI records can never
+  // leak into this module regardless of what other statuses exist.
   const [viewTab, setViewTab] = useState('active');
-  const statusFilter = viewTab === 'active' ? 'ACTIVE' : viewTab === 'trash' ? 'TERMINATED' : '';
+  const statusFilter = viewTab === 'active' ? 'ACTIVE' : viewTab === 'trash' ? 'TERMINATED' : 'ACTIVE,TERMINATED';
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState(null);
   const [showModal, setShowModal] = useState(false);
@@ -75,14 +99,15 @@ export default function EmployeeList() {
   const [savingAccount, setSavingAccount] = useState(false);
 
   const isSuperAdmin = currentUser.role === 'SUPER_ADMIN';
-  const hasActiveFilters = !!(search || roleFilter || departmentFilter || designationFilter || viewTab !== 'active');
+  const hasActiveFilters = !!(search || roleFilter !== 'EMPLOYEE' || departmentFilter || designationFilter || viewTab !== 'active');
 
   const load = () => {
     setLoading(true);
+    const roleParam = (ROLE_FILTER_OPTIONS.find((o) => o.value === roleFilter)?.roles || EMPLOYEE_ROLES).join(',');
     Promise.all([
       api.get('/users', {
         params: {
-          role: roleFilter || EMPLOYEE_ROLES.join(','),
+          role: roleParam,
           departmentId: departmentFilter || undefined,
           designation: designationFilter || undefined,
           status: statusFilter || undefined,
@@ -116,7 +141,7 @@ export default function EmployeeList() {
 
   const clearFilters = () => {
     setSearch('');
-    setRoleFilter('');
+    setRoleFilter('EMPLOYEE');
     setDepartmentFilter('');
     setDesignationFilter('');
     setViewTab('active');
@@ -232,7 +257,7 @@ export default function EmployeeList() {
     { key: 'name', header: 'Name', render: (r) => <Link className="name-cell" to={`/employees/${r.id}`}>{r.firstName} {r.lastName}</Link> },
     { key: 'designation', header: 'Designation' },
     { key: 'role', header: 'Role', render: (r) => <Badge value={r.role} /> },
-    { key: 'status', header: 'Status', render: (r) => <Badge value={r.status} /> },
+    { key: 'status', header: 'Status', render: (r) => <Badge value={r.status} label={displayStatus(r.status)} /> },
     {
       key: 'actions', header: 'Actions',
       render: (r) => {
@@ -262,6 +287,7 @@ export default function EmployeeList() {
     { key: 'name', header: 'Name', render: (r) => <Link className="name-cell" to={`/employees/${r.id}`}>{r.firstName} {r.lastName}</Link> },
     { key: 'id', header: 'Employee ID', render: (r) => r.employeeCode || '—' },
     { key: 'designation', header: 'Designation' },
+    { key: 'status', header: 'Status', render: (r) => <Badge value={r.status} label={displayStatus(r.status)} /> },
     { key: 'exitDate', header: 'Terminated Date', render: (r) => r.exitDate ? new Date(r.exitDate).toLocaleDateString() : '—' },
     {
       key: 'actions', header: '',
@@ -305,8 +331,7 @@ export default function EmployeeList() {
       <div className="toolbar">
         <input className="search-input" placeholder="Search by name or email..." value={search} onChange={(e) => setSearch(e.target.value)} />
         <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} aria-label="Filter by role">
-          <option value="">All roles</option>
-          {EMPLOYEE_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+          {ROLE_FILTER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         <select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)} aria-label="Filter by department">
           <option value="">All departments</option>
@@ -316,6 +341,18 @@ export default function EmployeeList() {
           <option value="">All designations</option>
           {designations.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
         </select>
+        <select
+          value={statusFilter}
+          onChange={(e) => {
+            const v = e.target.value;
+            setViewTab(v === 'ACTIVE' ? 'active' : v === 'TERMINATED' ? 'trash' : 'all');
+          }}
+          aria-label="Filter by status"
+        >
+          <option value="ACTIVE">Active</option>
+          <option value="TERMINATED">Inactive</option>
+          <option value="ACTIVE,TERMINATED">All</option>
+        </select>
         {hasActiveFilters && (
           <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>Clear Filters</button>
         )}
@@ -323,7 +360,7 @@ export default function EmployeeList() {
 
       {loading ? <div className="page-loading">Loading...</div> : (
         <>
-          <DataTable columns={viewTab === 'trash' ? trashColumns : columns} rows={users} emptyMessage={viewTab === 'trash' ? 'No terminated employees.' : undefined} />
+          <DataTable columns={viewTab === 'trash' ? trashColumns : columns} rows={users} emptyMessage={viewTab === 'trash' ? 'No inactive employees.' : undefined} />
           <Pagination meta={meta} onPageChange={setPage} />
         </>
       )}
@@ -378,7 +415,7 @@ export default function EmployeeList() {
             <div className="detail-card-header">
               <span className="detail-field-value">{viewingUser.employeeCode}</span>
               <Badge value={viewingUser.role} />
-              <Badge value={viewingUser.status} />
+              <Badge value={viewingUser.status} label={displayStatus(viewingUser.status)} />
             </div>
 
             <div className="detail-section">

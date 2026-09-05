@@ -30,12 +30,17 @@ async function listUsers(req, res) {
   // Employees page sends "EMPLOYEE,ADMIN,SUPER_ADMIN" to exclude interns/
   // trainees server-side instead of truncating a paginated page client-side).
   const roles = role ? role.split(',').map((r) => r.trim()).filter(Boolean) : null;
+  // `status` mirrors the same pattern (e.g. "ACTIVE,TERMINATED" for the
+  // Employees page's "All" status filter) so a multi-status view still gets
+  // a real, correctly-scoped server-side count/pagination instead of either
+  // an invalid single-value match or an unfiltered result set.
+  const statuses = status ? status.split(',').map((s) => s.trim()).filter(Boolean) : null;
 
   const where = {
     ...(roles && roles.length && { role: roles.length === 1 ? roles[0] : { in: roles } }),
     ...(departmentId && { departmentId }),
     ...(designation && { designation }),
-    ...(status && { status }),
+    ...(statuses && statuses.length && { status: statuses.length === 1 ? statuses[0] : { in: statuses } }),
     ...(employmentType && { employmentType }),
     ...(search && {
       OR: [
