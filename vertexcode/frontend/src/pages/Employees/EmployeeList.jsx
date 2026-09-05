@@ -52,10 +52,13 @@ export default function EmployeeList() {
   const [roleFilter, setRoleFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [designationFilter, setDesignationFilter] = useState('');
-  // Default view is ACTIVE-only; "All Statuses" (empty value) is the escape
-  // hatch that keeps inactive/terminated employees reachable for Restore —
-  // same underlying data as before, just no longer shown by default.
-  const [statusFilter, setStatusFilter] = useState('ACTIVE');
+  // Active/All/Trash tabs replace the old generic status dropdown. Active and
+  // All behave exactly as before (status=ACTIVE, and no status filter at all,
+  // respectively) — Trash is new: status is forced to TERMINATED so deleted
+  // employees get a dedicated, purpose-built view instead of being mixed in
+  // under a generic "All Statuses" option.
+  const [viewTab, setViewTab] = useState('active');
+  const statusFilter = viewTab === 'active' ? 'ACTIVE' : viewTab === 'trash' ? 'TERMINATED' : '';
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState(null);
   const [showModal, setShowModal] = useState(false);
@@ -72,7 +75,7 @@ export default function EmployeeList() {
   const [savingAccount, setSavingAccount] = useState(false);
 
   const isSuperAdmin = currentUser.role === 'SUPER_ADMIN';
-  const hasActiveFilters = !!(search || roleFilter || departmentFilter || designationFilter || statusFilter !== 'ACTIVE');
+  const hasActiveFilters = !!(search || roleFilter || departmentFilter || designationFilter || viewTab !== 'active');
 
   const load = () => {
     setLoading(true);
@@ -108,15 +111,15 @@ export default function EmployeeList() {
 
   // Any change to search/filters returns to page 1; page changes alone
   // (via Pagination's onPageChange -> setPage) leave the filters untouched.
-  useEffect(() => { setPage(1); }, [search, roleFilter, departmentFilter, designationFilter, statusFilter]);
-  useEffect(load, [search, roleFilter, departmentFilter, designationFilter, statusFilter, page]);
+  useEffect(() => { setPage(1); }, [search, roleFilter, departmentFilter, designationFilter, viewTab]);
+  useEffect(load, [search, roleFilter, departmentFilter, designationFilter, viewTab, page]);
 
   const clearFilters = () => {
     setSearch('');
     setRoleFilter('');
     setDepartmentFilter('');
     setDesignationFilter('');
-    setStatusFilter('ACTIVE');
+    setViewTab('active');
   };
 
   const handleCreate = async (e) => {
@@ -252,6 +255,29 @@ export default function EmployeeList() {
     },
   ];
 
+  // Trash gets its own, deliberately narrower column set — no Edit/Manage
+  // Account/Delete on an already-terminated record, just enough to identify
+  // who it is and restore them.
+  const trashColumns = [
+    { key: 'name', header: 'Name', render: (r) => <Link className="name-cell" to={`/employees/${r.id}`}>{r.firstName} {r.lastName}</Link> },
+    { key: 'id', header: 'Employee ID', render: (r) => r.employeeCode || '—' },
+    { key: 'designation', header: 'Designation' },
+    { key: 'exitDate', header: 'Terminated Date', render: (r) => r.exitDate ? new Date(r.exitDate).toLocaleDateString() : '—' },
+    {
+      key: 'actions', header: '',
+      render: (r) => {
+        const blocked = r.id === currentUser.id || (r.role === 'SUPER_ADMIN' && currentUser.role !== 'SUPER_ADMIN');
+        return (
+          <TableActions
+            actions={[
+              isSuperAdmin && !blocked && { key: 'restore', icon: RotateCcw, label: 'Restore', onClick: () => restoreUser(r) },
+            ]}
+          />
+        );
+      },
+    },
+  ];
+
   return (
     <div>
       <PageHeader
@@ -270,6 +296,12 @@ export default function EmployeeList() {
         )}
       />
 
+      <div className="tabs">
+        <button className={`tab ${viewTab === 'active' ? 'active' : ''}`} onClick={() => setViewTab('active')}>Active</button>
+        <button className={`tab ${viewTab === 'all' ? 'active' : ''}`} onClick={() => setViewTab('all')}>All</button>
+        <button className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab('trash')}>🗑️ Trash</button>
+      </div>
+
       <div className="toolbar">
         <input className="search-input" placeholder="Search by name or email..." value={search} onChange={(e) => setSearch(e.target.value)} />
         <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} aria-label="Filter by role">
@@ -284,10 +316,6 @@ export default function EmployeeList() {
           <option value="">All designations</option>
           {designations.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
         </select>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
-          <option value="ACTIVE">Active</option>
-          <option value="">All Statuses</option>
-        </select>
         {hasActiveFilters && (
           <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>Clear Filters</button>
         )}
@@ -295,7 +323,7 @@ export default function EmployeeList() {
 
       {loading ? <div className="page-loading">Loading...</div> : (
         <>
-          <DataTable columns={columns} rows={users} />
+          <DataTable columns={viewTab === 'trash' ? trashColumns : columns} rows={users} emptyMessage={viewTab === 'trash' ? 'No terminated employees.' : undefined} />
           <Pagination meta={meta} onPageChange={setPage} />
         </>
       )}
