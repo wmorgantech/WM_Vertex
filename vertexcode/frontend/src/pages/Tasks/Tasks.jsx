@@ -11,6 +11,13 @@ import DetailField from '../../components/common/DetailField';
 import toast from 'react-hot-toast';
 import { downloadReport } from '../../lib/download';
 
+// Cosmetic-only relabeling of two existing TaskStatus codes; the codes
+// themselves (and every other status's label) are unchanged. Applied at
+// render time rather than in the database so status filtering/business
+// logic keeps using the real codes untouched.
+const STATUS_LABEL_OVERRIDES = { NOT_ASSIGNED: 'Unassigned', DONE: 'Completed' };
+const statusLabel = (s) => STATUS_LABEL_OVERRIDES[s.code] || s.label;
+
 export default function Tasks() {
   const { user } = useAuth();
   const isManager = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
@@ -32,8 +39,21 @@ export default function Tasks() {
 
   const load = () => {
     setLoading(true);
+    // Employees/Interns default to their own active (non-Completed) tasks;
+    // Admin/Super Admin's default stays fully unfiltered, matching today's
+    // existing allocation workflow. Picking any specific status (including
+    // Completed) from the dropdown always wins over this default for
+    // everyone — `assigneeId` scoping to the caller is enforced server-side
+    // regardless of role, so this only changes which of a user's own
+    // already-visible tasks show up, not who can see what.
     const calls = [
-      api.get('/tasks', { params: { status: statusFilter || undefined, unallocated: unallocatedOnly ? 'true' : undefined } }),
+      api.get('/tasks', {
+        params: {
+          status: statusFilter || undefined,
+          excludeStatus: !statusFilter && !isManager ? 'DONE' : undefined,
+          unallocated: unallocatedOnly ? 'true' : undefined,
+        },
+      }),
       api.get('/masters/task-statuses'),
       api.get('/masters/task-priorities'),
       api.get('/masters/task-types'),
@@ -129,7 +149,7 @@ export default function Tasks() {
     {
       key: 'status', header: 'Status', render: (r) => (
         <select value={r.status} onChange={(e) => updateStatus(r.id, e.target.value)}>
-          {statuses.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
+          {statuses.map((s) => <option key={s.code} value={s.code}>{statusLabel(s)}</option>)}
         </select>
       ),
     },
@@ -167,8 +187,8 @@ export default function Tasks() {
 
       <div className="toolbar">
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-          <option value="">All statuses</option>
-          {statuses.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
+          <option value="">{isManager ? 'All statuses' : 'Active'}</option>
+          {statuses.map((s) => <option key={s.code} value={s.code}>{statusLabel(s)}</option>)}
         </select>
         {isManager && (
           <label className={`filter-chip${unallocatedOnly ? ' is-active' : ''}`}>
@@ -221,7 +241,7 @@ export default function Tasks() {
           <div className="detail-card">
             <div className="detail-card-header">
               <Badge value={viewing.priority} />
-              <Badge value={viewing.status} />
+              <Badge value={viewing.status} label={statuses.find((s) => s.code === viewing.status) ? statusLabel(statuses.find((s) => s.code === viewing.status)) : undefined} />
             </div>
             <div className="detail-grid">
               <DetailField label="Assignee" value={viewing.assignee ? `${viewing.assignee.firstName} ${viewing.assignee.lastName}` : 'Not allocated'} />

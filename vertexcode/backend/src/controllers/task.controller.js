@@ -5,11 +5,15 @@ const { recordAudit } = require('../utils/audit');
 const { notify } = require('../utils/notify');
 
 async function listTasks(req, res) {
-  const { status, priority, type, projectId, assigneeId, unallocated, dueBefore, dueAfter } = req.query;
+  const { status, excludeStatus, priority, type, projectId, assigneeId, unallocated, dueBefore, dueAfter } = req.query;
   const isManagerRole = ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role);
 
   const where = {
     ...(status && { status }),
+    // Lets a caller ask for "everything except X" (e.g. hide completed by
+    // default) without a dedicated boolean flag per status. Only applies
+    // when `status` isn't already pinning an exact value.
+    ...(!status && excludeStatus && { status: { not: excludeStatus } }),
     ...(priority && { priority }),
     ...(type && { type }),
     ...(projectId && { projectId }),
@@ -85,7 +89,7 @@ async function createTask(req, res) {
   if (task.assigneeId) {
     await notify({
       userId: task.assigneeId, type: 'TASK_ASSIGNED', title: 'New task assigned',
-      message: task.title, link: '/tasks',
+      message: `${task.title} — assigned by ${req.user.firstName} ${req.user.lastName}`, link: '/tasks',
     });
   }
   return sendSuccess(res, 201, task);
@@ -136,7 +140,7 @@ async function updateTask(req, res) {
   if (reassigned && updated.assigneeId) {
     await notify({
       userId: updated.assigneeId, type: 'TASK_ASSIGNED', title: 'Task assigned to you',
-      message: updated.title, link: '/tasks',
+      message: `${updated.title} — assigned by ${req.user.firstName} ${req.user.lastName}`, link: '/tasks',
     });
   }
   return sendSuccess(res, 200, updated);
