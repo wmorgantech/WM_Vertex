@@ -56,22 +56,33 @@ async function createIntern(req, res) {
 
   const hashed = await bcrypt.hash(password, 10);
 
-  const user = await prisma.user.create({
-    data: {
-      email: email.toLowerCase(),
-      password: hashed,
-      firstName,
-      lastName,
-      phone,
-      role: 'INTERN',
-      employmentType: 'INTERN',
-      designation: designation || null,
-      departmentId: departmentId || null,
-      managerId: managerId || null,
-      locationId: locationId || null,
-      joinDate: joinDate ? new Date(joinDate) : new Date(),
-    },
-  });
+  let user;
+  try {
+    user = await prisma.user.create({
+      data: {
+        email: email.toLowerCase(),
+        password: hashed,
+        firstName,
+        lastName,
+        phone,
+        role: 'INTERN',
+        employmentType: 'INTERN',
+        designation: designation || null,
+        departmentId: departmentId || null,
+        managerId: managerId || null,
+        locationId: locationId || null,
+        joinDate: joinDate ? new Date(joinDate) : new Date(),
+      },
+    });
+  } catch (err) {
+    // The findUnique check above has a narrow race window (two submissions
+    // for the same brand-new email landing at nearly the same instant) —
+    // without this, the loser would surface a raw Prisma P2002 ("Duplicate
+    // value for field(s): email") instead of the same clear message the
+    // upfront check gives everyone else.
+    if (err.code === 'P2002') throw new ApiError(409, 'A user with this email already exists');
+    throw err;
+  }
 
   const { password: _pw, ...safeUser } = user;
   await recordAudit({

@@ -10,6 +10,18 @@ const publicUser = (u) => {
   return rest;
 };
 
+// Human-friendly display ID for the UI, since the real primary key is a
+// UUID. Derived entirely from Joining Date (WMCBE + 2-digit year + 2-digit
+// month) rather than stored, so it always reflects the current joinDate —
+// creating or updating a profile with a new Joining Date changes this on
+// the very next read, with nothing to keep in sync.
+const computeEmployeeCode = (joinDate) => {
+  const d = new Date(joinDate);
+  const yy = String(d.getFullYear()).slice(-2);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `WMCBE${yy}${mm}`;
+};
+
 // GET /api/users  (list, filterable) — Admin/Super Admin only
 async function listUsers(req, res) {
   const { role, departmentId, designation, status, employmentType, search, page = 1, limit = 25 } = req.query;
@@ -37,7 +49,7 @@ async function listUsers(req, res) {
   const take = Math.min(parseInt(limit, 10) || 25, 100);
   const skip = (Math.max(parseInt(page, 10), 1) - 1) * take;
 
-  const [items, total, allIds] = await Promise.all([
+  const [items, total] = await Promise.all([
     prisma.user.findMany({
       where,
       include: {
@@ -50,16 +62,8 @@ async function listUsers(req, res) {
       skip,
     }),
     prisma.user.count({ where }),
-    // A human-friendly display code (EMP101, EMP102, ...) for the UI, since
-    // the real primary key is a UUID. Ranked by creation order across the
-    // WHOLE organization — not `where`-scoped — so the same person always
-    // shows the same code regardless of the active search/filter/page; a
-    // secondary `id` sort keeps the rank deterministic for any same-instant
-    // rows. id-only projection keeps this cheap even at a few thousand users.
-    prisma.user.findMany({ select: { id: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] }),
   ]);
-  const employeeCodeById = new Map(allIds.map((u, i) => [u.id, `EMP${100 + i + 1}`]));
-  const withCode = items.map((u) => ({ ...publicUser(u), employeeCode: employeeCodeById.get(u.id) }));
+  const withCode = items.map((u) => ({ ...publicUser(u), employeeCode: computeEmployeeCode(u.joinDate) }));
 
   return sendSuccess(res, 200, withCode, { total, page: Number(page), limit: take });
 }
@@ -82,7 +86,7 @@ async function getUser(req, res) {
   const isManagerRole = ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role);
   if (!isSelf && !isManagerRole) throw new ApiError(403, 'Not authorized to view this profile');
 
-  return sendSuccess(res, 200, publicUser(user));
+  return sendSuccess(res, 200, { ...publicUser(user), employeeCode: computeEmployeeCode(user.joinDate) });
 }
 
 // POST /api/users — create employee/intern (Admin/Super Admin)
@@ -133,7 +137,7 @@ async function createUser(req, res) {
     entityLabel: `${user.firstName} ${user.lastName}`, after: publicUser(user),
   });
 
-  return sendSuccess(res, 201, publicUser(user));
+  return sendSuccess(res, 201, { ...publicUser(user), employeeCode: computeEmployeeCode(user.joinDate) });
 }
 
 // PUT /api/users/:id
@@ -211,7 +215,7 @@ async function updateUser(req, res) {
       entityLabel: `${user.firstName} ${user.lastName}`, before: publicUser(target), after: publicUser(user),
     });
   }
-  return sendSuccess(res, 200, publicUser(user));
+  return sendSuccess(res, 200, { ...publicUser(user), employeeCode: computeEmployeeCode(user.joinDate) });
 }
 
 // DELETE /api/users/:id — soft delete (terminate) — Super Admin only
