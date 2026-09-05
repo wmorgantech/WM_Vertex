@@ -26,10 +26,18 @@ function buildWhere({ categoryCode, from, to, linkType, linkId }) {
   };
 }
 
-// GET /api/expenses
+// GET /api/expenses — SUPER_ADMIN sees everything; EMPLOYEE is hard-scoped to
+// their own USER-linked records. Category/date filters still apply within
+// that scope, but linkType/linkId are always overwritten AFTER buildWhere so
+// nothing an Employee sends in the query string can widen their own view.
 async function list(req, res) {
+  const where = buildWhere(req.query);
+  if (req.user.role === 'EMPLOYEE') {
+    where.linkType = 'USER';
+    where.linkId = req.user.id;
+  }
   const rows = await prisma.expense.findMany({
-    where: buildWhere(req.query),
+    where,
     include: {
       category: { select: { code: true, label: true } },
       recordedBy: { select: { firstName: true, lastName: true } },

@@ -132,6 +132,19 @@ const INTERN_GROUPS = [
   },
 ];
 
+// Employee-only: read-only "My Expenses" (see expense.routes.js/
+// expense.controller.js — scoped server-side to their own records). Built
+// as its own array on top of SELF_GROUPS rather than appended directly to
+// it, so INTERN_GROUPS (which also derives from SELF_GROUPS above) doesn't
+// inherit it — Interns were not asked for this and get no such access.
+const EMPLOYEE_GROUPS = [
+  SELF_GROUPS[0],
+  {
+    ...SELF_GROUPS[1],
+    items: [...SELF_GROUPS[1].items, { to: '/expenses', label: 'My Expenses', icon: IndianRupee }],
+  },
+];
+
 const TRAINEE_GROUPS = [
   { label: 'Overview', items: [{ to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }] },
   {
@@ -146,7 +159,7 @@ const TRAINEE_GROUPS = [
 export const NAV_GROUPS_BY_ROLE = {
   SUPER_ADMIN: SUPER_ADMIN_GROUPS,
   ADMIN: MANAGER_GROUPS,
-  EMPLOYEE: SELF_GROUPS,
+  EMPLOYEE: EMPLOYEE_GROUPS,
   INTERN: INTERN_GROUPS,
   TRAINEE: TRAINEE_GROUPS,
 };

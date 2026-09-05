@@ -22,6 +22,10 @@ const EMPTY_FORM = {
 export default function Expenses() {
   const { user } = useAuth();
   const isSuperAdmin = user.role === 'SUPER_ADMIN';
+  // Read-only self-service view — Employee can only ever see their own
+  // USER-linked expenses (enforced server-side in expense.controller.js,
+  // not just by hiding controls here). No create/edit/delete/export/summary.
+  const isEmployee = user.role === 'EMPLOYEE';
   const [viewing, setViewing] = useState(null);
 
   const [expenses, setExpenses] = useState([]);
@@ -45,22 +49,35 @@ export default function Expenses() {
       ...(filters.from && { from: filters.from }),
       ...(filters.to && { to: filters.to }),
     };
-    Promise.all([
-      api.get('/expenses', { params }),
-      api.get('/expenses/summary', { params }),
-      api.get('/masters/expense-categories'),
-      api.get('/users'),
-      api.get('/workshops'),
-      api.get('/mous'),
-      api.get('/projects'),
-    ]).then(([e, s, c, u, w, m, p]) => {
+    // Employee's view is read-only and always scoped to their own USER-linked
+    // records server-side — summary and the workshop/MOU/project/user lookups
+    // only exist to support Admin's create/edit "Link To" picker and the
+    // Super-Admin-only summary cards, neither of which Employee has.
+    const calls = isEmployee
+      ? [api.get('/expenses', { params }), api.get('/masters/expense-categories')]
+      : [
+          api.get('/expenses', { params }),
+          api.get('/expenses/summary', { params }),
+          api.get('/masters/expense-categories'),
+          api.get('/users'),
+          api.get('/workshops'),
+          api.get('/mous'),
+          api.get('/projects'),
+        ];
+    Promise.all(calls).then(([e, ...rest]) => {
       setExpenses(e.data.data);
-      setSummary(s.data.data);
-      setCategories(c.data.data.filter((cat) => cat.active));
-      setUsers(u.data.data);
-      setWorkshops(w.data.data);
-      setMous(m.data.data);
-      setProjects(p.data.data);
+      if (isEmployee) {
+        const [c] = rest;
+        setCategories(c.data.data.filter((cat) => cat.active));
+      } else {
+        const [s, c, u, w, m, p] = rest;
+        setSummary(s.data.data);
+        setCategories(c.data.data.filter((cat) => cat.active));
+        setUsers(u.data.data);
+        setWorkshops(w.data.data);
+        setMous(m.data.data);
+        setProjects(p.data.data);
+      }
     }).finally(() => setLoading(false));
   };
   useEffect(load, [filters]);
@@ -139,7 +156,19 @@ export default function Expenses() {
     }
   };
 
-  const columns = [
+  const columns = isEmployee ? [
+    { key: 'expenseDate', header: 'Date', render: (r) => new Date(r.expenseDate).toLocaleDateString() },
+    { key: 'category', header: 'Category', render: (r) => <Badge value={r.category.code} /> },
+    { key: 'title', header: 'Title' },
+    { key: 'amount', header: 'Amount', align: 'right', render: (r) => `₹${r.amount.toLocaleString()}` },
+    { key: 'vendor', header: 'Vendor', render: (r) => r.vendor || '—' },
+    { key: 'recordedBy', header: 'Recorded By', render: (r) => `${r.recordedBy.firstName} ${r.recordedBy.lastName}` },
+    {
+      key: 'actions', header: '', align: 'actions', render: (r) => (
+        <TableActions actions={[{ key: 'view', icon: Eye, label: 'View', onClick: () => setViewing(r) }]} />
+      ),
+    },
+  ] : [
     { key: 'expenseDate', header: 'Date', render: (r) => new Date(r.expenseDate).toLocaleDateString() },
     { key: 'category', header: 'Category', render: (r) => <Badge value={r.category.code} /> },
     { key: 'title', header: 'Title' },
@@ -169,9 +198,9 @@ export default function Expenses() {
   return (
     <div>
       <PageHeader
-        title="Expenses"
-        subtitle="All actual company spending — salaries, travel, office, workshops/events and other operational costs"
-        actions={(
+        title={isEmployee ? 'My Expenses' : 'Expenses'}
+        subtitle={isEmployee ? 'Expenses recorded against your name' : 'All actual company spending — salaries, travel, office, workshops/events and other operational costs'}
+        actions={isEmployee ? null : (
           <>
             {isSuperAdmin && (
               <>
@@ -222,7 +251,7 @@ export default function Expenses() {
               <DetailField label="Payment Mode" value={viewing.paymentMode} />
               <DetailField label="Vendor" value={viewing.vendor} />
               <DetailField label="Reference" value={viewing.reference} />
-              <DetailField label="Linked To" value={linkedLabel(viewing)} />
+              {!isEmployee && <DetailField label="Linked To" value={linkedLabel(viewing)} />}
               <DetailField label="Recorded By" value={`${viewing.recordedBy.firstName} ${viewing.recordedBy.lastName}`} />
               <DetailField full label="Description" value={viewing.description} />
             </div>

@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const authenticate = require('../middleware/auth');
-const { isSuperAdmin } = require('../middleware/rbac');
+const { isSuperAdmin, authorize } = require('../middleware/rbac');
 const ctrl = require('../controllers/expense.controller');
 
 router.use(authenticate);
@@ -9,6 +9,10 @@ router.use(authenticate);
 // routed through the configurable Admin permission matrix like other
 // transactional modules). Admin cannot be granted this even by toggling a
 // permission — see Permissions.jsx, which no longer exposes an Expense row.
+// EMPLOYEE is an explicit, narrow exception: read-only access to the list
+// endpoint, hard-scoped to their own linkType=USER/linkId=req.user.id
+// records in the controller (never trusting the request) — every other
+// operation (create/update/delete/summary) stays Super-Admin-only.
 /**
  * @swagger
  * /expenses/summary:
@@ -44,7 +48,7 @@ router.get('/summary', isSuperAdmin, ctrl.summary);
  *   get:
  *     tags: [Expenses]
  *     summary: List expenses
- *     description: SUPER_ADMIN only.
+ *     description: SUPER_ADMIN sees everything (optionally filtered). EMPLOYEE is scoped server-side to their own linkType=USER/linkId=req.user.id records regardless of any query parameters sent.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -65,12 +69,12 @@ router.get('/summary', isSuperAdmin, ctrl.summary);
  *                       type: array
  *                       items: { $ref: '#/components/schemas/Expense' }
  *       403:
- *         description: Forbidden (SUPER_ADMIN only)
+ *         description: Forbidden (SUPER_ADMIN or EMPLOYEE only)
  *         content:
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ApiError' }
  */
-router.get('/', isSuperAdmin, ctrl.list);
+router.get('/', authorize('SUPER_ADMIN', 'EMPLOYEE'), ctrl.list);
 /**
  * @swagger
  * /expenses:

@@ -381,9 +381,20 @@ function assertAdminOrOwnerAccess(req, enrollment) {
 async function finalApprove(req, res) {
   const enrollment = await prisma.internEnrollment.findUnique({
     where: { id: req.params.id },
-    include: { documents: true, user: { select: { firstName: true, email: true } }, batch: true },
+    include: {
+      documents: true,
+      user: { select: { firstName: true, lastName: true, email: true, department: { select: { name: true } } } },
+      batch: true,
+      mentor: { select: { firstName: true, lastName: true } },
+    },
   });
   if (!enrollment) throw new ApiError(404, 'Enrollment not found');
+
+  // Approval is a one-time event — re-running it must neither move
+  // finalApprovedAt nor re-send the "Internship Approved" email.
+  if (enrollment.finalApprovedAt) {
+    throw new ApiError(409, 'This enrollment has already received final approval');
+  }
 
   const requirement = evaluateRequiredDocs(enrollment.documents);
   if (!requirement.satisfied) {
@@ -400,14 +411,20 @@ async function finalApprove(req, res) {
     data: { enrollmentId: enrollment.id, action: 'FINAL_APPROVED', actorId: req.user.id },
   });
 
+  // renderTemplate only does flat {{token}} substitution (no conditionals),
+  // so every optional field's fallback is resolved here before rendering.
+  const { companyName } = await getBrandTemplateVars();
   await sendMail({
     to: enrollment.user.email,
-    subject: 'VertexWM — Internship Approved',
+    subject: 'Your Internship Has Been Approved – WMorgan Technologies',
     html: renderEmailTemplate('internshipApproved.html', {
-      firstName: enrollment.user.firstName,
-      category: CATEGORY_LABELS[enrollment.category] || 'Internship',
-      batchName: enrollment.batch.name,
-      appUrl: process.env.APP_URL,
+      companyName,
+      internName: `${enrollment.user.firstName} ${enrollment.user.lastName}`,
+      program: enrollment.batch.program,
+      department: enrollment.user.department?.name || 'Not yet assigned',
+      startDate: enrollment.internshipStartDate ? new Date(enrollment.internshipStartDate).toLocaleDateString() : 'Not yet assigned',
+      endDate: enrollment.internshipEndDate ? new Date(enrollment.internshipEndDate).toLocaleDateString() : 'Not yet assigned',
+      mentor: enrollment.mentor ? `${enrollment.mentor.firstName} ${enrollment.mentor.lastName}` : 'Not yet assigned',
     }),
   });
 
