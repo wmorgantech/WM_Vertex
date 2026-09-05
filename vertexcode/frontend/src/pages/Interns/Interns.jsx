@@ -314,6 +314,32 @@ export default function Interns() {
       {loading ? <div className="page-loading">Loading...</div> : (
         tab === 'enrollments' ? (
           <>
+            {enrollableInterns.length > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <p className="detail-section-title">Not Yet Enrolled ({enrollableInterns.length})</p>
+                <p className="empty-state" style={{ padding: 0, textAlign: 'left', marginBottom: 8 }}>
+                  These intern profiles have been created but not yet assigned to a batch — use Enroll to add them below.
+                </p>
+                <DataTable
+                  columns={[
+                    { key: 'name', header: 'Name', render: (r) => `${r.firstName} ${r.lastName}` },
+                    { key: 'email', header: 'Email' },
+                    {
+                      key: 'actions', header: '', render: (r) => (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => { setEnrollForm({ userId: r.id, batchId: '', mentorId: '' }); setShowEnrollModal(true); }}
+                        >
+                          Enroll
+                        </button>
+                      ),
+                    },
+                  ]}
+                  rows={enrollableInterns}
+                />
+              </div>
+            )}
             <DataTable columns={enrollmentColumns} rows={enrollments} />
             <Pagination meta={meta} onPageChange={setPage} />
           </>
