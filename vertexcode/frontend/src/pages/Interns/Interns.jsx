@@ -102,6 +102,12 @@ export default function Interns() {
 
   const handleCreateIntern = async (e) => {
     e.preventDefault();
+    // Belt-and-suspenders guard: the submit button's disabled={savingNewIntern}
+    // already blocks a second click in practice (React commits the state
+    // update before the next click event is processed), but this checks the
+    // state directly rather than relying on the DOM attribute having applied,
+    // so a second invocation from any source is a no-op rather than a second POST.
+    if (savingNewIntern) return;
     setSavingNewIntern(true);
     try {
       await api.post('/interns', { ...newInternForm, phone: newInternForm.phone || null, designation: newInternForm.designation || null });
