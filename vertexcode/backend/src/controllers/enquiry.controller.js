@@ -3,6 +3,22 @@ const ApiError = require('../utils/apiError');
 const { sendSuccess } = require('../utils/apiResponse');
 const { recordAudit } = require('../utils/audit');
 
+// Internal enquiry topic, distinct from `source` (external lead attribution
+// channel, unchanged). The allowed set is role-scoped rather than a single
+// shared enum — SUPER_ADMIN and ADMIN share the Business Development set;
+// EMPLOYEE and INTERN each get their own self-service topic list.
+const CATEGORIES_BY_ROLE = {
+  SUPER_ADMIN: ['GENERAL', 'HR', 'EMPLOYEE', 'INTERN', 'WORK', 'CLIENT', 'BUSINESS', 'OTHER'],
+  ADMIN: ['GENERAL', 'HR', 'EMPLOYEE', 'INTERN', 'WORK', 'CLIENT', 'BUSINESS', 'OTHER'],
+  EMPLOYEE: ['HR', 'PAYROLL', 'LEAVE', 'ATTENDANCE', 'TASK', 'IT_SUPPORT', 'GENERAL'],
+  INTERN: ['INTERNSHIP', 'TRAINING', 'TASK', 'ATTENDANCE', 'LEAVE', 'MENTOR', 'IT_SUPPORT', 'GENERAL'],
+};
+
+// Business-Development-pipeline stages (NEW/CONTACTED/CONVERTED) don't apply
+// to an internal self-service enquiry — a non-manager may only move their
+// own enquiry through this narrower, appropriate subset.
+const NON_MANAGER_ALLOWED_STATUSES = ['IN_PROGRESS', 'FOLLOW_UP_REQUIRED', 'CLOSED', 'CANCELLED'];
+
 function withEnquiryFlags(e) {
   const now = new Date();
   const followUpOverdue = !!e.followUpDate && new Date(e.followUpDate) < now && !['CONVERTED', 'CLOSED', 'CANCELLED'].includes(e.status);
@@ -43,28 +59,56 @@ async function getEnquiry(req, res) {
     },
   });
   if (!enquiry) throw new ApiError(404, 'Enquiry not found');
+
+  // SUPER_ADMIN/ADMIN see every enquiry (matches listEnquiries' existing
+  // unscoped visibility for managers); EMPLOYEE/INTERN may only view an
+  // enquiry they're the assignee of (which, since non-managers are always
+  // self-assigned on creation, is exactly "their own" enquiry).
+  const isManagerRole = ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role);
+  if (!isManagerRole && enquiry.assignedEmployeeId !== req.user.id) {
+    throw new ApiError(403, 'Not authorized to view this enquiry');
+  }
+
   return sendSuccess(res, 200, withEnquiryFlags(enquiry));
 }
 
-// POST /api/enquiries — open to any staff role (SUPER_ADMIN/ADMIN/EMPLOYEE,
-// see enquiry.routes.js), so anyone who takes an inbound enquiry can log it.
-// A non-manager creator is unconditionally self-assigned regardless of what
-// they send — otherwise they could log an enquiry and immediately lose
-// visibility into it under listEnquiries' assignedEmployeeId-scoped query.
-// Only a manager may assign a new enquiry to someone else (or leave it
-// unassigned).
+// POST /api/enquiries — open to every role (see enquiry.routes.js).
+// SUPER_ADMIN/ADMIN log external Business Development leads with full
+// contact details; EMPLOYEE/INTERN log an internal enquiry about
+// themselves — their identity/contact info is always derived from their own
+// profile (never trusted from the request body, so they cannot log an
+// enquiry impersonating a different contact), and they are unconditionally
+// self-assigned regardless of any `assignedEmployeeId` sent — otherwise they
+// could log an enquiry and immediately lose visibility into it under
+// listEnquiries' assignedEmployeeId-scoped query, or worse, assign it to
+// someone else. Only a manager may assign a new enquiry to someone else (or
+// leave it unassigned).
 async function createEnquiry(req, res) {
   const {
     contactName, contactEmail, contactPhone, companyName, subject, description,
-    source, assignedEmployeeId, status, followUpDate, nextAction, remarks,
+    source, category, assignedEmployeeId, status, followUpDate, nextAction, remarks,
   } = req.body;
-  if (!contactName || !subject) throw new ApiError(400, 'contactName and subject are required');
 
   const isManagerRole = ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role);
+  const allowedCategories = CATEGORIES_BY_ROLE[req.user.role] || [];
+
+  if (!subject) throw new ApiError(400, 'subject is required');
+  if (!category || !allowedCategories.includes(category)) {
+    throw new ApiError(400, `category must be one of: ${allowedCategories.join(', ')}`);
+  }
+  if (isManagerRole) {
+    if (!contactName || !contactPhone) throw new ApiError(400, 'contactName and phone are required');
+  } else if (!description) {
+    throw new ApiError(400, 'description is required');
+  }
 
   const enquiry = await prisma.enquiry.create({
     data: {
-      contactName, contactEmail, contactPhone, companyName, subject, description,
+      contactName: isManagerRole ? contactName : `${req.user.firstName} ${req.user.lastName}`,
+      contactEmail: isManagerRole ? contactEmail : req.user.email,
+      contactPhone: isManagerRole ? contactPhone : req.user.phone,
+      companyName: isManagerRole ? companyName : null,
+      subject, description, category,
       source: source || 'WEBSITE',
       assignedEmployeeId: isManagerRole ? (assignedEmployeeId || null) : req.user.id,
       status: status || 'NEW',
@@ -88,25 +132,43 @@ async function updateEnquiry(req, res) {
 
   const {
     contactName, contactEmail, contactPhone, companyName, subject, description,
-    source, assignedEmployeeId, status, followUpDate, nextAction, remarks,
+    source, category, assignedEmployeeId, status, followUpDate, nextAction, remarks,
   } = req.body;
+
+  if (category !== undefined && category !== null) {
+    const allowedCategories = CATEGORIES_BY_ROLE[req.user.role] || [];
+    if (!allowedCategories.includes(category)) {
+      throw new ApiError(400, `category must be one of: ${allowedCategories.join(', ')}`);
+    }
+  }
+  // A non-manager may only move their own enquiry through the appropriate
+  // internal-workflow statuses — the Business Development pipeline stages
+  // (NEW/CONTACTED/CONVERTED) aren't theirs to set.
+  if (!isManagerRole && status !== undefined && !NON_MANAGER_ALLOWED_STATUSES.includes(status)) {
+    throw new ApiError(400, `status must be one of: ${NON_MANAGER_ALLOWED_STATUSES.join(', ')}`);
+  }
 
   const enquiry = await prisma.enquiry.update({
     where: { id: req.params.id },
     data: {
-      ...(contactName !== undefined && { contactName }),
-      ...(contactEmail !== undefined && { contactEmail }),
-      ...(contactPhone !== undefined && { contactPhone }),
-      ...(companyName !== undefined && { companyName }),
+      // Contact/company/source/assignment are Business-Development-lead
+      // concepts a non-manager's internal enquiry never had to begin with —
+      // restricting these to managers here means a direct API call can't
+      // manipulate them either, not just the form hiding them.
+      ...(isManagerRole && contactName !== undefined && { contactName }),
+      ...(isManagerRole && contactEmail !== undefined && { contactEmail }),
+      ...(isManagerRole && contactPhone !== undefined && { contactPhone }),
+      ...(isManagerRole && companyName !== undefined && { companyName }),
+      ...(isManagerRole && source !== undefined && { source }),
       ...(subject !== undefined && { subject }),
       ...(description !== undefined && { description }),
-      ...(source !== undefined && { source }),
+      ...(category !== undefined && { category }),
       // Reassigning to a different employee is a manager-only action.
       ...(isManagerRole && assignedEmployeeId !== undefined && { assignedEmployeeId: assignedEmployeeId || null }),
       ...(status !== undefined && { status }),
       ...(followUpDate !== undefined && { followUpDate: followUpDate ? new Date(followUpDate) : null }),
-      ...(nextAction !== undefined && { nextAction }),
-      ...(remarks !== undefined && { remarks }),
+      ...(isManagerRole && nextAction !== undefined && { nextAction }),
+      ...(isManagerRole && remarks !== undefined && { remarks }),
     },
   });
   const action = status && status !== before.status ? 'STATUS_CHANGED' : 'UPDATED';

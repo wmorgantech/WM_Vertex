@@ -45,15 +45,17 @@ router.use(authenticate);
  *             schema: { $ref: '#/components/schemas/ApiError' }
  */
 router.get('/', ctrl.listEnquiries);
-// Open to any staff role — interns/trainees excluded, everyone else may log
-// an enquiry they've taken (e.g. an inbound call). See enquiry.controller.js.
+// Open to every authenticated role — SUPER_ADMIN/ADMIN log external
+// Business Development leads; EMPLOYEE/INTERN log their own internal
+// (HR/technical/etc.) enquiries. Role-specific required fields, contact-info
+// derivation and self-assignment are all enforced in enquiry.controller.js.
 /**
  * @swagger
  * /enquiries:
  *   post:
  *     tags: [Enquiries]
  *     summary: Create an enquiry
- *     description: Open to SUPER_ADMIN, ADMIN, and EMPLOYEE roles. Non-managers are auto-assigned to themselves regardless of any `assignedEmployeeId` sent in the body.
+ *     description: Open to SUPER_ADMIN, ADMIN, EMPLOYEE and INTERN roles. Non-managers are auto-assigned to themselves regardless of any `assignedEmployeeId` sent in the body, and have their contact info derived from their own profile rather than the request body.
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -86,7 +88,7 @@ router.get('/', ctrl.listEnquiries);
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ApiError' }
  */
-router.post('/', authorize('SUPER_ADMIN', 'ADMIN', 'EMPLOYEE'), ctrl.createEnquiry);
+router.post('/', authorize('SUPER_ADMIN', 'ADMIN', 'EMPLOYEE', 'INTERN'), ctrl.createEnquiry);
 /**
  * @swagger
  * /enquiries/{id}:

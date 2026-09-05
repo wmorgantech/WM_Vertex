@@ -713,6 +713,12 @@ model Enquiry {
   subject            String
   description        String?
   source             EnquirySource @default(WEBSITE)
+  // Internal enquiry topic (HR/Payroll/Leave/Attendance/Task/IT Support/...),
+  // separate from `source` (external lead attribution channel — unchanged).
+  // Plain string, not an enum: the allowed set differs by role and is
+  // validated in enquiry.controller.js rather than at the DB level, the same
+  // way status transitions are already handled there.
+  category           String?
   assignedEmployeeId String?
   status             EnquiryStatus @default(NEW)
   followUpDate       DateTime?
