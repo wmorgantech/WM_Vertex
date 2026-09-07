@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Upload, Download, RotateCcw, FolderOpen, ShieldCheck, FileText, Award, Image as ImageIcon, AlertCircle } from 'lucide-react';
+import { Upload, Download, RotateCcw, FolderOpen, ShieldCheck, FileText, Award, Image as ImageIcon, AlertCircle, Eye } from 'lucide-react';
 import api from '@/api/axios';
 import PageHeader from '@/components/shared/PageHeader';
 import Badge from '@/components/shared/Badge';
@@ -201,19 +201,23 @@ export default function InternDocuments() {
     }
   };
 
-  const handleLifecycleDownload = async (kind, enrollmentId) => {
+  const handleLifecycleDownload = async (kind, enrollmentId, mode = 'download') => {
     try {
       const res = await api.get(`/interns/enrollments/${enrollmentId}/${kind}/download`, { responseType: 'blob' });
       const url = URL.createObjectURL(res.data);
-      const link = window.document.createElement('a');
-      link.href = url;
-      link.download = `${kind}.pdf`;
-      window.document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      if (mode === 'view') {
+        window.open(url, '_blank');
+      } else {
+        const link = window.document.createElement('a');
+        link.href = url;
+        link.download = `${kind}.pdf`;
+        window.document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
     } catch {
-      toast.error(kind === 'offer-letter' ? 'Failed to download offer letter' : 'Failed to download certificate');
+      toast.error(kind === 'offer-letter' ? 'Failed to open offer letter' : 'Failed to open certificate');
     }
   };
 
@@ -388,14 +392,29 @@ export default function InternDocuments() {
               <div>
                 <p className="text-sm font-medium text-foreground">Offer Letter</p>
                 <p className="text-xs text-muted-foreground">
-                  {offerLetter ? `Generated ${new Date(offerLetter.generatedAt).toLocaleDateString()}` : 'Not yet generated'}
+                  {offerLetter
+                    ? 'Offer Letter Available'
+                    : (enrollment.finalApprovedAt ? 'Profile Approved — Offer Letter Pending' : 'Pending Admin Approval')}
                 </p>
               </div>
             </div>
-            <Button size="sm" disabled={!offerLetter} onClick={() => handleLifecycleDownload('offer-letter', enrollment.id)}>
-              <Download />
-              Download
-            </Button>
+            {offerLetter ? (
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="secondary" onClick={() => handleLifecycleDownload('offer-letter', enrollment.id, 'view')}>
+                  <Eye />
+                  View
+                </Button>
+                <Button size="sm" onClick={() => handleLifecycleDownload('offer-letter', enrollment.id, 'download')}>
+                  <Download />
+                  Download
+                </Button>
+              </div>
+            ) : (
+              <Button size="sm" disabled>
+                <Download />
+                Download
+              </Button>
+            )}
           </div>
           <div className="flex flex-col gap-3 rounded-xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
