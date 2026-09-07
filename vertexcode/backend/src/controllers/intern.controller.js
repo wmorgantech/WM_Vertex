@@ -14,6 +14,39 @@ const { evaluateRequiredDocs } = require('../utils/internDocumentRequirements');
 
 const CATEGORY_LABELS = { FREE_INTERNSHIP: 'Free Internship', JOT: 'Job Oriented Training (JOT)' };
 
+// Fixed per company policy (not per-intern data) — same for every offer
+// letter, matching the master template's Work Schedule/Working Hours clauses.
+const OFFER_LETTER_WORKING_HOURS = '10:00 AM – 7:00 PM';
+const OFFER_LETTER_WORKING_DAYS = 'Monday to Saturday';
+const OFFER_LETTER_HR_EMAIL = 'hr@wmorgantech.com';
+
+function ordinalSuffix(day) {
+  if (day % 10 === 1 && day !== 11) return 'st';
+  if (day % 10 === 2 && day !== 12) return 'nd';
+  if (day % 10 === 3 && day !== 13) return 'rd';
+  return 'th';
+}
+// "22nd August 2026" — matches the master template's date style exactly.
+function formatOrdinalDate(date) {
+  const d = new Date(date);
+  const day = d.getDate();
+  return `${day}${ordinalSuffix(day)} ${d.toLocaleString('en-US', { month: 'long' })} ${d.getFullYear()}`;
+}
+// Whole-month difference (e.g. "2 Months"), falling back to whole days for
+// a tenure shorter than one month.
+function computeTenureText(start, end) {
+  const s = new Date(start);
+  const e = new Date(end);
+  let months = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth());
+  if (e.getDate() < s.getDate()) months -= 1;
+  months = Math.max(months, 0);
+  if (months < 1) {
+    const days = Math.max(Math.round((e - s) / 86400000), 1);
+    return `${days} Day${days === 1 ? '' : 's'}`;
+  }
+  return `${months} Month${months === 1 ? '' : 's'}`;
+}
+
 // Company identity + signatory block for generated PDFs, configurable by
 // Super Admin (see settings.controller.js) rather than hardcoded per template.
 async function getBrandTemplateVars() {
@@ -386,7 +419,23 @@ function assertAdminOrOwnerAccess(req, enrollment) {
   throw new ApiError(403, 'You do not have permission to access this record');
 }
 
-// POST /api/interns/enrollments/:id/approve — Super Admin final approval
+// SUPER_ADMIN: unrestricted. ADMIN: only for interns they mentor — the same
+// scoping already enforced everywhere else in this review flow (see
+// getEnrollmentDetail/listAll in document.controller.js and
+// assertAdminOwnsDocument there, and assertAdminOrOwnerAccess above).
+// EMPLOYEE/INTERN can never approve or enable an offer letter.
+function assertCanManageLifecycle(req, enrollment) {
+  if (req.user.role === 'SUPER_ADMIN') return;
+  if (req.user.role === 'ADMIN' && enrollment.mentorId === req.user.id) return;
+  throw new ApiError(403, 'You can only manage interns assigned to you');
+}
+
+// POST /api/interns/enrollments/:id/approve — Super Admin, or the intern's
+// mentoring Admin, gives final approval. This ONLY marks the enrollment
+// approved and sends the existing general "Internship Approved" notification.
+// It must NOT generate or email the offer letter — that is the separate,
+// explicit "Enable Offer Letter" action below, triggered only by an admin
+// clicking it.
 async function finalApprove(req, res) {
   const enrollment = await prisma.internEnrollment.findUnique({
     where: { id: req.params.id },
@@ -398,6 +447,7 @@ async function finalApprove(req, res) {
     },
   });
   if (!enrollment) throw new ApiError(404, 'Enrollment not found');
+  assertCanManageLifecycle(req, enrollment);
 
   // Approval is a one-time event — re-running it must neither move
   // finalApprovedAt nor re-send the "Internship Approved" email.
@@ -420,89 +470,152 @@ async function finalApprove(req, res) {
     data: { enrollmentId: enrollment.id, action: 'FINAL_APPROVED', actorId: req.user.id },
   });
 
-  // renderTemplate only does flat {{token}} substitution (no conditionals),
-  // so every optional field's fallback is resolved here before rendering.
-  const { companyName } = await getBrandTemplateVars();
-  await sendMail({
-    to: enrollment.user.email,
-    subject: 'Your Internship Has Been Approved – WMorgan Technologies',
-    html: renderEmailTemplate('internshipApproved.html', {
-      companyName,
-      internName: `${enrollment.user.firstName} ${enrollment.user.lastName}`,
-      program: enrollment.batch.program,
-      department: enrollment.user.department?.name || 'Not yet assigned',
-      startDate: enrollment.internshipStartDate ? new Date(enrollment.internshipStartDate).toLocaleDateString() : 'Not yet assigned',
-      endDate: enrollment.internshipEndDate ? new Date(enrollment.internshipEndDate).toLocaleDateString() : 'Not yet assigned',
-      mentor: enrollment.mentor ? `${enrollment.mentor.firstName} ${enrollment.mentor.lastName}` : 'Not yet assigned',
-    }),
-  });
+  // No email is sent here, by explicit requirement: approval must be silent.
+  // (This previously sent an "Internship Has Been Approved" notification —
+  // internshipApproved.html is kept on disk, unused, in case that separate
+  // notification is wanted back; only its call site was removed.) The
+  // intern is only ever emailed once the offer letter is enabled, below.
 
   return sendSuccess(res, 200, updated);
 }
 
-// POST /api/interns/enrollments/:id/offer-letter — Super Admin generates the offer letter PDF
-async function generateOfferLetter(req, res) {
-  const enrollment = await prisma.internEnrollment.findUnique({
-    where: { id: req.params.id },
-    include: { user: { select: { firstName: true, lastName: true, email: true } }, batch: true },
-  });
-  if (!enrollment) throw new ApiError(404, 'Enrollment not found');
-  if (!enrollment.finalApprovedAt) {
-    throw new ApiError(400, 'Enrollment must receive final approval before an offer letter can be generated');
-  }
-
-  const verificationId = `OL-${enrollment.id.slice(0, 8).toUpperCase()}`;
-  const qrCodeDataUrl = await generateQrDataUrl(`${process.env.APP_URL}/verify/offer-letter/${enrollment.id}`);
-  const brandVars = await getBrandTemplateVars();
+// Renders the offer-letter PDF for an enrollment using the W Morgan
+// Technologies master template (backend/src/templates/pdf/offerLetter.html
+// — an exact recreation of the company's official offer letter, not the
+// generic template used by completionCertificate.html). Pure rendering —
+// no DB writes, no email. Used by enableOfferLetter below.
+async function renderOfferLetterPdf(enrollment) {
+  const { companyName, signatoryName, signatoryTitle } = await getBrandTemplateVars();
+  const { internshipStartDate: startDate, internshipEndDate: endDate } = enrollment;
 
   const html = renderPdfTemplate('offerLetter.html', {
-    ...brandVars,
+    companyName,
+    companyEmail: OFFER_LETTER_HR_EMAIL,
+    candidateName: `${enrollment.user.firstName} ${enrollment.user.lastName}`,
     firstName: enrollment.user.firstName,
-    lastName: enrollment.user.lastName,
-    categoryLabel: CATEGORY_LABELS[enrollment.category] || 'Internship',
+    qualificationLine: [enrollment.course, enrollment.branch].filter(Boolean).join(' - ') || '—',
     collegeName: enrollment.collegeName || '—',
-    university: enrollment.university || '—',
-    course: enrollment.course || '—',
-    branch: enrollment.branch || '—',
-    registerNumber: enrollment.registerNumber || '—',
-    batchName: enrollment.batch.name,
-    internshipStartDate: enrollment.internshipStartDate ? new Date(enrollment.internshipStartDate).toLocaleDateString() : '—',
-    internshipEndDate: enrollment.internshipEndDate ? new Date(enrollment.internshipEndDate).toLocaleDateString() : '—',
-    generatedDate: new Date().toLocaleDateString(),
-    qrCodeDataUrl,
-    verificationId,
+    universityLine: enrollment.university || '—',
+    domainTeam: enrollment.batch.name,
+    joiningDateFormatted: startDate ? formatOrdinalDate(startDate) : '—',
+    endDateFormatted: endDate ? formatOrdinalDate(endDate) : '—',
+    tenureText: startDate && endDate ? computeTenureText(startDate, endDate) : '—',
+    workingHours: OFFER_LETTER_WORKING_HOURS,
+    workingDays: OFFER_LETTER_WORKING_DAYS,
+    supervisorName: enrollment.mentor ? `${enrollment.mentor.firstName} ${enrollment.mentor.lastName}` : 'your assigned supervisor',
+    signatoryName,
+    signatoryTitle,
   });
 
-  const pdfBuffer = await renderHtmlToPdf(html);
+  // The logo header and address/contact footer repeat on every page via
+  // Puppeteer's native header/footer templates (a separate rendering
+  // context from the body) — matching the master .docx, whose header/footer
+  // repeat on both of its pages the same way.
+  const headerTemplate = fs.readFileSync(path.join(__dirname, '../templates/pdf/offerLetterHeader.html'), 'utf8');
+  const footerTemplate = fs.readFileSync(path.join(__dirname, '../templates/pdf/offerLetterFooter.html'), 'utf8');
+  return renderHtmlToPdf(html, {
+    headerTemplate,
+    footerTemplate,
+    margin: { top: '28mm', bottom: '20mm', left: '25.4mm', right: '25.4mm' },
+  });
+}
+
+// "Internship Profile Approved & Offer Letter Available" email — sent once
+// when the offer letter is first enabled, and again (identical content) on
+// an explicit admin-triggered resend.
+// Returns true/false (sendMail itself never throws) so callers that need to
+// report the outcome — enableOfferLetter's emailSent flag, resendOfferLetterEmail's
+// response — reflect what actually happened rather than assuming success.
+async function sendOfferLetterAvailableEmail(enrollment, pdfBuffer, fileName) {
+  const joiningDate = enrollment.internshipStartDate ? formatOrdinalDate(enrollment.internshipStartDate) : '—';
+  const duration = (enrollment.internshipStartDate && enrollment.internshipEndDate)
+    ? computeTenureText(enrollment.internshipStartDate, enrollment.internshipEndDate)
+    : '—';
+  return sendMail({
+    to: enrollment.user.email,
+    subject: 'Internship Profile Approved & Offer Letter Available – WMorgan Technologies',
+    html: renderEmailTemplate('offerLetterAvailable.html', {
+      internName: `${enrollment.user.firstName} ${enrollment.user.lastName}`,
+      domain: enrollment.batch.name,
+      joiningDate,
+      duration,
+      appUrl: process.env.APP_URL,
+    }),
+    attachments: [{ filename: fileName, content: pdfBuffer }],
+  });
+}
+
+// POST /api/interns/enrollments/:id/offer-letter/enable — Super Admin, or
+// the intern's mentoring Admin, explicitly enables the offer letter. This is
+// the ONLY action that generates the PDF and emails the intern — approval
+// alone (finalApprove above) does neither. Idempotent: calling it again once
+// already enabled just returns the existing one, generating no second PDF
+// and sending no second email (see resendOfferLetterEmail for an explicit,
+// intentional re-send).
+async function enableOfferLetter(req, res) {
+  const enrollment = await prisma.internEnrollment.findUnique({
+    where: { id: req.params.id },
+    include: {
+      user: { select: { firstName: true, lastName: true, email: true } },
+      batch: true,
+      mentor: { select: { firstName: true, lastName: true } },
+    },
+  });
+  if (!enrollment) throw new ApiError(404, 'Enrollment not found');
+  assertCanManageLifecycle(req, enrollment);
+  if (!enrollment.finalApprovedAt) {
+    throw new ApiError(400, 'The internship profile must be approved before the offer letter can be enabled');
+  }
+
+  const existing = await prisma.offerLetter.findUnique({ where: { enrollmentId: enrollment.id } });
+  if (existing) {
+    return sendSuccess(res, 200, existing);
+  }
+
+  // Rendered before any DB row is written or email sent — if this throws,
+  // nothing is persisted and the offer letter correctly stays disabled.
+  const pdfBuffer = await renderOfferLetterPdf(enrollment);
+
   const fileName = `Offer-Letter-${enrollment.user.firstName}-${enrollment.user.lastName}.pdf`.replace(/\s+/g, '-');
   const filePath = path.join(OFFER_LETTER_DIR, `${crypto.randomUUID()}.pdf`);
   fs.writeFileSync(filePath, pdfBuffer);
 
-  const existing = await prisma.offerLetter.findUnique({ where: { enrollmentId: enrollment.id } });
-  if (existing) fs.unlink(existing.filePath, () => {});
-
-  const offerLetter = await prisma.offerLetter.upsert({
-    where: { enrollmentId: enrollment.id },
-    update: { filePath, fileName, generatedById: req.user.id, generatedAt: new Date() },
-    create: { enrollmentId: enrollment.id, filePath, fileName, generatedById: req.user.id },
+  const offerLetter = await prisma.offerLetter.create({
+    data: { enrollmentId: enrollment.id, filePath, fileName, generatedById: req.user.id },
   });
 
   await prisma.internshipAudit.create({
     data: { enrollmentId: enrollment.id, action: 'OFFER_LETTER_GENERATED', actorId: req.user.id },
   });
 
-  await sendMail({
-    to: enrollment.user.email,
-    subject: 'VertexWM — Your Offer Letter',
-    html: renderEmailTemplate('offerLetterGenerated.html', {
-      firstName: enrollment.user.firstName,
-      category: CATEGORY_LABELS[enrollment.category] || 'Internship',
-      appUrl: process.env.APP_URL,
-    }),
-    attachments: [{ filename: fileName, content: pdfBuffer }],
-  });
+  // The offer letter is enabled/available as of this point regardless of
+  // whether the email succeeds — a mail failure must not disable it or fail
+  // this response; "Resend Email" is the recovery path. sendMail() never
+  // throws (it swallows and logs its own errors), so its boolean return
+  // value — not a try/catch — is what tells us whether it actually sent.
+  const emailSent = await sendOfferLetterAvailableEmail(enrollment, pdfBuffer, fileName);
 
-  return sendSuccess(res, 201, offerLetter);
+  return sendSuccess(res, 201, { ...offerLetter, emailSent });
+}
+
+// POST /api/interns/enrollments/:id/offer-letter/resend-email — explicit
+// re-send using the already-generated PDF (never regenerates it).
+async function resendOfferLetterEmail(req, res) {
+  const enrollment = await prisma.internEnrollment.findUnique({
+    where: { id: req.params.id },
+    include: { user: { select: { firstName: true, lastName: true, email: true } }, batch: true },
+  });
+  if (!enrollment) throw new ApiError(404, 'Enrollment not found');
+  assertCanManageLifecycle(req, enrollment);
+
+  const offerLetter = await prisma.offerLetter.findUnique({ where: { enrollmentId: enrollment.id } });
+  if (!offerLetter) throw new ApiError(400, 'The offer letter has not been enabled yet');
+
+  const pdfBuffer = fs.readFileSync(offerLetter.filePath);
+  const emailSent = await sendOfferLetterAvailableEmail(enrollment, pdfBuffer, offerLetter.fileName);
+  if (!emailSent) throw new ApiError(502, 'Failed to send the offer letter email — please try again');
+
+  return sendSuccess(res, 200, { message: 'Offer letter email resent' });
 }
 
 // GET /api/interns/enrollments/:id/offer-letter/download
@@ -613,5 +726,5 @@ module.exports = {
   createIntern,
   listBatches, getBatch, createBatch, updateBatch, deleteBatch,
   listEnrollments, listEnrollableUsers, enrollIntern, updateEnrollment, deleteEnrollment, updateMyEnrollment,
-  finalApprove, generateOfferLetter, downloadOfferLetter, generateCertificate, downloadCertificate,
+  finalApprove, enableOfferLetter, resendOfferLetterEmail, downloadOfferLetter, generateCertificate, downloadCertificate,
 };

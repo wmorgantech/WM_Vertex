@@ -660,7 +660,7 @@ router.delete('/enrollments/:id', can('intern', 'manage'), ctrl.deleteEnrollment
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ApiError' }
  *       403:
- *         description: Forbidden — Super Admin only
+ *         description: Forbidden — Super Admin, or an Admin who is not this intern's mentor
  *         content:
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ApiError' }
@@ -670,14 +670,22 @@ router.delete('/enrollments/:id', can('intern', 'manage'), ctrl.deleteEnrollment
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ApiError' }
  */
-router.post('/enrollments/:id/approve', isSuperAdmin, ctrl.finalApprove);
+// No route-level role gate — access is scoped per-enrollment inside the
+// controller (assertCanManageLifecycle: Super Admin unrestricted, Admin only
+// for interns they mentor), matching every other action in this review flow.
+router.post('/enrollments/:id/approve', ctrl.finalApprove);
 
 /**
  * @swagger
- * /interns/enrollments/{id}/offer-letter:
+ * /interns/enrollments/{id}/offer-letter/enable:
  *   post:
  *     tags: [Interns]
- *     summary: Generate an offer letter PDF for an intern enrollment
+ *     summary: Enable the offer letter for an approved intern enrollment
+ *     description: >
+ *       The only action that generates the offer letter PDF and emails it to
+ *       the intern — approval alone does neither. Idempotent: if already
+ *       enabled, returns the existing offer letter without regenerating the
+ *       PDF or sending another email.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -687,7 +695,7 @@ router.post('/enrollments/:id/approve', isSuperAdmin, ctrl.finalApprove);
  *         schema: { type: string, format: uuid }
  *     responses:
  *       201:
- *         description: Offer letter generated
+ *         description: Offer letter enabled (first time)
  *         content:
  *           application/json:
  *             schema:
@@ -697,14 +705,21 @@ router.post('/enrollments/:id/approve', isSuperAdmin, ctrl.finalApprove);
  *                   properties:
  *                     data:
  *                       type: object
- *                       description: Offer letter metadata
+ *                       description: Offer letter metadata, plus emailSent (false if the email attempt failed)
+ *       200:
+ *         description: Offer letter was already enabled — returns the existing record unchanged
+ *       400:
+ *         description: The internship profile has not been approved yet
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
  *       401:
  *         description: Unauthorized
  *         content:
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ApiError' }
  *       403:
- *         description: Forbidden — Super Admin only
+ *         description: Forbidden — Super Admin, or an Admin who is not this intern's mentor
  *         content:
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ApiError' }
@@ -714,7 +729,53 @@ router.post('/enrollments/:id/approve', isSuperAdmin, ctrl.finalApprove);
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ApiError' }
  */
-router.post('/enrollments/:id/offer-letter', isSuperAdmin, ctrl.generateOfferLetter);
+router.post('/enrollments/:id/offer-letter/enable', ctrl.enableOfferLetter);
+
+/**
+ * @swagger
+ * /interns/enrollments/{id}/offer-letter/resend-email:
+ *   post:
+ *     tags: [Interns]
+ *     summary: Re-send the offer letter email using the already-generated PDF
+ *     description: Never regenerates the PDF — only valid once the offer letter has been enabled.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Email resent
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/ApiSuccess'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         message: { type: string }
+ *       400:
+ *         description: The offer letter has not been enabled yet
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden — Super Admin, or an Admin who is not this intern's mentor
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: Enrollment not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.post('/enrollments/:id/offer-letter/resend-email', ctrl.resendOfferLetterEmail);
 
 /**
  * @swagger

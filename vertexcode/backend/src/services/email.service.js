@@ -23,7 +23,10 @@ function getTransporter() {
 /**
  * Sends an email. Never throws — a failed send is logged and swallowed so it
  * can never block or fail the underlying business action (document rejection,
- * approval, PDF generation, etc. must succeed even if SMTP is down).
+ * approval, PDF generation, etc. must succeed even if SMTP is down). Returns
+ * true/false so a caller that specifically needs to know whether the send
+ * actually succeeded (e.g. to report it back to an admin) still can, without
+ * changing the never-throws contract every existing caller already relies on.
  */
 async function sendMail({ to, subject, html, attachments }) {
   try {
@@ -34,9 +37,11 @@ async function sendMail({ to, subject, html, attachments }) {
       html,
       attachments,
     });
+    return true;
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error(`[email.service] Failed to send "${subject}" to ${to}:`, err.message);
+    return false;
   }
 }
 
