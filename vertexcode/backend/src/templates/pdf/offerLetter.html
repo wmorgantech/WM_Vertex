@@ -7,109 +7,93 @@
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    color: #111827;
-    position: relative;
-    width: 210mm;
-    min-height: 297mm;
+    font-family: 'Times New Roman', Times, serif;
+    font-size: 12pt;
+    line-height: 1.5;
+    color: #1a1a1a;
   }
-  .watermark {
-    position: fixed;
-    top: 45%;
-    left: 50%;
-    transform: translate(-50%, -50%) rotate(-32deg);
-    font-size: 84px;
-    font-weight: 800;
-    color: rgba(79, 70, 229, 0.06);
-    letter-spacing: 6px;
-    white-space: nowrap;
-    z-index: 0;
-  }
-  .page { position: relative; z-index: 1; padding: 16mm 18mm; }
-  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; }
-  .brand-mark {
-    width: 34px; height: 34px; border-radius: 9px; background: #4f46e5;
-    display: flex; align-items: center; justify-content: center;
-    color: #fff; font-weight: 800; font-size: 15px;
-  }
-  .brand-name { font-size: 19px; font-weight: 800; color: #111827; }
-  .brand-sub { font-size: 10px; color: #6b7280; letter-spacing: 1px; text-transform: uppercase; margin-top: 1px; }
-  h1 { font-size: 20px; margin: 0 0 4px; color: #111827; }
-  .meta { font-size: 11px; color: #6b7280; margin-bottom: 24px; }
-  .category-badge {
-    display: inline-block; padding: 4px 12px; border-radius: 999px;
-    background: #eef2ff; color: #4338ca; font-size: 11px; font-weight: 700;
-    letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 20px;
-  }
-  p { font-size: 13px; line-height: 1.8; color: #1f2937; }
-  .details {
-    width: 100%; border-collapse: collapse; margin: 20px 0 24px;
-    border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;
-  }
-  .details td { padding: 10px 14px; font-size: 12px; border-bottom: 1px solid #f3f4f6; }
-  .details td:first-child { color: #6b7280; font-weight: 600; width: 40%; background: #f9fafb; }
-  .details tr:last-child td { border-bottom: none; }
-  .footer-block { margin-top: 44px; display: flex; justify-content: space-between; align-items: flex-end; }
-  .signature { font-family: 'Brush Script MT', cursive; font-size: 30px; color: #1f2937; margin-bottom: 2px; }
-  .sig-name { font-size: 12px; font-weight: 700; color: #111827; }
-  .sig-title { font-size: 11px; color: #6b7280; }
-  .disclaimer { font-size: 9px; color: #9ca3af; margin-top: 6px; max-width: 220px; }
-  .qr-block { text-align: center; }
-  .qr-block img { width: 78px; height: 78px; }
-  .qr-label { font-size: 8px; color: #9ca3af; margin-top: 4px; }
-  .ref { position: absolute; bottom: 10mm; left: 18mm; font-size: 9px; color: #9ca3af; }
+  .page { padding: 2mm 4mm 4mm; }
+  .row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16pt; }
+  .to-block p, .date-block p { margin: 0 0 2pt; }
+  .subject-line { font-weight: 700; margin: 16pt 0 16pt; }
+  .subject-line .label { color: #B41414; }
+  p.body-p { margin: 0 0 12pt; text-align: justify; }
+  .section-title { font-weight: 700; color: #00461E; margin: 18pt 0 10pt; }
+  .field-label { font-weight: 700; color: #00461E; margin: 11pt 0 1pt; }
+  .field-value { margin: 0; }
+  .clause { margin: 0 0 12pt; text-align: justify; }
+  .sign-block p { margin: 0 0 2pt; }
+  .sign-line { margin: 22pt 0 4pt; }
+  .accept-block { text-align: right; margin-top: 30pt; }
+  .accept-fields p { margin: 12pt 0 0; }
 </style>
 </head>
 <body>
-  <div class="watermark">{{companyNameUpper}} &nbsp; OFFICIAL</div>
   <div class="page">
-    <div class="brand">
-      {{brandMarkHtml}}
-      <div>
-        <div class="brand-name">{{companyName}}</div>
-        <div class="brand-sub">{{companyAddress}}</div>
+    <div class="row">
+      <div class="to-block">
+        <p class="field-label" style="margin-top:0;">TO:</p>
+        <p><b>{{candidateName}}</b></p>
+        <p>{{qualificationLine}}</p>
+        <p>{{collegeName}}</p>
+        <p>{{universityLine}}</p>
+      </div>
+      <div class="date-block" style="text-align:right;">
+        <p><b>DATE:</b> {{joiningDateFormatted}}</p>
       </div>
     </div>
 
-    <h1>Internship Offer Letter</h1>
-    <div class="meta">Issued on {{generatedDate}} &middot; Reference: {{verificationId}}</div>
-    <div class="category-badge">{{categoryLabel}}</div>
+    <p class="subject-line"><span class="label">SUBJECT: </span><span>OFFER LETTER FOR INTERNSHIP PROGRAM</span></p>
 
-    <p>Dear {{firstName}} {{lastName}},</p>
-    <p>
-      We are pleased to confirm your internship with VertexWM under the <strong>{{categoryLabel}}</strong> program.
-      This letter formally confirms your placement following the completion of document verification and final approval.
+    <p class="body-p">Dear {{firstName}},</p>
+    <p class="body-p">
+      We are pleased to offer you an internship position in the <b>{{domainTeam}}</b> Team at {{companyName}}.
+      Your internship shall commence on <b>{{joiningDateFormatted}}</b> and conclude on <b>{{endDateFormatted}} ({{tenureText}})</b>.
+      The key engagement details and terms of your internship are outlined below:
     </p>
 
-    <table class="details">
-      <tr><td>Intern Name</td><td>{{firstName}} {{lastName}}</td></tr>
-      <tr><td>College / Institution</td><td>{{collegeName}}</td></tr>
-      <tr><td>University</td><td>{{university}}</td></tr>
-      <tr><td>Course / Branch</td><td>{{course}} &middot; {{branch}}</td></tr>
-      <tr><td>Register Number</td><td>{{registerNumber}}</td></tr>
-      <tr><td>Internship Batch</td><td>{{batchName}}</td></tr>
-      <tr><td>Internship Duration</td><td>{{internshipStartDate}} to {{internshipEndDate}}</td></tr>
-    </table>
+    <p class="section-title">1. Key Engagement Details</p>
+    <p class="field-label">Candidate Name</p>
+    <p class="field-value">{{candidateName}}</p>
+    <p class="field-label">Qualification</p>
+    <p class="field-value">{{qualificationLine}}</p>
+    <p class="field-label">Domain / Team</p>
+    <p class="field-value">{{domainTeam}}</p>
+    <p class="field-label">Internship Tenure</p>
+    <p class="field-value">{{joiningDateFormatted}} to {{endDateFormatted}} ({{tenureText}})</p>
+    <p class="field-label">Working Hours</p>
+    <p class="field-value">{{workingHours}} ({{workingDays}})</p>
 
-    <p>
-      Please report as per the schedule communicated by your assigned mentor. We look forward to a productive
-      internship experience together.
+    <p class="section-title">2. Terms and Conditions</p>
+    <p class="clause"><b>1. Role &amp; Responsibilities:</b> Subject to your acceptance of this offer, your specific projects, responsibilities, and allocated working time will be determined and assigned by your supervisor, {{supervisorName}}.</p>
+    <p class="clause"><b>2. Work Schedule:</b> Work location depends on project assignments. Regular working hours are {{workingHours}}, {{workingDays}}.</p>
+    <p class="clause"><b>3. Required Documents:</b> Please share soft copies of your College ID Card and Bonafide Certificate via email to {{companyEmail}} within 7 days of your joining date.</p>
+    <p class="clause"><b>4. Non-Employment Clause:</b> This internship cannot be construed as full-time employment or an offer of employment with {{companyName}}.</p>
+
+    <p class="body-p">
+      Please confirm your acceptance of the terms of this offer by <b>{{joiningDateFormatted}}</b>, failing which we reserve the right to cancel the internship offer.
+      We look forward to having you on our team! If you have any questions, please feel free to reach out to us.
     </p>
 
-    <div class="footer-block">
-      <div>
-        <div class="signature">{{signatoryName}}</div>
-        <div class="sig-name">{{signatoryName}}</div>
-        <div class="sig-title">{{signatoryTitle}}, {{companyName}}</div>
-        <div class="disclaimer">This is a digitally generated and verified document issued by {{companyName}} and does not require a physical signature.</div>
-      </div>
-      <div class="qr-block">
-        <img src="{{qrCodeDataUrl}}" alt="Verification QR" />
-        <div class="qr-label">Scan to verify</div>
-      </div>
+    <div class="sign-block">
+      <p>Warm regards,</p>
+      <p><b>For {{companyName}},</b></p>
+      <p class="sign-line">_____________________________________</p>
+      <p><b>{{signatoryName}}</b></p>
+      <p>{{signatoryTitle}}</p>
+      <p>{{companyName}}</p>
     </div>
 
-    <div class="ref">{{companyName}} &middot; Document ID: {{verificationId}} &middot; Generated {{generatedDate}}</div>
+    <div class="accept-block">
+      <p><b>Accepted By:</b></p>
+      <p>____________________________________</p>
+    </div>
+    <div class="accept-fields">
+      <p>Name:</p>
+      <p>Signature:</p>
+      <p>Date:</p>
+      <p>Place:</p>
+    </div>
   </div>
 </body>
 </html>

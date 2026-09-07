@@ -17,7 +17,14 @@ function getBrowser() {
   return browserPromise;
 }
 
-async function renderHtmlToPdf(html) {
+// `headerTemplate`/`footerTemplate` (Puppeteer's own repeating-per-page
+// mechanism — a separate, isolated rendering context from the body HTML, so
+// styles must be inline) are opt-in: omitted, behavior is byte-identical to
+// before for every existing caller. Passing one requires non-zero top/bottom
+// `margin` (the body content's page area is inset by that margin, leaving
+// room for the repeating header/footer to actually be visible instead of
+// overlapping the content).
+async function renderHtmlToPdf(html, { headerTemplate, footerTemplate, margin } = {}) {
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
@@ -26,10 +33,16 @@ async function renderHtmlToPdf(html) {
     // to wait for and is flaky/slow in practice. 'domcontentloaded' is both
     // correct and fast here.
     await page.setContent(html, { waitUntil: 'domcontentloaded' });
+    const displayHeaderFooter = !!(headerTemplate || footerTemplate);
     return await page.pdf({
       format: 'A4',
       printBackground: true,
-      margin: { top: '0mm', bottom: '0mm', left: '0mm', right: '0mm' },
+      margin: margin || { top: '0mm', bottom: '0mm', left: '0mm', right: '0mm' },
+      ...(displayHeaderFooter && {
+        displayHeaderFooter: true,
+        headerTemplate: headerTemplate || '<span></span>',
+        footerTemplate: footerTemplate || '<span></span>',
+      }),
     });
   } finally {
     await page.close();
