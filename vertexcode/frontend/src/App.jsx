@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './context/AuthContext';
+import ServerStatusGate from './context/ServerStatusGate';
 import ProtectedRoute from './routes/ProtectedRoute';
 import RoleRoute from './routes/RoleRoute';
 import AuthLayout from './layouts/AuthLayout';
@@ -44,86 +45,91 @@ const SUPER_ADMIN_ROLES = ['SUPER_ADMIN'];
 // designation (see intern.routes.js canAddIntern); this just lets that
 // route resolve instead of bouncing them to /dashboard.
 const INTERN_PAGE_ROLES = ['SUPER_ADMIN', 'ADMIN', 'EMPLOYEE'];
-// Enquiry is open to any staff role — Interns/Trainees excluded (see
-// enquiry.routes.js/enquiry.controller.js for the matching backend rule).
-const ENQUIRY_PAGE_ROLES = ['SUPER_ADMIN', 'ADMIN', 'EMPLOYEE'];
+// Enquiry is open to SUPER_ADMIN/ADMIN/EMPLOYEE/INTERN — Trainees excluded
+// (see enquiry.routes.js/enquiry.controller.js for the matching backend
+// rule, which already validates INTERN's own category list and self-service
+// create/update path; this route guard previously omitted INTERN, leaving
+// the "My Enquiries" nav link interns already see unreachable).
+const ENQUIRY_PAGE_ROLES = ['SUPER_ADMIN', 'ADMIN', 'EMPLOYEE', 'INTERN'];
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            style: {
-              background: 'var(--color-card)',
-              color: 'var(--color-foreground)',
-              border: '1px solid var(--color-border)',
-              borderRadius: '0.625rem',
-              boxShadow: 'var(--shadow-md)',
-              fontSize: '13px',
-            },
-            success: { iconTheme: { primary: 'var(--color-success)', secondary: 'var(--color-card)' } },
-            error: { iconTheme: { primary: 'var(--color-destructive)', secondary: 'var(--color-card)' } },
-          }}
-        />
-        <Routes>
-          <Route element={<AuthLayout />}>
-            <Route path="/login" element={<Login />} />
-          </Route>
+    <ServerStatusGate>
+      <AuthProvider>
+        <BrowserRouter>
+          <Toaster
+            position="top-right"
+            toastOptions={{
+              style: {
+                background: 'var(--color-card)',
+                color: 'var(--color-foreground)',
+                border: '1px solid var(--color-border)',
+                borderRadius: '0.625rem',
+                boxShadow: 'var(--shadow-md)',
+                fontSize: '13px',
+              },
+              success: { iconTheme: { primary: 'var(--color-success)', secondary: 'var(--color-card)' } },
+              error: { iconTheme: { primary: 'var(--color-destructive)', secondary: 'var(--color-card)' } },
+            }}
+          />
+          <Routes>
+            <Route element={<AuthLayout />}>
+              <Route path="/login" element={<Login />} />
+            </Route>
 
-          <Route element={<ProtectedRoute />}>
-            <Route element={<DashboardLayout />}>
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/profile" element={<Profile />} />
-              <Route path="/tasks" element={<Tasks />} />
-              <Route path="/attendance" element={<Attendance />} />
-              <Route path="/timesheets" element={<Timesheets />} />
-              <Route path="/work-updates" element={<WorkUpdates />} />
-              <Route path="/workshops" element={<Workshops />} />
-              <Route path="/leave" element={<Leave />} />
+            <Route element={<ProtectedRoute />}>
+              <Route element={<DashboardLayout />}>
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/profile" element={<Profile />} />
+                <Route path="/tasks" element={<Tasks />} />
+                <Route path="/attendance" element={<Attendance />} />
+                <Route path="/timesheets" element={<Timesheets />} />
+                <Route path="/work-updates" element={<WorkUpdates />} />
+                <Route path="/workshops" element={<Workshops />} />
+                <Route path="/leave" element={<Leave />} />
 
-              <Route element={<RoleRoute roles={DOCUMENT_ROLES} />}>
-                <Route path="/documents" element={<Documents />} />
-              </Route>
+                <Route element={<RoleRoute roles={DOCUMENT_ROLES} />}>
+                  <Route path="/documents" element={<Documents />} />
+                </Route>
 
-              <Route element={<RoleRoute roles={INTERN_PAGE_ROLES} />}>
-                <Route path="/interns" element={<Interns />} />
-              </Route>
+                <Route element={<RoleRoute roles={INTERN_PAGE_ROLES} />}>
+                  <Route path="/interns" element={<Interns />} />
+                </Route>
 
-              <Route element={<RoleRoute roles={ENQUIRY_PAGE_ROLES} />}>
-                <Route path="/enquiries" element={<Enquiries />} />
-              </Route>
+                <Route element={<RoleRoute roles={ENQUIRY_PAGE_ROLES} />}>
+                  <Route path="/enquiries" element={<Enquiries />} />
+                </Route>
 
-              <Route element={<RoleRoute roles={MANAGER_ROLES} />}>
-                <Route path="/employees" element={<EmployeeList />} />
-                <Route path="/employees/:id" element={<EmployeeDetail />} />
-                <Route path="/trainees" element={<Trainees />} />
-                <Route path="/trainees/:id" element={<TraineeDetail />} />
-                <Route path="/colleges" element={<Colleges />} />
-                <Route path="/mous" element={<MOUs />} />
-                <Route path="/departments" element={<Departments />} />
-                <Route path="/projects" element={<Projects />} />
-                <Route path="/projects/:id" element={<ProjectDetail />} />
-                <Route path="/analytics" element={<Analytics />} />
-              </Route>
+                <Route element={<RoleRoute roles={MANAGER_ROLES} />}>
+                  <Route path="/employees" element={<EmployeeList />} />
+                  <Route path="/employees/:id" element={<EmployeeDetail />} />
+                  <Route path="/trainees" element={<Trainees />} />
+                  <Route path="/trainees/:id" element={<TraineeDetail />} />
+                  <Route path="/colleges" element={<Colleges />} />
+                  <Route path="/mous" element={<MOUs />} />
+                  <Route path="/departments" element={<Departments />} />
+                  <Route path="/projects" element={<Projects />} />
+                  <Route path="/projects/:id" element={<ProjectDetail />} />
+                  <Route path="/analytics" element={<Analytics />} />
+                </Route>
 
-              <Route element={<RoleRoute roles={SUPER_ADMIN_ROLES} />}>
-                <Route path="/expenses" element={<Expenses />} />
-                <Route path="/configuration/masters" element={<Masters />} />
-                <Route path="/configuration/permissions" element={<Permissions />} />
-                <Route path="/configuration/audit-log" element={<AuditLog />} />
-                <Route path="/configuration/notifications" element={<NotificationSettings />} />
-                <Route path="/configuration/custom-fields" element={<CustomFields />} />
-                <Route path="/configuration/document-settings" element={<DocumentSettings />} />
+                <Route element={<RoleRoute roles={SUPER_ADMIN_ROLES} />}>
+                  <Route path="/expenses" element={<Expenses />} />
+                  <Route path="/configuration/masters" element={<Masters />} />
+                  <Route path="/configuration/permissions" element={<Permissions />} />
+                  <Route path="/configuration/audit-log" element={<AuditLog />} />
+                  <Route path="/configuration/notifications" element={<NotificationSettings />} />
+                  <Route path="/configuration/custom-fields" element={<CustomFields />} />
+                  <Route path="/configuration/document-settings" element={<DocumentSettings />} />
+                </Route>
               </Route>
             </Route>
-          </Route>
 
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
-      </BrowserRouter>
-    </AuthProvider>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
+    </ServerStatusGate>
   );
 }

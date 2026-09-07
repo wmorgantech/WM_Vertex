@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Upload, Download, RotateCcw, FolderOpen, ShieldCheck, FileText, Award } from 'lucide-react';
+import { Upload, Download, RotateCcw, FolderOpen, ShieldCheck, FileText, Award, Image as ImageIcon, AlertCircle } from 'lucide-react';
 import api from '@/api/axios';
 import PageHeader from '@/components/shared/PageHeader';
-import Table from '@/components/shared/Table';
 import Badge from '@/components/shared/Badge';
 import KpiCard from '@/components/shared/KpiCard';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -36,16 +35,68 @@ const DOC_TYPES = [
 ];
 
 const EDITABLE_STATUSES = [undefined, 'DRAFT', 'REJECTED'];
+const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png'];
 
 function toDateInput(value) {
   return value ? new Date(value).toISOString().slice(0, 10) : '';
 }
 
+function fileExtension(fileName) {
+  if (!fileName || !fileName.includes('.')) return null;
+  return fileName.split('.').pop().toUpperCase();
+}
+
 const CATEGORY_LABELS = { FREE_INTERNSHIP: 'Free Internship', JOT: 'Job Oriented Training (JOT)' };
+
+function DocumentCard({ label, note, type, doc, canEdit, uploading, onUpload, onDownload }) {
+  const ext = fileExtension(doc?.fileName);
+  const isImage = ext && IMAGE_EXTENSIONS.includes(ext.toLowerCase());
+  const Icon = isImage ? ImageIcon : FileText;
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-border p-4 transition-colors hover:border-primary/40 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Icon className="size-5" />
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-foreground">{label}</p>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            {doc ? (
+              <>
+                {ext && <span className="mr-2 font-semibold uppercase tracking-wide">{ext}</span>}
+                Uploaded {new Date(doc.uploadedAt).toLocaleDateString()}
+              </>
+            ) : note}
+          </p>
+          {doc?.status === 'REJECTED' && doc?.adminRemarks && (
+            <p className="mt-1 text-xs text-destructive">Remarks: {doc.adminRemarks}</p>
+          )}
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <Badge value={doc?.status || 'DRAFT'} />
+        {canEdit && (
+          <Button size="sm" variant="secondary" disabled={uploading} onClick={() => onUpload(type)}>
+            <Upload />
+            {uploading ? 'Uploading...' : doc ? 'Re-upload' : 'Upload'}
+          </Button>
+        )}
+        {doc?.status === 'VERIFIED' && (
+          <Button size="sm" onClick={() => onDownload(doc)}>
+            <Download />
+            Download
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function InternDocuments() {
   const [data, setData] = useState(null);
   const [notEnrolled, setNotEnrolled] = useState(false);
+  const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [profileForm, setProfileForm] = useState(null);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -56,6 +107,7 @@ export default function InternDocuments() {
 
   const load = () => {
     setLoading(true);
+    setError(false);
     api.get('/documents/mine')
       .then(({ data: res }) => {
         setData(res.data);
@@ -64,7 +116,10 @@ export default function InternDocuments() {
       })
       .catch((err) => {
         if (err.response?.status === 404) setNotEnrolled(true);
-        else toast.error(err.response?.data?.message || 'Failed to load documents');
+        else {
+          setError(true);
+          toast.error(err.response?.data?.message || 'Failed to load documents');
+        }
       })
       .finally(() => setLoading(false));
   };
@@ -162,12 +217,34 @@ export default function InternDocuments() {
     }
   };
 
+  const pageHeader = <PageHeader title="Documents" subtitle="View and manage your internship-related documents." />;
+
   if (loading) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-9 w-64" />
+        {pageHeader}
+        <Skeleton className="h-24" />
         <Skeleton className="h-40" />
         <Skeleton className="h-64" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        {pageHeader}
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
+            <span className="flex size-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+              <AlertCircle className="size-5" />
+            </span>
+            <p className="text-sm text-muted-foreground">We couldn't load your documents right now.</p>
+            <Button size="sm" variant="secondary" onClick={load}>
+              <RotateCcw /> Retry
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -175,7 +252,7 @@ export default function InternDocuments() {
   if (notEnrolled) {
     return (
       <div className="space-y-6">
-        <PageHeader title="My Documents" subtitle="Internship profile and document verification" />
+        {pageHeader}
         <Card>
           <CardContent className="py-16 text-center text-sm text-muted-foreground">
             You are not yet enrolled in an internship batch. Contact an admin to get enrolled before completing your profile and documents.
@@ -185,6 +262,8 @@ export default function InternDocuments() {
     );
   }
 
+  if (!data) return null;
+
   const { documents, profileCompletionPercent, verification, stage, offerLetter, certificate, enrollment } = data;
   const additionalDocs = documents.filter((d) => d.type === 'ADDITIONAL');
   const requiredGroups = verification.requiredGroups || [];
@@ -192,55 +271,42 @@ export default function InternDocuments() {
   const canSubmit = requiredGroups.every((g) => ['DRAFT', 'PENDING_REVIEW', 'VERIFIED'].includes(g.status))
     && documents.some((d) => d.status === 'DRAFT');
 
-  const rows = [
-    ...DOC_TYPES.map(({ type, label, note }) => ({
-      key: type,
-      label: `${label} (${note})`,
-      type,
-      doc: documents.find((d) => d.type === type),
-    })),
-    ...additionalDocs.map((doc, idx) => ({ key: doc.id, label: `Additional Document ${idx + 1}`, type: 'ADDITIONAL', doc })),
-  ];
+  const internshipDocRows = DOC_TYPES.map(({ type, label, note }) => ({
+    key: type,
+    label,
+    note,
+    type,
+    doc: documents.find((d) => d.type === type),
+  }));
+  const otherDocRows = additionalDocs.map((doc, idx) => ({
+    key: doc.id,
+    label: `Additional Document ${idx + 1}`,
+    note: undefined,
+    type: 'ADDITIONAL',
+    doc,
+  }));
 
-  const columns = [
-    { key: 'label', header: 'Document', render: (r) => r.label },
-    { key: 'fileName', header: 'File Name', render: (r) => r.doc?.fileName || '—' },
-    { key: 'uploadedAt', header: 'Upload Date', render: (r) => r.doc ? new Date(r.doc.uploadedAt).toLocaleDateString() : '—' },
-    { key: 'status', header: 'Status', render: (r) => <Badge value={r.doc?.status || 'DRAFT'} /> },
-    { key: 'remarks', header: 'Admin Remarks', render: (r) => r.doc?.adminRemarks || '—' },
-    {
-      key: 'actions',
-      header: 'Actions',
-      render: (r) => {
-        const canEdit = EDITABLE_STATUSES.includes(r.doc?.status);
-        return (
-          <div className="flex items-center gap-2">
-            {canEdit && (
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={uploadingType === r.type}
-                onClick={() => triggerUpload(r.type)}
-              >
-                <Upload />
-                {uploadingType === r.type ? 'Uploading...' : r.doc ? 'Re-upload' : 'Upload'}
-              </Button>
-            )}
-            {r.doc?.status === 'VERIFIED' && (
-              <Button size="sm" onClick={() => handleDownload(r.doc)}>
-                <Download />
-                Download
-              </Button>
-            )}
-          </div>
-        );
-      },
-    },
-  ];
+  const renderDocGrid = (rows) => (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {rows.map((r) => (
+        <DocumentCard
+          key={r.key}
+          label={r.label}
+          note={r.note}
+          type={r.type}
+          doc={r.doc}
+          canEdit={EDITABLE_STATUSES.includes(r.doc?.status)}
+          uploading={uploadingType === r.type}
+          onUpload={triggerUpload}
+          onDownload={handleDownload}
+        />
+      ))}
+    </div>
+  );
 
   return (
     <div className="space-y-6">
-      <PageHeader title="My Documents" subtitle="Internship profile and document verification" />
+      {pageHeader}
 
       <input ref={fileInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={handleFileSelected} />
 
@@ -252,7 +318,7 @@ export default function InternDocuments() {
 
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0">
-          <CardTitle>Document Verification</CardTitle>
+          <CardTitle>Verification Status</CardTitle>
           <div className="flex items-center gap-2">
             {enrollment.category && <Badge value={enrollment.category} />}
             <Badge value={stage} />
@@ -281,13 +347,44 @@ export default function InternDocuments() {
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Offer Letter &amp; Completion Certificate</CardTitle>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardTitle>Internship Documents</CardTitle>
+          <Button disabled={!canSubmit || submitting} onClick={handleSubmitForVerification}>
+            <RotateCcw />
+            {submitting ? 'Submitting...' : 'Submit for Verification'}
+          </Button>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          <div className="flex items-center justify-between rounded-lg border border-border p-4">
+        <CardContent className="pb-5">
+          {renderDocGrid(internshipDocRows)}
+          {!canSubmit && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Upload a Bonafide Certificate or Permission Letter, plus your College ID Card, before submitting for verification.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {otherDocRows.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Other Documents</CardTitle>
+          </CardHeader>
+          <CardContent className="pb-5">
+            {renderDocGrid(otherDocRows)}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Offer &amp; Completion Documents</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 pb-5 sm:grid-cols-2">
+          <div className="flex flex-col gap-3 rounded-xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
-              <FileText className="size-5 text-muted-foreground" />
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <FileText className="size-5" />
+              </span>
               <div>
                 <p className="text-sm font-medium text-foreground">Offer Letter</p>
                 <p className="text-xs text-muted-foreground">
@@ -300,9 +397,11 @@ export default function InternDocuments() {
               Download
             </Button>
           </div>
-          <div className="flex items-center justify-between rounded-lg border border-border p-4">
+          <div className="flex flex-col gap-3 rounded-xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
-              <Award className="size-5 text-muted-foreground" />
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Award className="size-5" />
+              </span>
               <div>
                 <p className="text-sm font-medium text-foreground">Completion Certificate</p>
                 <p className="text-xs text-muted-foreground">
@@ -339,24 +438,6 @@ export default function InternDocuments() {
               <Button type="submit" disabled={savingProfile}>{savingProfile ? 'Saving...' : 'Save Profile'}</Button>
             </div>
           </form>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex-row items-center justify-between space-y-0">
-          <CardTitle>Documents</CardTitle>
-          <Button disabled={!canSubmit || submitting} onClick={handleSubmitForVerification}>
-            <RotateCcw />
-            {submitting ? 'Submitting...' : 'Submit for Verification'}
-          </Button>
-        </CardHeader>
-        <CardContent>
-          <Table columns={columns} rows={rows} />
-          {!canSubmit && (
-            <p className="mt-3 text-xs text-muted-foreground">
-              Upload a Bonafide Certificate or Permission Letter, plus your College ID Card, before submitting for verification.
-            </p>
-          )}
         </CardContent>
       </Card>
     </div>
