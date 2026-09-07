@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, XCircle, ShieldCheck, FileText, Award, Download } from 'lucide-react';
+import { CheckCircle2, XCircle, ShieldCheck, FileText, Award, Download, Eye, Send } from 'lucide-react';
 import api from '@/api/axios';
 import { useAuth } from '@/context/AuthContext';
 import PageHeader from '@/components/shared/PageHeader';
@@ -34,6 +34,12 @@ const PROFILE_FIELDS = [
 export default function AdminDocumentReview() {
   const { user } = useAuth();
   const isSuperAdmin = user.role === 'SUPER_ADMIN';
+  // Approve/Enable Offer Letter are open to both roles — the backend scopes
+  // an Admin to interns they mentor (assertCanManageLifecycle in
+  // intern.controller.js), the same restriction already applied everywhere
+  // else in this review flow (document approve/reject, enrollment detail).
+  // Certificate generation stays Super-Admin-only (unchanged, out of scope).
+  const isManager = isSuperAdmin || user.role === 'ADMIN';
   const [enrollments, setEnrollments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
@@ -103,14 +109,30 @@ export default function AdminDocumentReview() {
     }
   };
 
-  const handleGenerateOfferLetter = async () => {
+  const handleEnableOfferLetter = async () => {
     setLifecycleActing('offer-letter');
     try {
-      await api.post(`/interns/enrollments/${selected.id}/offer-letter`);
-      toast.success('Offer letter generated');
+      const { data } = await api.post(`/interns/enrollments/${selected.id}/offer-letter/enable`);
+      if (data.data?.emailSent === false) {
+        toast.error('Offer letter enabled, but the email failed to send — use Resend Email to retry');
+      } else {
+        toast.success('Offer letter enabled and emailed to the intern');
+      }
       await refreshSelected();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to generate offer letter');
+      toast.error(err.response?.data?.message || 'Failed to enable offer letter');
+    } finally {
+      setLifecycleActing(null);
+    }
+  };
+
+  const handleResendOfferLetterEmail = async () => {
+    setLifecycleActing('resend-email');
+    try {
+      await api.post(`/interns/enrollments/${selected.id}/offer-letter/resend-email`);
+      toast.success('Offer letter email resent');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to resend offer letter email');
     } finally {
       setLifecycleActing(null);
     }
@@ -129,19 +151,27 @@ export default function AdminDocumentReview() {
     }
   };
 
-  const handleLifecycleDownload = async (kind) => {
+  // mode 'view' opens the PDF in a new tab (browser's native viewer, nothing
+  // saved to disk); mode 'download' (default) forces a save-as, matching the
+  // existing behavior. Both reuse the same download endpoint — the
+  // distinction is purely how the frontend handles the returned bytes.
+  const handleLifecycleDownload = async (kind, mode = 'download') => {
     try {
       const res = await api.get(`/interns/enrollments/${selected.id}/${kind}/download`, { responseType: 'blob' });
       const url = URL.createObjectURL(res.data);
-      const link = window.document.createElement('a');
-      link.href = url;
-      link.download = `${kind}.pdf`;
-      window.document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      if (mode === 'view') {
+        window.open(url, '_blank');
+      } else {
+        const link = window.document.createElement('a');
+        link.href = url;
+        link.download = `${kind}.pdf`;
+        window.document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
     } catch {
-      toast.error(kind === 'offer-letter' ? 'Failed to download offer letter' : 'Failed to download certificate');
+      toast.error(kind === 'offer-letter' ? 'Failed to open offer letter' : 'Failed to open certificate');
     }
   };
 
@@ -210,33 +240,54 @@ export default function AdminDocumentReview() {
             </dl>
             <Table columns={docColumns} rows={selected.documents} emptyMessage="No documents uploaded yet." />
 
-            {isSuperAdmin && (() => {
+            {isManager && (() => {
               const requiredVerified = selected.requirement?.satisfied ?? false;
               const canApprove = requiredVerified && !selected.finalApprovedAt;
-              const canGenerateOfferLetter = !!selected.finalApprovedAt && !selected.offerLetter;
+              const canEnableOfferLetter = !!selected.finalApprovedAt && !selected.offerLetter;
               const canGenerateCertificate = !!selected.offerLetter && !selected.certificate
                 && selected.internshipEndDate && new Date() >= new Date(selected.internshipEndDate);
               return (
                 <div className="space-y-3 rounded-lg border border-border p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Internship Lifecycle (Super Admin)</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Internship Lifecycle (Admin / Super Admin)</p>
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="text-muted-foreground">Status:</span>
+                    <Badge value={selected.finalApprovedAt ? 'INTERNSHIP_CONFIRMED' : 'PENDING'} label={selected.finalApprovedAt ? 'APPROVED' : 'PENDING'} />
+                    {selected.finalApprovedAt && (
+                      <>
+                        <span className="ml-2 text-muted-foreground">Offer Letter:</span>
+                        <Badge value={selected.offerLetter ? 'VERIFIED' : 'DRAFT'} label={selected.offerLetter ? 'ENABLED' : 'NOT ENABLED'} />
+                      </>
+                    )}
+                  </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Button size="sm" disabled={!canApprove || lifecycleActing} onClick={handleFinalApprove}>
                       <ShieldCheck />
                       {lifecycleActing === 'approve' ? 'Approving...' : 'Final Approve'}
                     </Button>
-                    <Button size="sm" variant="secondary" disabled={!canGenerateOfferLetter || lifecycleActing} onClick={handleGenerateOfferLetter}>
-                      <FileText />
-                      {lifecycleActing === 'offer-letter' ? 'Generating...' : 'Generate Offer Letter'}
-                    </Button>
-                    <Button size="sm" variant="secondary" disabled={!canGenerateCertificate || lifecycleActing} onClick={handleGenerateCertificate}>
-                      <Award />
-                      {lifecycleActing === 'certificate' ? 'Generating...' : 'Generate Certificate'}
-                    </Button>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
+                    {!selected.offerLetter && (
+                      <Button size="sm" variant="secondary" disabled={!canEnableOfferLetter || lifecycleActing} onClick={handleEnableOfferLetter}>
+                        <FileText />
+                        {lifecycleActing === 'offer-letter' ? 'Enabling...' : 'Enable Offer Letter'}
+                      </Button>
+                    )}
                     {selected.offerLetter && (
-                      <Button size="sm" variant="ghost" onClick={() => handleLifecycleDownload('offer-letter')}>
-                        <Download /> Offer Letter
+                      <>
+                        <Button size="sm" variant="ghost" onClick={() => handleLifecycleDownload('offer-letter', 'view')}>
+                          <Eye /> View
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => handleLifecycleDownload('offer-letter', 'download')}>
+                          <Download /> Download
+                        </Button>
+                        <Button size="sm" variant="secondary" disabled={lifecycleActing} onClick={handleResendOfferLetterEmail}>
+                          <Send />
+                          {lifecycleActing === 'resend-email' ? 'Resending...' : 'Resend Email'}
+                        </Button>
+                      </>
+                    )}
+                    {isSuperAdmin && (
+                      <Button size="sm" variant="secondary" disabled={!canGenerateCertificate || lifecycleActing} onClick={handleGenerateCertificate}>
+                        <Award />
+                        {lifecycleActing === 'certificate' ? 'Generating...' : 'Generate Certificate'}
                       </Button>
                     )}
                     {selected.certificate && (
