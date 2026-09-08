@@ -946,6 +946,9 @@ enum DocumentAuditAction {
   APPROVED
   REJECTED
   DOWNLOADED
+  DELETED
+  RESTORED
+  EDITED
 }
 
 enum InternshipCategory {
