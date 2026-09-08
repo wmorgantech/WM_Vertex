@@ -2,6 +2,7 @@ const router = require('express').Router();
 const authenticate = require('../middleware/auth');
 const { isSuperAdmin } = require('../middleware/rbac');
 const { can } = require('../middleware/permission');
+const csvUpload = require('../middleware/csvUpload');
 const ctrl = require('../controllers/task.controller');
 
 router.use(authenticate);
@@ -85,6 +86,48 @@ router.get('/', ctrl.listTasks);
  *             schema: { $ref: '#/components/schemas/ApiError' }
  */
 router.post('/', can('task', 'create'), ctrl.createTask);
+
+/**
+ * @swagger
+ * /tasks/import:
+ *   post:
+ *     tags: [Tasks]
+ *     summary: Bulk-create tasks from a CSV file
+ *     description: >
+ *       Same authorization as POST /tasks (can('task','create')). All-or-
+ *       nothing: if any row fails validation, nothing is created and every
+ *       row's errors are returned in `details.errors`. Expected CSV header
+ *       row: Title, Description, Type, Priority, Status, Project, Assignee
+ *       Email, Due Date.
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               file: { type: string, format: binary }
+ *     responses:
+ *       201:
+ *         description: Created
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       400:
+ *         description: Missing/invalid file, or one or more rows failed validation (see `details.errors`)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden — requires task:create permission
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.post('/import', can('task', 'create'), csvUpload.single('file'), ctrl.importTasks);
+
 /**
  * @swagger
  * /tasks/{id}:
@@ -197,5 +240,40 @@ router.put('/:id', ctrl.updateTask);
  *             schema: { $ref: '#/components/schemas/ApiError' }
  */
 router.delete('/:id', isSuperAdmin, ctrl.deleteTask);
+
+/**
+ * @swagger
+ * /tasks/{id}/restore:
+ *   post:
+ *     tags: [Tasks]
+ *     summary: Restore a soft-deleted (Trash) task
+ *     description: SUPER_ADMIN only.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       400:
+ *         description: Not in Trash
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden (SUPER_ADMIN only)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: Not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.post('/:id/restore', isSuperAdmin, ctrl.restoreTask);
 
 module.exports = router;

@@ -148,6 +148,9 @@ async function submitForVerification(req, res) {
 
 // GET /api/documents — Admin/Super Admin review queue
 // SUPER_ADMIN sees every enrollment; ADMIN only sees interns they mentor ("records assigned to them").
+// deletedAt-filtered so a soft-deleted (Trash) document never appears in the
+// normal review queue's counts/list — see deleteDocument/restoreDocument
+// and GET /documents/trash below.
 async function listAll(req, res) {
   const where = req.user.role === 'ADMIN' ? { mentorId: req.user.id } : {};
   const enrollments = await prisma.internEnrollment.findMany({
@@ -155,13 +158,53 @@ async function listAll(req, res) {
     include: {
       user: { select: { id: true, firstName: true, lastName: true, email: true } },
       batch: { select: { id: true, name: true } },
-      documents: { orderBy: { uploadedAt: 'desc' } },
+      documents: { where: { deletedAt: null }, orderBy: { uploadedAt: 'desc' } },
       offerLetter: { select: { generatedAt: true } },
       certificate: { select: { generatedAt: true } },
     },
     orderBy: { createdAt: 'desc' },
   });
   return sendSuccess(res, 200, enrollments);
+}
+
+// GET /api/documents/summary — real counts for the summary cards. Document
+// counts use the existing InternDocumentStatus values as-is (no invented
+// statuses); "approved" reuses the existing intern-level finalApprovedAt
+// flag already shown in this UI's Approval column, distinct from a single
+// document's VERIFIED status.
+async function summary(req, res) {
+  const enrollmentWhere = req.user.role === 'ADMIN' ? { mentorId: req.user.id } : {};
+  const documentWhere = req.user.role === 'ADMIN' ? { enrollment: { mentorId: req.user.id } } : {};
+
+  const [totalDocuments, pending, verified, rejected, approvedInterns, trash] = await Promise.all([
+    prisma.internDocument.count({ where: { deletedAt: null, ...documentWhere } }),
+    prisma.internDocument.count({ where: { deletedAt: null, status: 'PENDING_REVIEW', ...documentWhere } }),
+    prisma.internDocument.count({ where: { deletedAt: null, status: 'VERIFIED', ...documentWhere } }),
+    prisma.internDocument.count({ where: { deletedAt: null, status: 'REJECTED', ...documentWhere } }),
+    prisma.internEnrollment.count({ where: { finalApprovedAt: { not: null }, ...enrollmentWhere } }),
+    prisma.internDocument.count({ where: { deletedAt: { not: null }, ...documentWhere } }),
+  ]);
+  return sendSuccess(res, 200, {
+    totalDocuments, pendingReview: pending, verified, rejected, approved: approvedInterns, trash,
+  });
+}
+
+// GET /api/documents/trash — flat list of soft-deleted documents across all
+// (mentor-scoped for Admin) interns, mirroring the Employees/Interns/
+// Trainees Trash tab convention.
+async function listTrash(req, res) {
+  const where = {
+    deletedAt: { not: null },
+    ...(req.user.role === 'ADMIN' && { enrollment: { mentorId: req.user.id } }),
+  };
+  const documents = await prisma.internDocument.findMany({
+    where,
+    include: {
+      enrollment: { include: { user: { select: { id: true, firstName: true, lastName: true } }, batch: { select: { id: true, name: true } } } },
+    },
+    orderBy: { deletedAt: 'desc' },
+  });
+  return sendSuccess(res, 200, documents);
 }
 
 // GET /api/documents/enrollment/:enrollmentId — Admin/Super Admin single-intern detail
@@ -171,7 +214,7 @@ async function getEnrollmentDetail(req, res) {
     include: {
       user: { select: { id: true, firstName: true, lastName: true, email: true } },
       batch: { select: { id: true, name: true } },
-      documents: { orderBy: { uploadedAt: 'desc' } },
+      documents: { where: { deletedAt: null }, orderBy: { uploadedAt: 'desc' } },
       offerLetter: { select: { generatedAt: true } },
       certificate: { select: { generatedAt: true } },
     },
@@ -278,6 +321,68 @@ async function download(req, res) {
   return res.download(path.resolve(document.filePath), document.fileName);
 }
 
+// PATCH /api/documents/:id/remarks — Edit. The only intentionally-editable
+// field: the uploaded file, fileName, mimeType, type and status transitions
+// stay exclusively driven by upload/approve/reject, since a document is
+// evidence of what the intern actually submitted — changing those after the
+// fact would corrupt the review audit trail. Remarks are freely editable
+// even outside a Reject action (e.g. to correct a typo) without changing status.
+async function updateRemarks(req, res) {
+  const { remarks } = req.body;
+  if (remarks === undefined) throw new ApiError(400, 'remarks is required');
+  await assertAdminOwnsDocument(req, req.params.id);
+
+  const document = await prisma.internDocument.update({
+    where: { id: req.params.id },
+    data: { adminRemarks: remarks || null },
+  });
+  await prisma.internDocumentAudit.create({
+    data: { documentId: document.id, action: 'SUBMITTED', actorId: req.user.id, remarks: 'Remarks edited by reviewer' },
+  });
+  return sendSuccess(res, 200, document);
+}
+
+// DELETE /api/documents/:id — Super Admin only, soft delete (deletedAt).
+// The uploaded file on disk is intentionally left untouched — restoring
+// must be able to bring back the exact same document, and a physically
+// deleted file could never be un-deleted.
+async function deleteDocument(req, res) {
+  const document = await prisma.internDocument.findUnique({
+    where: { id: req.params.id },
+    include: { enrollment: { include: { user: { select: { firstName: true, lastName: true } } } } },
+  });
+  if (!document) throw new ApiError(404, 'Document not found');
+  if (document.deletedAt) throw new ApiError(400, 'This document is already in Trash');
+
+  const updated = await prisma.internDocument.update({ where: { id: req.params.id }, data: { deletedAt: new Date() } });
+  await prisma.internDocumentAudit.create({ data: { documentId: document.id, action: 'REJECTED', actorId: req.user.id, remarks: 'Moved to Trash' } });
+  await recordAuditSafe(req, document, updated);
+  return sendSuccess(res, 200, { message: 'Document moved to Trash' });
+}
+
+// POST /api/documents/:id/restore — Super Admin only (same gate as delete).
+async function restoreDocument(req, res) {
+  const document = await prisma.internDocument.findUnique({ where: { id: req.params.id } });
+  if (!document) throw new ApiError(404, 'Document not found');
+  if (!document.deletedAt) throw new ApiError(400, 'This document is not in Trash');
+
+  const updated = await prisma.internDocument.update({ where: { id: req.params.id }, data: { deletedAt: null } });
+  await prisma.internDocumentAudit.create({ data: { documentId: document.id, action: 'SUBMITTED', actorId: req.user.id, remarks: 'Restored from Trash' } });
+  return sendSuccess(res, 200, updated);
+}
+
+// recordAudit (utils/audit.js) writes to the generic AuditLog table; kept as
+// a tiny local wrapper here purely so delete/restore's audit entries read
+// consistently with every other module's DELETED/RESTORED convention,
+// alongside the existing document-specific InternDocumentAudit trail above.
+async function recordAuditSafe(req, before, after) {
+  await recordAudit({
+    actorId: req.user.id, action: 'DELETED', module: 'INTERN_DOCUMENT', entityId: before.id,
+    entityLabel: `${before.type} — ${before.enrollment.user.firstName} ${before.enrollment.user.lastName}`, before, after,
+  });
+}
+
 module.exports = {
-  getMine, uploadDocument, submitForVerification, listAll, getEnrollmentDetail, approve, reject, download,
+  getMine, uploadDocument, submitForVerification, listAll, summary, listTrash, getEnrollmentDetail,
+  approve, reject, updateRemarks, deleteDocument, restoreDocument, download,
 };
