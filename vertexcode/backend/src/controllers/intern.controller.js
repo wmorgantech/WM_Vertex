@@ -11,6 +11,7 @@ const { generateQrDataUrl } = require('../utils/qrCode');
 const { recordAudit } = require('../utils/audit');
 const { notify } = require('../utils/notify');
 const { evaluateRequiredDocs } = require('../utils/internDocumentRequirements');
+const { computeEmployeeCode } = require('../utils/employeeCode');
 
 const CATEGORY_LABELS = { FREE_INTERNSHIP: 'Free Internship', JOT: 'Job Oriented Training (JOT)' };
 
@@ -217,17 +218,41 @@ async function listEnrollableUsers(req, res) {
 
 // --- Enrollments -------------------------------------------------------------
 
+// `accountStatus` (User.status, e.g. "ACTIVE" or "TERMINATED") is the
+// Active/Inactive-vs-Trash axis; `completionStatus` (program progress) is
+// the separate Active-vs-Inactive axis within non-deleted interns — see the
+// frontend's viewTab derivation in Interns.jsx for how the two combine into
+// Active/Inactive/All/Trash. Both accept a comma-separated list, mirroring
+// the existing `role`/`status` convention on GET /users.
+function toList(value) {
+  return value ? value.split(',').map((s) => s.trim()).filter(Boolean) : null;
+}
+
 async function listEnrollments(req, res) {
-  const { batchId, mentorId, completionStatus, search, page, limit } = req.query;
-  const searchClause = search ? {
-    user: {
-      OR: [
-        { firstName: { contains: search, mode: 'insensitive' } },
-        { lastName: { contains: search, mode: 'insensitive' } },
-        { email: { contains: search, mode: 'insensitive' } },
-      ],
-    },
-  } : null;
+  const { batchId, mentorId, completionStatus, accountStatus, search, page, limit } = req.query;
+  const completionStatuses = toList(completionStatus);
+  const accountStatuses = toList(accountStatus);
+
+  // Search (on the related user) and accountStatus (also on the related
+  // user) must be merged into ONE `user: {...}` clause — two separate
+  // `user: {...}` filters spread into the same where-object would collide
+  // under object spread (only the last `user` key survives), silently
+  // dropping one of the two conditions.
+  const userClause = {};
+  if (search) {
+    userClause.OR = [
+      { firstName: { contains: search, mode: 'insensitive' } },
+      { lastName: { contains: search, mode: 'insensitive' } },
+      { email: { contains: search, mode: 'insensitive' } },
+    ];
+  }
+  if (accountStatuses && accountStatuses.length) {
+    userClause.status = accountStatuses.length === 1 ? accountStatuses[0] : { in: accountStatuses };
+  }
+  const hasUserClause = Object.keys(userClause).length > 0;
+  const completionStatusClause = completionStatuses && completionStatuses.length
+    ? { completionStatus: completionStatuses.length === 1 ? completionStatuses[0] : { in: completionStatuses } }
+    : null;
 
   // SUPER_ADMIN: unrestricted. Everyone else: interns they mentor (includes
   // Admins, and any employee who added an intern and defaulted to mentoring
@@ -237,19 +262,19 @@ async function listEnrollments(req, res) {
     where = {
       ...(batchId && { batchId }),
       ...(mentorId && { mentorId }),
-      ...(completionStatus && { completionStatus }),
-      ...(searchClause && searchClause),
+      ...(completionStatusClause && completionStatusClause),
+      ...(hasUserClause && { user: userClause }),
     };
   } else {
-    // The owner-scoping OR and the search OR must stay in separate clauses
-    // (combined with AND) — merging them into one OR array would let a
-    // matching search term alone satisfy the filter, bypassing ownership.
+    // The owner-scoping OR and the other filters must stay in separate AND
+    // entries — merging them into one OR array would let a matching search
+    // term alone satisfy the filter, bypassing ownership.
     where = {
       AND: [
         { OR: [{ mentorId: req.user.id }, { userId: req.user.id }] },
         ...(batchId ? [{ batchId }] : []),
-        ...(completionStatus ? [{ completionStatus }] : []),
-        ...(searchClause ? [searchClause] : []),
+        ...(completionStatusClause ? [completionStatusClause] : []),
+        ...(hasUserClause ? [{ user: userClause }] : []),
       ],
     };
   }
@@ -265,7 +290,7 @@ async function listEnrollments(req, res) {
     prisma.internEnrollment.findMany({
       where,
       include: {
-        user: { select: { id: true, firstName: true, lastName: true, email: true, status: true } },
+        user: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, status: true, joinDate: true, exitDate: true } },
         batch: true,
         mentor: { select: { id: true, firstName: true, lastName: true } },
       },
@@ -275,7 +300,12 @@ async function listEnrollments(req, res) {
     paginate ? prisma.internEnrollment.count({ where }) : Promise.resolve(undefined),
   ]);
 
-  return sendSuccess(res, 200, enrollments, paginate ? { total, page: Math.max(parseInt(page, 10), 1) || 1, limit: take } : undefined);
+  // employeeCode is a display-only derived value (see utils/employeeCode.js)
+  // — same convention the Employees list already uses, reused as-is so the
+  // Intern list's new ID column shows the same kind of identifier.
+  const withCode = enrollments.map((e) => ({ ...e, user: { ...e.user, employeeCode: computeEmployeeCode(e.user.joinDate) } }));
+
+  return sendSuccess(res, 200, withCode, paginate ? { total, page: Math.max(parseInt(page, 10), 1) || 1, limit: take } : undefined);
 }
 
 // POST /api/interns/enrollments — enroll an EXISTING intern profile into a
@@ -323,8 +353,28 @@ async function updateEnrollment(req, res) {
   if (category && !['FREE_INTERNSHIP', 'JOT'].includes(category)) {
     throw new ApiError(400, 'category must be FREE_INTERNSHIP or JOT');
   }
+  // TERMINATED is reserved for the dedicated delete/restore flow below,
+  // which keeps completionStatus and the linked User.status in sync (see
+  // deleteEnrollment/restoreEnrollment). Allowing it here would let an
+  // enrollment end up "TERMINATED" while the account stays ACTIVE — the
+  // exact Active-list/Trash inconsistency this endpoint must not produce.
+  if (completionStatus === 'TERMINATED') {
+    throw new ApiError(400, 'Use DELETE /interns/enrollments/:id to remove an intern — completionStatus cannot be set to TERMINATED directly');
+  }
 
-  const enrollment = await prisma.internEnrollment.update({
+  const enrollment = await prisma.internEnrollment.findUnique({
+    where: { id: req.params.id },
+    include: { user: { select: { id: true, firstName: true, lastName: true } } },
+  });
+  if (!enrollment) throw new ApiError(404, 'Enrollment not found');
+  // Route-level can('intern','manage') only checks whether this ADMIN's
+  // role is allowed to manage interns at all; this checks whether they may
+  // manage THIS specific intern (mentor-scoped), matching the same rule
+  // already enforced for GET /enrollments and the offer-letter lifecycle
+  // actions (assertCanManageLifecycle).
+  assertCanManageLifecycle(req, enrollment);
+
+  const updated = await prisma.internEnrollment.update({
     where: { id: req.params.id },
     data: {
       ...(mentorId !== undefined && { mentorId }),
@@ -344,23 +394,27 @@ async function updateEnrollment(req, res) {
   }
 
   if (completionStatus === 'CONVERTED_TO_EMPLOYEE') {
-    const enr = await prisma.internEnrollment.findUnique({ where: { id: req.params.id } });
-    await prisma.user.update({ where: { id: enr.userId }, data: { role: 'EMPLOYEE', employmentType: 'FULL_TIME' } });
+    await prisma.user.update({ where: { id: enrollment.userId }, data: { role: 'EMPLOYEE', employmentType: 'FULL_TIME' } });
   }
 
-  return sendSuccess(res, 200, enrollment);
+  return sendSuccess(res, 200, updated);
 }
 
 // DELETE /api/interns/enrollments/:id — gated by intern:manage (Super Admin
-// or Admin, see intern.routes.js), soft delete only. The record is kept
+// or Admin, see intern.routes.js) plus per-record mentor-scoping (Admins can
+// only delete interns assigned to them — same rule as Edit and the
+// offer-letter lifecycle actions). Soft delete only: the record is kept
 // (completionStatus -> TERMINATED) for audit/history and the intern's
-// account is deactivated, rather than removing any rows.
+// account is deactivated, rather than removing any rows. This is the ONLY
+// path that should ever set completionStatus to TERMINATED — see
+// updateEnrollment's guard and restoreEnrollment below.
 async function deleteEnrollment(req, res) {
   const enrollment = await prisma.internEnrollment.findUnique({
     where: { id: req.params.id },
     include: { user: { select: { id: true, firstName: true, lastName: true } } },
   });
   if (!enrollment) throw new ApiError(404, 'Enrollment not found');
+  assertCanManageLifecycle(req, enrollment);
 
   const updated = await prisma.internEnrollment.update({
     where: { id: req.params.id },
@@ -377,6 +431,46 @@ async function deleteEnrollment(req, res) {
   });
 
   return sendSuccess(res, 200, { message: 'Intern removed' });
+}
+
+// POST /api/interns/enrollments/:id/restore — reverses deleteEnrollment:
+// completionStatus back to IN_PROGRESS and the account reactivated. Same
+// authorization as delete (intern:manage + mentor-scoping), so an Admin can
+// only restore interns assigned to them; Super Admin unrestricted.
+async function restoreEnrollment(req, res) {
+  const enrollment = await prisma.internEnrollment.findUnique({
+    where: { id: req.params.id },
+    include: { user: { select: { id: true, firstName: true, lastName: true, role: true, status: true } } },
+  });
+  if (!enrollment) throw new ApiError(404, 'Enrollment not found');
+  assertCanManageLifecycle(req, enrollment);
+
+  // Defense in depth: an enrollment's user is always role=INTERN by
+  // construction (enrollIntern rejects any other role), but this guards
+  // against ever reactivating/promoting an unrelated account through this
+  // endpoint if that invariant is ever broken elsewhere.
+  if (enrollment.user.role !== 'INTERN') {
+    throw new ApiError(400, 'This record does not belong to an intern account');
+  }
+  if (enrollment.completionStatus !== 'TERMINATED' && enrollment.user.status !== 'TERMINATED') {
+    throw new ApiError(400, 'This intern is not in Trash');
+  }
+
+  const updated = await prisma.internEnrollment.update({
+    where: { id: req.params.id },
+    data: { completionStatus: 'IN_PROGRESS' },
+  });
+  await prisma.user.update({
+    where: { id: enrollment.userId },
+    data: { status: 'ACTIVE', exitDate: null },
+  });
+
+  await recordAudit({
+    actorId: req.user.id, action: 'RESTORED', module: 'INTERN_ENROLLMENT', entityId: enrollment.id,
+    entityLabel: `${enrollment.user.firstName} ${enrollment.user.lastName}`, before: enrollment, after: updated,
+  });
+
+  return sendSuccess(res, 200, { message: 'Intern restored' });
 }
 
 // PUT /api/interns/enrollments/me — Intern self-service academic profile update
@@ -725,6 +819,6 @@ async function downloadCertificate(req, res) {
 module.exports = {
   createIntern,
   listBatches, getBatch, createBatch, updateBatch, deleteBatch,
-  listEnrollments, listEnrollableUsers, enrollIntern, updateEnrollment, deleteEnrollment, updateMyEnrollment,
+  listEnrollments, listEnrollableUsers, enrollIntern, updateEnrollment, deleteEnrollment, restoreEnrollment, updateMyEnrollment,
   finalApprove, enableOfferLetter, resendOfferLetterEmail, downloadOfferLetter, generateCertificate, downloadCertificate,
 };

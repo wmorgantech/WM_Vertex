@@ -3,6 +3,7 @@ const { body } = require('express-validator');
 const authenticate = require('../middleware/auth');
 const { isSuperAdmin } = require('../middleware/rbac');
 const { can } = require('../middleware/permission');
+const csvUpload = require('../middleware/csvUpload');
 const validate = require('../utils/validate');
 const ctrl = require('../controllers/user.controller');
 
@@ -124,6 +125,64 @@ router.get('/', can('user', 'view'), ctrl.listUsers);
  *             schema: { $ref: '#/components/schemas/ApiError' }
  */
 router.post('/', can('user', 'create'), ctrl.createUser);
+
+/**
+ * @swagger
+ * /users/import:
+ *   post:
+ *     tags: [Users]
+ *     summary: Bulk-create Employee/Admin accounts from a CSV file
+ *     description: >
+ *       Same authorization as POST /users (can('user','create')) — bulk
+ *       import is not a separately-privileged capability, and the same
+ *       Admin-cannot-create-Admin/Super-Admin escalation rule applies per
+ *       row. All-or-nothing: if any row fails validation, nothing is
+ *       created and every row's errors are returned in `details.errors`.
+ *       Expected CSV header row: First Name, Last Name, Email, Phone,
+ *       Designation, Department, Role, Employment Type, Join Date — mirrors
+ *       GET /reports/employees' export columns.
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               file: { type: string, format: binary }
+ *     responses:
+ *       201:
+ *         description: Created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/ApiSuccess'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         imported: { type: integer }
+ *                         message: { type: string }
+ *       400:
+ *         description: Missing/invalid file, or one or more rows failed validation (see `details.errors`)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.post('/import', can('user', 'create'), csvUpload.single('file'), ctrl.importEmployees);
 
 /**
  * @swagger

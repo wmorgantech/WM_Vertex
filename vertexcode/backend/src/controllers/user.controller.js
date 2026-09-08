@@ -1,25 +1,16 @@
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const prisma = require('../config/db');
 const ApiError = require('../utils/apiError');
 const { sendSuccess } = require('../utils/apiResponse');
 const { recordAudit } = require('../utils/audit');
+const { computeEmployeeCode } = require('../utils/employeeCode');
+const { parseCsvRecords } = require('../utils/csvParser');
 
 const publicUser = (u) => {
   if (!u) return u;
   const { password, ...rest } = u;
   return rest;
-};
-
-// Human-friendly display ID for the UI, since the real primary key is a
-// UUID. Derived entirely from Joining Date (WMCBE + 2-digit year + 2-digit
-// month) rather than stored, so it always reflects the current joinDate —
-// creating or updating a profile with a new Joining Date changes this on
-// the very next read, with nothing to keep in sync.
-const computeEmployeeCode = (joinDate) => {
-  const d = new Date(joinDate);
-  const yy = String(d.getFullYear()).slice(-2);
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  return `WMCBE${yy}${mm}`;
 };
 
 // GET /api/users  (list, filterable) — Admin/Super Admin only
@@ -145,6 +136,153 @@ async function createUser(req, res) {
   return sendSuccess(res, 201, { ...publicUser(user), employeeCode: computeEmployeeCode(user.joinDate) });
 }
 
+// POST /api/users/import — bulk-create Employee/Admin accounts from a CSV
+// file. Gated by the same can('user','create') permission as the
+// single-record POST / above (see user.routes.js) — bulk import is not a
+// separately-privileged capability, and the same Admin escalation rule
+// (cannot create Admin/Super Admin accounts) applies per row.
+//
+// All-or-nothing: every row is validated up front against the master data
+// (designations/departments/employment types) and existing emails; if ANY
+// row fails, NOTHING is created and the full list of per-row errors is
+// returned in the error response's `details.errors` — a partial import
+// (some rows silently skipped) never happens.
+//
+// Expected header row (case-sensitive, extra/missing optional columns are
+// fine): First Name, Last Name, Email, Phone, Designation, Department,
+// Role, Employment Type, Join Date — mirrors GET /reports/employees'
+// export column headers so an exported file can be edited and re-imported.
+//
+// Role also accepts TRAINEE — this endpoint doubles as the Trainee
+// module's bulk-import (its "Create Trainee" step already reuses this same
+// POST /users, see user.routes.js/createUser's role handling), so a single
+// import surface covers both instead of a duplicate endpoint.
+const IMPORT_MAX_ROWS = 500;
+const IMPORT_ROLES = ['EMPLOYEE', 'ADMIN', 'TRAINEE'];
+
+async function importEmployees(req, res) {
+  if (!req.file) throw new ApiError(400, 'CSV file is required (form field "file")');
+
+  const text = req.file.buffer.toString('utf-8');
+  const records = parseCsvRecords(text);
+  if (records.length === 0) throw new ApiError(400, 'CSV file has no data rows');
+  if (records.length > IMPORT_MAX_ROWS) {
+    throw new ApiError(400, `CSV file has ${records.length} rows — the maximum per import is ${IMPORT_MAX_ROWS}`);
+  }
+
+  // Optional multipart field (not a CSV column) — lets the Trainees page
+  // upload a CSV with no "Role" column at all and have every row default to
+  // TRAINEE, while the Employees page's default (no field sent) stays
+  // EMPLOYEE exactly as before. A per-row "Role" column, if present, always
+  // wins over this.
+  const defaultRole = (req.body.defaultRole || 'EMPLOYEE').toUpperCase();
+  if (!IMPORT_ROLES.includes(defaultRole)) {
+    throw new ApiError(400, `defaultRole must be one of ${IMPORT_ROLES.join(', ')}`);
+  }
+
+  const [designations, departments, employmentTypes, existingUsers] = await Promise.all([
+    prisma.designation.findMany({ select: { name: true } }),
+    prisma.department.findMany({ select: { id: true, name: true } }),
+    prisma.employmentType.findMany({ select: { code: true } }),
+    prisma.user.findMany({ select: { email: true } }),
+  ]);
+  const designationNames = new Set(designations.map((d) => d.name));
+  const departmentByName = new Map(departments.map((d) => [d.name.toLowerCase(), d.id]));
+  const employmentTypeCodes = new Set(employmentTypes.map((e) => e.code));
+  const existingEmails = new Set(existingUsers.map((u) => u.email.toLowerCase()));
+
+  const field = (record, name) => record[name] ?? record[name.replace(/ /g, '')] ?? '';
+  const seenEmails = new Set();
+  const errors = [];
+  const toCreate = [];
+
+  records.forEach((record, idx) => {
+    const rowNum = idx + 2; // +1 for 0-index, +1 for the header row
+    const firstName = field(record, 'First Name');
+    const lastName = field(record, 'Last Name');
+    const email = field(record, 'Email').toLowerCase();
+    const phone = field(record, 'Phone') || null;
+    const designation = field(record, 'Designation');
+    const departmentName = field(record, 'Department');
+    const roleRaw = (field(record, 'Role') || defaultRole).toUpperCase();
+    // Matches createUser's own role-aware default exactly (see
+    // user.controller.js createUser) — a Trainee row with no Employment
+    // Type column must default to TRAINEE, not FULL_TIME.
+    const employmentType = field(record, 'Employment Type') || (roleRaw === 'TRAINEE' ? 'TRAINEE' : 'FULL_TIME');
+    const joinDateRaw = field(record, 'Join Date');
+
+    const rowErrors = [];
+    if (!firstName) rowErrors.push('First Name is required');
+    if (!lastName) rowErrors.push('Last Name is required');
+    if (!email || !email.includes('@')) rowErrors.push('A valid Email is required');
+    if (email) {
+      if (existingEmails.has(email)) rowErrors.push(`Email "${email}" already exists`);
+      if (seenEmails.has(email)) rowErrors.push(`Email "${email}" is duplicated within this file`);
+      seenEmails.add(email);
+    }
+    if (!IMPORT_ROLES.includes(roleRaw)) {
+      rowErrors.push(`Role must be one of ${IMPORT_ROLES.join(', ')}`);
+    } else if (roleRaw === 'ADMIN' && req.user.role !== 'SUPER_ADMIN') {
+      rowErrors.push('Only Super Admin can import Admin accounts');
+    }
+    if (designation && !designationNames.has(designation)) rowErrors.push(`Unknown designation "${designation}"`);
+    let departmentId = null;
+    if (departmentName) {
+      departmentId = departmentByName.get(departmentName.toLowerCase()) || null;
+      if (!departmentId) rowErrors.push(`Unknown department "${departmentName}"`);
+    }
+    if (employmentType && !employmentTypeCodes.has(employmentType)) rowErrors.push(`Unknown employment type "${employmentType}"`);
+    let joinDate = new Date();
+    if (joinDateRaw) {
+      joinDate = new Date(joinDateRaw);
+      if (Number.isNaN(joinDate.getTime())) rowErrors.push(`Invalid Join Date "${joinDateRaw}"`);
+    }
+
+    if (rowErrors.length) {
+      errors.push({ row: rowNum, email: email || null, errors: rowErrors });
+      return;
+    }
+
+    toCreate.push({
+      email, firstName, lastName, phone, role: roleRaw,
+      designation: designation || null, departmentId, employmentType, joinDate,
+    });
+  });
+
+  if (errors.length) {
+    throw new ApiError(400, `${errors.length} of ${records.length} row(s) failed validation — nothing was imported`, { errors });
+  }
+
+  // A random temporary password per row — never read from the file (the
+  // file could be emailed/shared and shouldn't carry credentials) and never
+  // returned in the response. mustChangePassword forces the imported
+  // account to set its own password via the existing "Manage Account" reset
+  // flow before it can be used, exactly like a freshly-created account today.
+  const hashedRows = await Promise.all(toCreate.map(async (r) => ({
+    ...r, password: await bcrypt.hash(crypto.randomBytes(18).toString('base64url'), 10),
+  })));
+
+  const created = await prisma.$transaction(
+    hashedRows.map((r) => prisma.user.create({
+      data: {
+        email: r.email, password: r.password, firstName: r.firstName, lastName: r.lastName,
+        phone: r.phone, role: r.role, designation: r.designation, departmentId: r.departmentId,
+        employmentType: r.employmentType, joinDate: r.joinDate, mustChangePassword: true,
+      },
+    }))
+  );
+
+  await recordAudit({
+    actorId: req.user.id, action: 'IMPORTED', module: 'USER', entityId: 'bulk',
+    entityLabel: `${created.length} account(s) imported from CSV`, after: { count: created.length, emails: created.map((u) => u.email) },
+  });
+
+  return sendSuccess(res, 201, {
+    imported: created.length,
+    message: `${created.length} account(s) imported. Each must reset their password via Manage Account before they can log in.`,
+  });
+}
+
 // PUT /api/users/:id
 async function updateUser(req, res) {
   const target = await prisma.user.findUnique({ where: { id: req.params.id } });
@@ -260,4 +398,4 @@ async function orgChart(req, res) {
   return sendSuccess(res, 200, tree);
 }
 
-module.exports = { listUsers, getUser, createUser, updateUser, deactivateUser, orgChart };
+module.exports = { listUsers, getUser, createUser, importEmployees, updateUser, deactivateUser, orgChart };

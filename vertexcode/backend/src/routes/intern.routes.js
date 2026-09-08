@@ -587,9 +587,10 @@ router.put('/enrollments/:id', can('intern', 'manage'), ctrl.updateEnrollment);
  *     summary: Soft-delete (terminate) an intern enrollment
  *     description: >
  *       Terminates the enrollment and deactivates the associated user. Soft
- *       delete only — no rows are removed. Gated the same as editing an
- *       enrollment (intern:manage), so Super Admin and any Admin holding
- *       that permission can both perform it.
+ *       delete only — no rows are removed; the record moves to Trash and can
+ *       be restored via POST /enrollments/{id}/restore. Gated the same as
+ *       editing an enrollment (intern:manage) plus per-record mentor-scoping
+ *       — Super Admin can delete any intern, an Admin only one they mentor.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -612,7 +613,7 @@ router.put('/enrollments/:id', can('intern', 'manage'), ctrl.updateEnrollment);
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ApiError' }
  *       403:
- *         description: Forbidden — requires the intern:manage permission
+ *         description: Forbidden — requires the intern:manage permission, or an Admin who does not mentor this intern
  *         content:
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ApiError' }
@@ -627,8 +628,58 @@ router.put('/enrollments/:id', can('intern', 'manage'), ctrl.updateEnrollment);
 // deleteEnrollment), functionally an update despite the DELETE verb, so it
 // belongs behind the same intern:manage permission as every other
 // enrollment-management action rather than the hardcoded Super-Admin-only
-// gate used for genuine hard deletes (e.g. deleteBatch below).
+// gate used for genuine hard deletes (e.g. deleteBatch below). Per-record
+// mentor-scoping is enforced inside the controller (assertCanManageLifecycle).
 router.delete('/enrollments/:id', can('intern', 'manage'), ctrl.deleteEnrollment);
+
+/**
+ * @swagger
+ * /interns/enrollments/{id}/restore:
+ *   post:
+ *     tags: [Interns]
+ *     summary: Restore a soft-deleted (Trash) intern enrollment
+ *     description: >
+ *       Reverses DELETE /enrollments/{id}: completionStatus back to
+ *       IN_PROGRESS and the account reactivated. Same gate as delete
+ *       (intern:manage + per-record mentor-scoping).
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message: { type: string }
+ *       400:
+ *         description: This intern is not in Trash, or the record does not belong to an intern account
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden — requires the intern:manage permission, or an Admin who does not mentor this intern
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: Enrollment not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.post('/enrollments/:id/restore', can('intern', 'manage'), ctrl.restoreEnrollment);
 
 /**
  * @swagger

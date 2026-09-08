@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Plus, Eye, Pencil, KeyRound, Trash2, RotateCcw, Mail, Phone } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Plus, Eye, Pencil, KeyRound, Trash2, RotateCcw, Mail, Phone, Upload, FileText, FileSpreadsheet, Users, UserCheck, UserX } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
@@ -10,6 +10,7 @@ import Modal from '../../components/common/Modal';
 import Pagination from '../../components/common/Pagination';
 import TableActions from '../../components/common/TableActions';
 import DetailField from '../../components/common/DetailField';
+import StatCard from '../../components/common/StatCard';
 import toast from 'react-hot-toast';
 import { downloadReport } from '../../lib/download';
 
@@ -97,6 +98,11 @@ export default function EmployeeList() {
   const [managingAccount, setManagingAccount] = useState(null);
   const [accountForm, setAccountForm] = useState({ password: '', confirm: '', mustChangePassword: true });
   const [savingAccount, setSavingAccount] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [summary, setSummary] = useState({ total: 0, active: 0, inactive: 0, trash: 0 });
+  const [importing, setImporting] = useState(false);
+  const [importErrors, setImportErrors] = useState(null);
+  const fileInputRef = useRef(null);
 
   const isSuperAdmin = currentUser.role === 'SUPER_ADMIN';
   const hasActiveFilters = !!(search || roleFilter !== 'EMPLOYEE' || departmentFilter || designationFilter || viewTab !== 'active');
@@ -104,7 +110,20 @@ export default function EmployeeList() {
   const load = () => {
     setLoading(true);
     const roleParam = (ROLE_FILTER_OPTIONS.find((o) => o.value === roleFilter)?.roles || EMPLOYEE_ROLES).join(',');
-    Promise.all([
+    // Summary-card counts are always scoped to the full Employee module
+    // (EMPLOYEE_ROLES) regardless of the role filter above, so the cards
+    // stay a stable "whole module" snapshot instead of shifting whenever
+    // someone changes an unrelated filter. Reuses GET /users (no new
+    // backend endpoint) with limit=1 — only meta.total is needed.
+    // "Inactive" here is deliberately NOT TERMINATED (that's Trash) — it's
+    // ON_LEAVE/SUSPENDED/ALUMNI, statuses this module's UI never sets today,
+    // so it will typically read 0, which is correct, not a bug.
+    const countCall = (status) => api.get('/users', { params: { role: EMPLOYEE_ROLES.join(','), status, limit: 1 } });
+
+    // allSettled (not all) so one failing call — e.g. a transient 429/500 —
+    // doesn't blank the whole page; each slice of state only updates from a
+    // call that actually succeeded, and any failure is surfaced via toast.
+    Promise.allSettled([
       api.get('/users', {
         params: {
           role: roleParam,
@@ -121,15 +140,41 @@ export default function EmployeeList() {
       api.get('/masters/locations'),
       api.get('/masters/employment-types'),
       api.get('/users'),
+      countCall('ACTIVE'),
+      countCall('ON_LEAVE,SUSPENDED,ALUMNI'),
+      countCall('TERMINATED'),
     ])
-      .then(([u, d, des, loc, et, all]) => {
-        setUsers(u.data.data);
-        setMeta(u.data.meta || null);
-        setDepartments(d.data.data);
-        setDesignations(des.data.data.filter((x) => x.active));
-        setLocations(loc.data.data.filter((x) => x.active));
-        setEmploymentTypes(et.data.data.filter((x) => x.active));
-        setManagers(all.data.data.filter((x) => ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'].includes(x.role)));
+      .then(([u, d, des, loc, et, all, activeCount, inactiveCount, trashCount]) => {
+        if (u.status === 'fulfilled') {
+          setUsers(u.value.data.data);
+          setMeta(u.value.data.meta || null);
+          // Selection is scoped to whatever's currently on screen — a stale
+          // id from a previous tab/page/filter must never linger selected.
+          setSelectedIds(new Set());
+        }
+        if (d.status === 'fulfilled') setDepartments(d.value.data.data);
+        if (des.status === 'fulfilled') setDesignations(des.value.data.data.filter((x) => x.active));
+        if (loc.status === 'fulfilled') setLocations(loc.value.data.data.filter((x) => x.active));
+        if (et.status === 'fulfilled') setEmploymentTypes(et.value.data.data.filter((x) => x.active));
+        if (all.status === 'fulfilled') setManagers(all.value.data.data.filter((x) => ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'].includes(x.role)));
+        // Each card updates independently from whichever count call actually
+        // succeeded — a single transient failure (e.g. a 429) must not zero
+        // out the other two cards along with it.
+        setSummary((prev) => {
+          const active = activeCount.status === 'fulfilled' ? (activeCount.value.data.meta?.total ?? 0) : prev.active;
+          const inactive = inactiveCount.status === 'fulfilled' ? (inactiveCount.value.data.meta?.total ?? 0) : prev.inactive;
+          const trash = trashCount.status === 'fulfilled' ? (trashCount.value.data.meta?.total ?? 0) : prev.trash;
+          return { total: active + inactive + trash, active, inactive, trash };
+        });
+
+        const failed = [u, d, des, loc, et, all, activeCount, inactiveCount, trashCount].find((r) => r.status === 'rejected');
+        if (failed) {
+          const status = failed.reason?.response?.status;
+          const message = status === 429
+            ? 'Too many requests right now — some data may be out of date. Please wait a moment and refresh.'
+            : (failed.reason?.response?.data?.message || 'Some employee data failed to load — showing partial results.');
+          toast.error(message);
+        }
       })
       .finally(() => setLoading(false));
   };
@@ -252,7 +297,103 @@ export default function EmployeeList() {
     }
   };
 
+  // Bulk action built on the same single-record DELETE endpoint the row-level
+  // Delete action uses — there is no separate bulk-delete API, so this just
+  // fires it once per selected row (no new backend surface).
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Remove ${ids.length} selected employee(s)? Their accounts will be deactivated and moved to Trash — this can be undone with Restore.`)) return;
+    try {
+      await Promise.all(ids.map((id) => api.delete(`/users/${id}`)));
+      toast.success(`${ids.length} employee(s) moved to Trash`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to remove some of the selected employees');
+    } finally {
+      setSelectedIds(new Set());
+      load();
+    }
+  };
+
+  const toggleSelectOne = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  // Only rows a Super Admin could actually delete are selectable (mirrors
+  // the same `blocked` rule the row-level Delete action already uses) —
+  // selecting a row with no possible bulk action would be a decorative
+  // checkbox, which is exactly what's being avoided here.
+  const selectableIds = users.filter((u) => u.id !== currentUser.id && !(u.role === 'SUPER_ADMIN' && !isSuperAdmin) && u.status !== 'TERMINATED').map((u) => u.id);
+  const allVisibleSelected = selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id));
+  const someVisibleSelected = selectableIds.some((id) => selectedIds.has(id));
+  const toggleSelectAllVisible = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        selectableIds.forEach((id) => next.delete(id));
+      } else {
+        selectableIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const handleImportClick = () => fileInputRef.current?.click();
+
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file next time
+    if (!file) return;
+    setImporting(true);
+    setImportErrors(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const { data } = await api.post('/users/import', formData);
+      toast.success(data.data.message || `${data.data.imported} employee(s) imported`);
+      load();
+    } catch (err) {
+      const details = err.response?.data?.details;
+      if (details?.errors?.length) {
+        setImportErrors(details.errors);
+        toast.error(`${details.errors.length} row(s) failed validation — nothing was imported. See details below.`);
+      } else {
+        toast.error(err.response?.data?.message || 'Import failed');
+      }
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const columns = [
+    ...(isSuperAdmin ? [{
+      key: 'select',
+      header: (
+        <input
+          type="checkbox"
+          aria-label="Select all visible employees"
+          checked={allVisibleSelected}
+          ref={(el) => { if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected; }}
+          onChange={toggleSelectAllVisible}
+          disabled={selectableIds.length === 0}
+        />
+      ),
+      render: (r) => {
+        const selectable = selectableIds.includes(r.id);
+        return (
+          <input
+            type="checkbox"
+            aria-label={`Select ${r.firstName} ${r.lastName}`}
+            checked={selectedIds.has(r.id)}
+            disabled={!selectable}
+            onChange={() => toggleSelectOne(r.id)}
+          />
+        );
+      },
+    }] : []),
     { key: 'id', header: 'ID', render: (r) => r.employeeCode || '—' },
     { key: 'name', header: 'Name', render: (r) => <Link className="name-cell" to={`/employees/${r.id}`}>{r.firstName} {r.lastName}</Link> },
     { key: 'designation', header: 'Designation' },
@@ -313,8 +454,18 @@ export default function EmployeeList() {
           <>
             {currentUser.role === 'SUPER_ADMIN' && (
               <>
-                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/employees', 'employees.csv')}>Export CSV</button>
-                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/employees?format=xlsx', 'employees.xlsx')}>Export Excel</button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  style={{ display: 'none' }}
+                  onChange={handleImportFile}
+                />
+                <button className="btn btn-secondary" onClick={handleImportClick} disabled={importing}>
+                  <Upload size={14} /> {importing ? 'Importing...' : 'Import'}
+                </button>
+                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/employees', 'employees.csv')}><FileText size={14} /> Export CSV</button>
+                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/employees?format=xlsx', 'employees.xlsx')}><FileSpreadsheet size={14} /> Export Excel</button>
               </>
             )}
             <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> Add Employee</button>
@@ -322,10 +473,19 @@ export default function EmployeeList() {
         )}
       />
 
+      <div className="stat-grid">
+        <StatCard label="Total Employees" value={summary.total} accent="blue" icon={Users} />
+        <StatCard label="Active" value={summary.active} accent="green" icon={UserCheck} />
+        <StatCard label="Inactive" value={summary.inactive} accent="amber" icon={UserX} />
+        <StatCard label="Trash" value={summary.trash} accent="red" icon={Trash2} />
+      </div>
+
       <div className="tabs">
         <button className={`tab ${viewTab === 'active' ? 'active' : ''}`} onClick={() => setViewTab('active')}>Active</button>
         <button className={`tab ${viewTab === 'all' ? 'active' : ''}`} onClick={() => setViewTab('all')}>All</button>
-        <button className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab('trash')}>🗑️ Trash</button>
+        <button className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab('trash')}>
+          🗑️ Trash{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}
+        </button>
       </div>
 
       <div className="toolbar">
@@ -357,6 +517,16 @@ export default function EmployeeList() {
           <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>Clear Filters</button>
         )}
       </div>
+
+      {isSuperAdmin && viewTab !== 'trash' && selectedIds.size > 0 && (
+        <div className="toolbar" style={{ marginBottom: 12 }}>
+          <span>{selectedIds.size} selected</span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Clear selection</button>
+          <button type="button" className="btn btn-danger btn-sm" onClick={handleBulkDelete}>
+            <Trash2 size={14} /> Delete Selected ({selectedIds.size})
+          </button>
+        </div>
+      )}
 
       {loading ? <div className="page-loading">Loading...</div> : (
         <>
@@ -542,6 +712,33 @@ export default function EmployeeList() {
               <button type="submit" className="btn btn-primary" disabled={savingAccount}>{savingAccount ? 'Saving...' : 'Set Password'}</button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {importErrors && (
+        <Modal size="wide" title={`Import failed — ${importErrors.length} row(s) had errors`} onClose={() => setImportErrors(null)}>
+          <p className="empty-state" style={{ padding: 0, textAlign: 'left', marginBottom: 12 }}>
+            Nothing was imported — fix these rows in your CSV and try again.
+          </p>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr><th>Row</th><th>Email</th><th>Errors</th></tr>
+              </thead>
+              <tbody>
+                {importErrors.map((e) => (
+                  <tr key={e.row}>
+                    <td>{e.row}</td>
+                    <td>{e.email || '—'}</td>
+                    <td>{e.errors.join('; ')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="form-actions">
+            <button type="button" className="btn btn-ghost" onClick={() => setImportErrors(null)}>Close</button>
+          </div>
         </Modal>
       )}
     </div>
