@@ -353,15 +353,24 @@ export default function Tasks() {
         )}
       />
 
-      {isSuperAdmin && (
-        <div className="tabs">
-          {VIEW_TABS.map((t) => (
-            <button key={t.value} className={`tab ${viewTab === t.value ? 'active' : ''}`} onClick={() => setViewTab(t.value)}>{t.label}</button>
-          ))}
-        </div>
-      )}
-
+      {/* Single compact toolbar row: the Active/All/Trash scope tabs (Super
+          Admin only), then a divider, then search/status/allocation filters
+          — replaces the previous 2-row stack (a standalone tabs row above a
+          separate filter toolbar row). Kept as tab buttons rather than a
+          second "Status" dropdown since a real TaskStatus dropdown already
+          lives in this same row — two controls both labeled "Status" would
+          be more confusing, not less. */}
       <div className="toolbar">
+        {isSuperAdmin && (
+          <>
+            <div className="tabs" style={{ marginBottom: 0, border: 'none' }}>
+              {VIEW_TABS.map((t) => (
+                <button key={t.value} className={`tab ${viewTab === t.value ? 'active' : ''}`} onClick={() => setViewTab(t.value)}>{t.label}</button>
+              ))}
+            </div>
+            <span className="toolbar-divider" />
+          </>
+        )}
         <input className="search-input" placeholder="Search by title..." value={search} onChange={(e) => setSearch(e.target.value)} />
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option value="">{isManager ? 'All statuses' : 'Active'}</option>
