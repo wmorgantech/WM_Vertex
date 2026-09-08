@@ -576,32 +576,37 @@ export default function Trainees() {
         </div>
       )}
 
-      <div className="tabs">
-        <button className={`tab ${tab === 'enrollments' ? 'active' : ''}`} onClick={() => setTab('enrollments')}>Trainees</button>
-        <button className={`tab ${tab === 'programs' ? 'active' : ''}`} onClick={() => setTab('programs')}>Programs</button>
-        <button className={`tab ${tab === 'topics' ? 'active' : ''}`} onClick={() => setTab('topics')}>Curriculum Topics</button>
+      {/* Single compact toolbar row: main tabs, then a divider, then the
+          Active/All status dropdown + Trash — replaces the previous 2-row
+          stack (main tabs row + a second Active/All/Trash tabs row). */}
+      <div className="toolbar">
+        <div className="tabs" style={{ marginBottom: 0, border: 'none' }}>
+          <button className={`tab ${tab === 'enrollments' ? 'active' : ''}`} onClick={() => setTab('enrollments')}>Trainees</button>
+          <button className={`tab ${tab === 'programs' ? 'active' : ''}`} onClick={() => setTab('programs')}>Programs</button>
+          <button className={`tab ${tab === 'topics' ? 'active' : ''}`} onClick={() => setTab('topics')}>Curriculum Topics</button>
+        </div>
+
+        {tab === 'enrollments' && (
+          <>
+            <span className="toolbar-divider" />
+            <select value={viewTab === 'trash' ? 'active' : viewTab} onChange={(e) => setViewTab(e.target.value)} aria-label="Filter by status">
+              {VIEW_TABS.filter((t) => t.value !== 'trash').map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+            <button type="button" className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab('trash')}>
+              🗑️ Trash{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}
+            </button>
+          </>
+        )}
       </div>
 
-      {tab === 'enrollments' && (
-        <>
-          <div className="tabs">
-            {VIEW_TABS.map((t) => (
-              <button key={t.value} className={`tab ${viewTab === t.value ? 'active' : ''}`} onClick={() => setViewTab(t.value)}>
-                {t.value === 'trash' ? (<>{t.label}{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}</>) : t.label}
-              </button>
-            ))}
-          </div>
-
-          {isSuperAdmin && viewTab !== 'trash' && selectedIds.size > 0 && (
-            <div className="toolbar" style={{ marginBottom: 12 }}>
-              <span>{selectedIds.size} selected</span>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Clear selection</button>
-              <button type="button" className="btn btn-danger btn-sm" onClick={handleBulkDelete}>
-                <Trash2 size={14} /> Delete Selected ({selectedIds.size})
-              </button>
-            </div>
-          )}
-        </>
+      {tab === 'enrollments' && isSuperAdmin && viewTab !== 'trash' && selectedIds.size > 0 && (
+        <div className="toolbar" style={{ marginBottom: 12 }}>
+          <span>{selectedIds.size} selected</span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Clear selection</button>
+          <button type="button" className="btn btn-danger btn-sm" onClick={handleBulkDelete}>
+            <Trash2 size={14} /> Delete Selected ({selectedIds.size})
+          </button>
+        </div>
       )}
 
       {loading ? <div className="page-loading">Loading...</div> : (

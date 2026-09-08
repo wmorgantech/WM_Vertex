@@ -1003,6 +1003,11 @@ input, select, textarea { font-family: inherit; }
 
 /* --- Toolbar / search / tabs --- */
 .toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+/* Thin vertical separator between logical groups inside a single-row
+   toolbar (e.g. main tabs | status filter | search/filters), so several
+   previously-stacked rows can share one compact row without their groups
+   visually running together. */
+.toolbar-divider { width: 1px; align-self: stretch; background: var(--border); margin: 4px 2px; }
 .search-input, .toolbar select {
   padding: 9px 12px;
   border: 1px solid var(--border);

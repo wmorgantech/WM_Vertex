@@ -480,14 +480,12 @@ export default function EmployeeList() {
         <StatCard label="Trash" value={summary.trash} accent="red" icon={Trash2} />
       </div>
 
-      <div className="tabs">
-        <button className={`tab ${viewTab === 'active' ? 'active' : ''}`} onClick={() => setViewTab('active')}>Active</button>
-        <button className={`tab ${viewTab === 'all' ? 'active' : ''}`} onClick={() => setViewTab('all')}>All</button>
-        <button className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab('trash')}>
-          🗑️ Trash{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}
-        </button>
-      </div>
-
+      {/* Single compact toolbar row: search/role/department/designation
+          filters, then a divider, then the Active/All status dropdown +
+          Trash — replaces the previous 2-row stack (a standalone
+          Active/All/Trash tabs row above a separate filter toolbar row,
+          which duplicated the status control twice: the tabs AND a
+          "Filter by status" dropdown offering the same three states). */}
       <div className="toolbar">
         <input className="search-input" placeholder="Search by name or email..." value={search} onChange={(e) => setSearch(e.target.value)} />
         <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} aria-label="Filter by role">
@@ -501,18 +499,18 @@ export default function EmployeeList() {
           <option value="">All designations</option>
           {designations.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
         </select>
+        <span className="toolbar-divider" />
         <select
-          value={statusFilter}
-          onChange={(e) => {
-            const v = e.target.value;
-            setViewTab(v === 'ACTIVE' ? 'active' : v === 'TERMINATED' ? 'trash' : 'all');
-          }}
+          value={viewTab === 'trash' ? 'active' : viewTab}
+          onChange={(e) => setViewTab(e.target.value)}
           aria-label="Filter by status"
         >
-          <option value="ACTIVE">Active</option>
-          <option value="TERMINATED">Inactive</option>
-          <option value="ACTIVE,TERMINATED">All</option>
+          <option value="active">Active</option>
+          <option value="all">All</option>
         </select>
+        <button type="button" className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab('trash')}>
+          🗑️ Trash{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}
+        </button>
         {hasActiveFilters && (
           <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>Clear Filters</button>
         )}

@@ -459,20 +459,25 @@ export default function Interns() {
         )}
       />
 
-      <div className="tabs">
-        <button className={`tab ${tab === 'enrollments' ? 'active' : ''}`} onClick={() => setTab('enrollments')}>Intern List</button>
-        {isManager && <button className={`tab ${tab === 'batches' ? 'active' : ''}`} onClick={() => setTab('batches')}>Enroll Batch</button>}
-      </div>
+      {/* Single compact toolbar row: main tabs, then a divider, then the
+          Active/Inactive/All status dropdown + Trash, then a divider, then
+          search/batch/mentor filters — replaces the previous 3-row stack
+          (main tabs row + a second Active/All/Trash tabs row + a separate
+          filter toolbar row, which duplicated the status control twice). */}
+      <div className="toolbar">
+        <div className="tabs" style={{ marginBottom: 0, border: 'none' }}>
+          <button className={`tab ${tab === 'enrollments' ? 'active' : ''}`} onClick={() => setTab('enrollments')}>Intern List</button>
+          {isManager && <button className={`tab ${tab === 'batches' ? 'active' : ''}`} onClick={() => setTab('batches')}>Enroll Batch</button>}
+        </div>
 
-      {tab === 'enrollments' && (
-        <>
-          <div className="tabs">
-            {VIEW_TABS.map((t) => (
-              <button key={t.value} className={`tab ${viewTab === t.value ? 'active' : ''}`} onClick={() => setViewTab(t.value)}>{t.label}</button>
-            ))}
-          </div>
-
-          <div className="toolbar">
+        {tab === 'enrollments' && (
+          <>
+            <span className="toolbar-divider" />
+            <select value={viewTab === 'trash' ? 'active' : viewTab} onChange={(e) => setViewTab(e.target.value)} aria-label="Filter by status">
+              {VIEW_TABS.filter((t) => t.value !== 'trash').map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+            <button type="button" className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab('trash')}>🗑️ Trash</button>
+            <span className="toolbar-divider" />
             <input className="search-input" placeholder="Search by name or email..." value={search} onChange={(e) => setSearch(e.target.value)} />
             <select value={batchFilter} onChange={(e) => setBatchFilter(e.target.value)} aria-label="Filter by batch">
               <option value="">All batches</option>
@@ -484,21 +489,18 @@ export default function Interns() {
                 {users.filter((u) => u.role === 'EMPLOYEE' || u.role === 'ADMIN').map((u) => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
               </select>
             )}
-            <select value={viewTab} onChange={(e) => setViewTab(e.target.value)} aria-label="Filter by status">
-              {VIEW_TABS.map((t) => <option key={t.value} value={t.value}>{t.label.replace('🗑️ ', '')}</option>)}
-            </select>
-          </div>
+          </>
+        )}
+      </div>
 
-          {isManager && viewTab !== 'trash' && selectedIds.size > 0 && (
-            <div className="toolbar" style={{ marginBottom: 12 }}>
-              <span>{selectedIds.size} selected</span>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Clear selection</button>
-              <button type="button" className="btn btn-danger btn-sm" onClick={handleBulkDelete}>
-                <Trash2 size={14} /> Delete Selected ({selectedIds.size})
-              </button>
-            </div>
-          )}
-        </>
+      {tab === 'enrollments' && isManager && viewTab !== 'trash' && selectedIds.size > 0 && (
+        <div className="toolbar" style={{ marginBottom: 12 }}>
+          <span>{selectedIds.size} selected</span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Clear selection</button>
+          <button type="button" className="btn btn-danger btn-sm" onClick={handleBulkDelete}>
+            <Trash2 size={14} /> Delete Selected ({selectedIds.size})
+          </button>
+        </div>
       )}
 
       {loading ? <div className="page-loading">Loading...</div> : (
