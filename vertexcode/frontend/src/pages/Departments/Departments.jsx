@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Eye } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye, RotateCcw, Building2, CheckCircle2, Archive } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -7,13 +7,24 @@ import DataTable from '../../components/common/DataTable';
 import Modal from '../../components/common/Modal';
 import TableActions from '../../components/common/TableActions';
 import DetailField from '../../components/common/DetailField';
+import Badge from '../../components/common/Badge';
+import StatCard from '../../components/common/StatCard';
 import toast from 'react-hot-toast';
+
+const VIEW_TABS = [
+  { value: 'active', label: 'Active' },
+  { value: 'all', label: 'All' },
+  { value: 'trash', label: '🗑️ Trash' },
+];
 
 export default function Departments() {
   const { user } = useAuth();
   const isSuperAdmin = user.role === 'SUPER_ADMIN';
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [viewTab, setViewTab] = useState('active');
+  const [summary, setSummary] = useState({ total: 0, active: 0, trash: 0 });
+  const [selectedIds, setSelectedIds] = useState(new Set());
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ name: '', description: '' });
   const [saving, setSaving] = useState(false);
@@ -24,9 +35,22 @@ export default function Departments() {
 
   const load = () => {
     setLoading(true);
-    api.get('/departments').then(({ data }) => setDepartments(data.data)).finally(() => setLoading(false));
+    Promise.allSettled([
+      api.get('/departments', { params: { scope: viewTab } }),
+      api.get('/departments/summary'),
+    ])
+      .then(([d, s]) => {
+        if (d.status === 'fulfilled') {
+          setDepartments(d.value.data.data);
+          setSelectedIds(new Set());
+        }
+        if (s.status === 'fulfilled') setSummary(s.value.data.data);
+        const failed = [d, s].find((r) => r.status === 'rejected');
+        if (failed) toast.error(failed.reason?.response?.data?.message || 'Some department data failed to load');
+      })
+      .finally(() => setLoading(false));
   };
-  useEffect(load, []);
+  useEffect(load, [viewTab]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -74,17 +98,87 @@ export default function Departments() {
   };
 
   const handleDelete = async (d) => {
-    if (!window.confirm(`Delete department "${d.name}"? This cannot be undone.`)) return;
+    if (!window.confirm(`Remove department "${d.name}"? It will move to Trash — this can be undone with Restore, and is blocked if members still belong to it.`)) return;
     try {
       await api.delete(`/departments/${d.id}`);
-      toast.success('Department removed');
+      toast.success('Department moved to Trash');
       load();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to delete department');
+      toast.error(err.response?.data?.message || 'Failed to remove department');
     }
   };
 
+  const handleRestore = async (d) => {
+    try {
+      await api.post(`/departments/${d.id}/restore`);
+      toast.success('Department restored');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to restore department');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Remove ${ids.length} selected department(s)? Departments with members still assigned will be skipped — reassign those members first.`)) return;
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        await api.delete(`/departments/${id}`);
+      } catch {
+        failed += 1;
+      }
+    }
+    if (failed) toast.error(`${failed} of ${ids.length} could not be removed (still has members assigned)`);
+    else toast.success(`${ids.length} department(s) moved to Trash`);
+    setSelectedIds(new Set());
+    load();
+  };
+
+  const toggleSelectOne = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const visibleIds = departments.map((d) => d.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+  const someVisibleSelected = visibleIds.some((id) => selectedIds.has(id));
+  const toggleSelectAllVisible = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) visibleIds.forEach((id) => next.delete(id));
+      else visibleIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
+  const selectColumn = {
+    key: 'select',
+    header: (
+      <input
+        type="checkbox"
+        aria-label="Select all visible departments"
+        checked={allVisibleSelected}
+        ref={(el) => { if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected; }}
+        onChange={toggleSelectAllVisible}
+      />
+    ),
+    render: (r) => (
+      <input
+        type="checkbox"
+        aria-label={`Select ${r.name}`}
+        checked={selectedIds.has(r.id)}
+        onChange={() => toggleSelectOne(r.id)}
+      />
+    ),
+  };
+
   const columns = [
+    ...(isSuperAdmin ? [selectColumn] : []),
+    { key: 'id', header: 'ID', render: (r) => <span title={r.id}>{r.id.slice(0, 8)}</span> },
     { key: 'name', header: 'Name' },
     { key: 'description', header: 'Description' },
     { key: 'head', header: 'Head', render: (r) => r.head ? `${r.head.firstName} ${r.head.lastName}` : '—' },
@@ -96,7 +190,26 @@ export default function Departments() {
           actions={[
             { key: 'view', icon: Eye, label: 'View', onClick: () => openView(r) },
             { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openEdit(r) },
-            isSuperAdmin && { key: 'trash', icon: Trash2, label: 'Delete', danger: true, onClick: () => handleDelete(r) },
+            isSuperAdmin && { key: 'trash', icon: Trash2, label: 'Delete (move to Trash)', danger: true, onClick: () => handleDelete(r) },
+          ]}
+        />
+      ),
+    },
+  ];
+
+  const trashColumns = [
+    { key: 'id', header: 'ID', render: (r) => <span title={r.id}>{r.id.slice(0, 8)}</span> },
+    { key: 'name', header: 'Name' },
+    { key: 'description', header: 'Description' },
+    { key: 'count', header: 'Members', render: (r) => r._count?.users ?? 0 },
+    { key: 'deletedAt', header: 'Removed Date', render: (r) => r.deletedAt ? new Date(r.deletedAt).toLocaleDateString() : '—' },
+    {
+      key: 'actions', header: 'Actions',
+      render: (r) => (
+        <TableActions
+          actions={[
+            { key: 'view', icon: Eye, label: 'View', onClick: () => openView(r) },
+            isSuperAdmin && { key: 'restore', icon: RotateCcw, label: 'Restore', onClick: () => handleRestore(r) },
           ]}
         />
       ),
@@ -110,7 +223,38 @@ export default function Departments() {
         subtitle="Organizational units and structure"
         actions={<button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> Add Department</button>}
       />
-      {loading ? <div className="page-loading">Loading...</div> : <DataTable columns={columns} rows={departments} />}
+
+      <div className="stat-grid">
+        <StatCard label="Total Departments" value={summary.total} accent="blue" icon={Building2} />
+        <StatCard label="Active" value={summary.active} accent="green" icon={CheckCircle2} />
+        <StatCard label="Trash" value={summary.trash} accent="red" icon={Archive} />
+      </div>
+
+      <div className="tabs">
+        {VIEW_TABS.map((t) => (
+          <button key={t.value} className={`tab ${viewTab === t.value ? 'active' : ''}`} onClick={() => setViewTab(t.value)}>
+            {t.value === 'trash' ? (<>{t.label}{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}</>) : t.label}
+          </button>
+        ))}
+      </div>
+
+      {isSuperAdmin && viewTab !== 'trash' && selectedIds.size > 0 && (
+        <div className="toolbar" style={{ marginBottom: 12 }}>
+          <span>{selectedIds.size} selected</span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Clear selection</button>
+          <button type="button" className="btn btn-danger btn-sm" onClick={handleBulkDelete}>
+            <Trash2 size={14} /> Delete Selected ({selectedIds.size})
+          </button>
+        </div>
+      )}
+
+      {loading ? <div className="page-loading">Loading...</div> : (
+        <DataTable
+          columns={viewTab === 'trash' ? trashColumns : columns}
+          rows={departments}
+          emptyMessage={viewTab === 'trash' ? 'Trash is empty.' : 'No departments found.'}
+        />
+      )}
 
       {showModal && (
         <Modal title="Add Department" onClose={() => setShowModal(false)}>
@@ -129,9 +273,11 @@ export default function Departments() {
         <Modal size="wide" title={viewing.name} onClose={() => setViewing(null)}>
           <div className="detail-card">
             <div className="detail-grid">
+              <DetailField label="ID" value={viewing.id} />
               <DetailField full label="Description" value={viewing.description} />
               <DetailField label="Head" value={viewing.head ? `${viewing.head.firstName} ${viewing.head.lastName}` : null} />
               <DetailField label="Members" value={viewing.users ? viewing.users.length : viewing._count?.users ?? 0} />
+              {viewing.deletedAt && <DetailField label="Removed" value={new Date(viewing.deletedAt).toLocaleString()} />}
             </div>
             {viewLoading ? (
               <p className="empty-state" style={{ padding: 0, textAlign: 'left' }}>Loading members...</p>

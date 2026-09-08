@@ -29,6 +29,24 @@ router.use(authenticate);
  *                       items: { $ref: '#/components/schemas/Department' }
  */
 router.get('/', ctrl.listDepartments);
+
+/**
+ * @swagger
+ * /departments/summary:
+ *   get:
+ *     tags: [Departments]
+ *     summary: Real counts for the Departments summary cards (total/active/trash)
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ */
+router.get('/summary', ctrl.summary);
+
 /**
  * @swagger
  * /departments/{id}:
@@ -172,5 +190,40 @@ router.put('/:id', can('department', 'edit'), ctrl.updateDepartment);
  *             schema: { $ref: '#/components/schemas/ApiError' }
  */
 router.delete('/:id', isSuperAdmin, ctrl.deleteDepartment);
+
+/**
+ * @swagger
+ * /departments/{id}/restore:
+ *   post:
+ *     tags: [Departments]
+ *     summary: Restore a soft-deleted (Trash) department
+ *     description: SUPER_ADMIN only.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       400:
+ *         description: Not in Trash
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden (SUPER_ADMIN only)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: Not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.post('/:id/restore', isSuperAdmin, ctrl.restoreDepartment);
 
 module.exports = router;

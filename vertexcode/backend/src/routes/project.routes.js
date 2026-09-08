@@ -32,6 +32,24 @@ router.use(authenticate);
  *                       items: { $ref: '#/components/schemas/Project' }
  */
 router.get('/', ctrl.listProjects);
+
+/**
+ * @swagger
+ * /projects/summary:
+ *   get:
+ *     tags: [Projects]
+ *     summary: Real counts for the Projects summary cards (total/active/completed/trash)
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ */
+router.get('/summary', ctrl.summary);
+
 /**
  * @swagger
  * /projects:
@@ -192,6 +210,42 @@ router.put('/:id', can('project', 'edit'), ctrl.updateProject);
  *             schema: { $ref: '#/components/schemas/ApiError' }
  */
 router.delete('/:id', isSuperAdmin, ctrl.deleteProject);
+
+/**
+ * @swagger
+ * /projects/{id}/restore:
+ *   post:
+ *     tags: [Projects]
+ *     summary: Restore a soft-deleted (Trash) project
+ *     description: SUPER_ADMIN only.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       400:
+ *         description: Not in Trash
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden (SUPER_ADMIN only)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: Not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.post('/:id/restore', isSuperAdmin, ctrl.restoreProject);
+
 /**
  * @swagger
  * /projects/{id}/members:
