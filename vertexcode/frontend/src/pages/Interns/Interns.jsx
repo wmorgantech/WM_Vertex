@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Pencil, Eye, Mail } from 'lucide-react';
+import { Plus, Trash2, Pencil, Eye, Mail, RotateCcw } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -14,10 +14,31 @@ import CustomFieldsSection from '../../components/common/CustomFieldsSection';
 import toast from 'react-hot-toast';
 import { downloadReport } from '../../lib/download';
 
-const COMPLETION_STATUSES = ['IN_PROGRESS', 'COMPLETED', 'TERMINATED', 'EXTENDED', 'CONVERTED_TO_EMPLOYEE'];
+// TERMINATED is deliberately excluded here — it's reserved for the
+// dedicated Delete/Restore (Trash) flow, never a value an Edit form can set
+// directly (see backend intern.controller.js updateEnrollment's guard).
+const EDITABLE_COMPLETION_STATUSES = ['IN_PROGRESS', 'COMPLETED', 'EXTENDED', 'CONVERTED_TO_EMPLOYEE'];
 const BATCH_STATUSES = ['UPCOMING', 'ONGOING', 'COMPLETED', 'CANCELLED'];
 const CATEGORY_LABELS = { FREE_INTERNSHIP: 'Free Internship', JOT: 'Job Oriented Training (JOT)' };
 const PAGE_SIZE = 25;
+
+// Active/Inactive/All/Trash — mirrors the Employees page's viewTab pattern
+// (EmployeeList.jsx), extended with a second axis specific to interns:
+// - accountStatus (User.status) is the Active-vs-Trash axis: TERMINATED
+//   here means soft-deleted, exactly like Employees.
+// - completionStatus (InternEnrollment.completionStatus) is the
+//   Active-vs-Inactive axis within non-deleted interns: IN_PROGRESS is
+//   "Active", a finished/extended/converted program is "Inactive" but the
+//   account is still on record, not deleted.
+// TERMINATED is never part of the Inactive bucket on either axis — it is
+// exclusively how Trash is defined. Kept in sync end-to-end with the
+// backend's listEnrollments/deleteEnrollment/restoreEnrollment.
+const VIEW_TABS = [
+  { value: 'active', label: 'Active', scope: { accountStatus: 'ACTIVE', completionStatus: 'IN_PROGRESS' } },
+  { value: 'inactive', label: 'Inactive', scope: { accountStatus: 'ACTIVE', completionStatus: 'COMPLETED,EXTENDED,CONVERTED_TO_EMPLOYEE' } },
+  { value: 'all', label: 'All', scope: { accountStatus: undefined, completionStatus: undefined } },
+  { value: 'trash', label: '🗑️ Trash', scope: { accountStatus: 'TERMINATED', completionStatus: undefined } },
+];
 
 export default function Interns() {
   const { user } = useAuth();
@@ -26,6 +47,7 @@ export default function Interns() {
   const [viewingEnrollment, setViewingEnrollment] = useState(null);
 
   const [tab, setTab] = useState('enrollments');
+  const [viewTab, setViewTab] = useState('active');
   const [enrollments, setEnrollments] = useState([]);
   const [batches, setBatches] = useState([]);
   const [users, setUsers] = useState([]);
@@ -33,11 +55,12 @@ export default function Interns() {
   const [designations, setDesignations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [batchFilter, setBatchFilter] = useState('');
   const [mentorFilter, setMentorFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(new Set());
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [showNewInternModal, setShowNewInternModal] = useState(false);
@@ -49,11 +72,23 @@ export default function Interns() {
   const [saving, setSaving] = useState(false);
   const [editingEnrollment, setEditingEnrollment] = useState(null);
   const [enrollEditForm, setEnrollEditForm] = useState({});
+  const [profileEditForm, setProfileEditForm] = useState({});
+  const [savingProfile, setSavingProfile] = useState(false);
   const [editingBatch, setEditingBatch] = useState(null);
   const [batchEditForm, setBatchEditForm] = useState({});
 
+  // Debounced so typing in the search box doesn't re-fire all 5 parallel
+  // calls below (including 3 that don't even depend on the search term) on
+  // every keystroke — that burst was a major contributor to hitting the
+  // API's per-IP rate limit during ordinary admin use (see app.js apiLimiter).
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 400);
+    return () => clearTimeout(id);
+  }, [search]);
+
   const load = () => {
     setLoading(true);
+    const scope = VIEW_TABS.find((t) => t.value === viewTab).scope;
     // Managers get the full user directory (for mentor assignment); everyone
     // who can enroll interns gets the scoped "not yet enrolled intern" list
     // (existing intern profiles, role=INTERN, no batch yet) regardless of role.
@@ -61,29 +96,48 @@ export default function Interns() {
     const enrollableCall = api.get('/interns/enrollable-users');
     const enrollmentsCall = api.get('/interns/enrollments', {
       params: {
-        search: search || undefined,
+        search: debouncedSearch || undefined,
         batchId: batchFilter || undefined,
         mentorId: mentorFilter || undefined,
-        completionStatus: statusFilter || undefined,
+        accountStatus: scope.accountStatus,
+        completionStatus: scope.completionStatus,
         page,
         limit: PAGE_SIZE,
       },
     });
-    Promise.all([enrollmentsCall, api.get('/interns/batches'), usersCall, enrollableCall, api.get('/masters/designations')])
+    // allSettled (not all) so one failing call — e.g. a transient 429/500 on
+    // /users — doesn't wipe out an otherwise-successful Intern List; each
+    // slice of state only updates from a call that actually succeeded, and
+    // any failure is surfaced instead of silently rendering an empty table.
+    Promise.allSettled([enrollmentsCall, api.get('/interns/batches'), usersCall, enrollableCall, api.get('/masters/designations')])
       .then(([e, b, u, en, des]) => {
-        setEnrollments(e.data.data);
-        setMeta(e.data.meta || null);
-        setBatches(b.data.data);
-        setUsers(u.data.data);
-        setDesignations(des.data.data.filter((d) => d.active));
-        setEnrollableInterns(en.data.data);
+        if (e.status === 'fulfilled') {
+          setEnrollments(e.value.data.data);
+          setMeta(e.value.data.meta || null);
+          // Selection is scoped to whatever's currently on screen — a stale
+          // id from a previous tab/page/filter must never linger selected.
+          setSelectedIds(new Set());
+        }
+        if (b.status === 'fulfilled') setBatches(b.value.data.data);
+        if (u.status === 'fulfilled') setUsers(u.value.data.data);
+        if (en.status === 'fulfilled') setEnrollableInterns(en.value.data.data);
+        if (des.status === 'fulfilled') setDesignations(des.value.data.data.filter((d) => d.active));
+
+        const failed = [e, b, u, en, des].find((r) => r.status === 'rejected');
+        if (failed) {
+          const status = failed.reason?.response?.status;
+          const message = status === 429
+            ? 'Too many requests right now — some intern data may be out of date. Please wait a moment and refresh.'
+            : (failed.reason?.response?.data?.message || 'Some intern data failed to load — showing partial results.');
+          toast.error(message);
+        }
       })
       .finally(() => setLoading(false));
   };
-  // Filter/search changes return to page 1; a bare page change (Pagination's
+  // Filter/search/tab changes return to page 1; a bare page change (Pagination's
   // onPageChange) leaves the active filters untouched.
-  useEffect(() => { setPage(1); }, [search, batchFilter, mentorFilter, statusFilter]);
-  useEffect(load, [search, batchFilter, mentorFilter, statusFilter, page]);
+  useEffect(() => { setPage(1); }, [debouncedSearch, batchFilter, mentorFilter, viewTab]);
+  useEffect(load, [debouncedSearch, batchFilter, mentorFilter, viewTab, page]);
 
   const handleCreateBatch = async (e) => {
     e.preventDefault();
@@ -139,14 +193,64 @@ export default function Interns() {
   };
 
   const handleDelete = async (enrollment) => {
-    if (!window.confirm(`Remove ${enrollment.user.firstName} ${enrollment.user.lastName} as an intern? This deactivates their account (soft delete) — the record is kept for history.`)) return;
+    if (!window.confirm(`Remove ${enrollment.user.firstName} ${enrollment.user.lastName} as an intern? Their account will be deactivated and the record moved to Trash — this can be undone with Restore.`)) return;
     try {
       await api.delete(`/interns/enrollments/${enrollment.id}`);
-      toast.success('Intern removed');
+      toast.success('Intern moved to Trash');
       load();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to remove intern');
     }
+  };
+
+  const handleRestore = async (enrollment) => {
+    try {
+      await api.post(`/interns/enrollments/${enrollment.id}/restore`);
+      toast.success('Intern restored');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to restore intern');
+    }
+  };
+
+  // Bulk action built on top of the same single-record DELETE endpoint used
+  // by the row-level Delete action — there is no separate bulk-delete API,
+  // so this simply fires it once per selected row (no new backend surface).
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Remove ${ids.length} selected intern(s)? Their accounts will be deactivated and the records moved to Trash — this can be undone with Restore.`)) return;
+    try {
+      await Promise.all(ids.map((id) => api.delete(`/interns/enrollments/${id}`)));
+      toast.success(`${ids.length} intern(s) moved to Trash`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to remove some of the selected interns');
+    } finally {
+      setSelectedIds(new Set());
+      load();
+    }
+  };
+
+  const toggleSelectOne = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const visibleIds = enrollments.map((r) => r.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+  const someVisibleSelected = visibleIds.some((id) => selectedIds.has(id));
+  const toggleSelectAllVisible = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        visibleIds.forEach((id) => next.delete(id));
+      } else {
+        visibleIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
   };
 
   const openEnrollEdit = (r) => {
@@ -159,6 +263,12 @@ export default function Interns() {
       stipend: r.stipend ?? '',
       category: r.category || '',
       notes: r.notes || '',
+    });
+    setProfileEditForm({
+      firstName: r.user.firstName,
+      lastName: r.user.lastName,
+      email: r.user.email,
+      phone: r.user.phone || '',
     });
   };
 
@@ -181,6 +291,24 @@ export default function Interns() {
       toast.error(err.response?.data?.message || 'Failed to update enrollment');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Profile fields (name/email/phone) live on the User record, not the
+  // enrollment — saved separately via the same PUT /users/:id endpoint the
+  // Employees page uses (reused as-is, including its existing email-
+  // uniqueness check and manager-only field allowlist).
+  const handleSaveProfileEdit = async (e) => {
+    e.preventDefault();
+    setSavingProfile(true);
+    try {
+      await api.put(`/users/${editingEnrollment.user.id}`, profileEditForm);
+      toast.success('Intern profile updated');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update intern profile');
+    } finally {
+      setSavingProfile(false);
     }
   };
 
@@ -219,7 +347,30 @@ export default function Interns() {
     }
   };
 
+  const selectColumn = {
+    key: 'select',
+    header: (
+      <input
+        type="checkbox"
+        aria-label="Select all visible interns"
+        checked={allVisibleSelected}
+        ref={(el) => { if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected; }}
+        onChange={toggleSelectAllVisible}
+      />
+    ),
+    render: (r) => (
+      <input
+        type="checkbox"
+        aria-label={`Select ${r.user.firstName} ${r.user.lastName}`}
+        checked={selectedIds.has(r.id)}
+        onChange={() => toggleSelectOne(r.id)}
+      />
+    ),
+  };
+
   const enrollmentColumns = [
+    ...(isManager ? [selectColumn] : []),
+    { key: 'id', header: 'ID', render: (r) => r.user.employeeCode || '—' },
     { key: 'name', header: 'Intern', render: (r) => `${r.user.firstName} ${r.user.lastName}` },
     { key: 'batch', header: 'Batch', render: (r) => r.batch.name },
     { key: 'mentor', header: 'Mentor', render: (r) => r.mentor ? `${r.mentor.firstName} ${r.mentor.lastName}` : '—' },
@@ -234,12 +385,34 @@ export default function Interns() {
             { key: 'view', icon: Eye, label: 'View', onClick: () => setViewingEnrollment(r) },
             isManager && { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openEnrollEdit(r) },
             // Soft delete only (completionStatus -> TERMINATED + account
-            // deactivated — see handleDelete/backend deleteEnrollment).
-            // Gated the same as Edit (isManager) since the backend checks
-            // the same intern:manage permission for both DELETE and PUT
-            // /interns/enrollments/:id — Super Admin and Admin both
-            // qualify, Employees (even ones who can add interns) do not.
-            isManager && { key: 'trash', icon: Trash2, label: 'Deactivate (soft delete)', danger: true, onClick: () => handleDelete(r) },
+            // deactivated — see handleDelete/backend deleteEnrollment). The
+            // record moves to the Trash tab, restorable from there. Gated
+            // the same as Edit (isManager) — the backend enforces the same
+            // intern:manage permission + per-record mentor-scoping for both
+            // DELETE and PUT /interns/enrollments/:id.
+            isManager && { key: 'trash', icon: Trash2, label: 'Delete (move to Trash)', danger: true, onClick: () => handleDelete(r) },
+          ]}
+        />
+      ),
+    },
+  ];
+
+  // Trash gets its own, deliberately narrower column set — no Edit/Delete on
+  // an already-removed record, just enough to identify who it is and
+  // restore them (same convention as EmployeeList's trashColumns).
+  const trashColumns = [
+    { key: 'id', header: 'ID', render: (r) => r.user.employeeCode || '—' },
+    { key: 'name', header: 'Intern', render: (r) => `${r.user.firstName} ${r.user.lastName}` },
+    { key: 'batch', header: 'Batch', render: (r) => r.batch.name },
+    { key: 'status', header: 'Status', render: (r) => <Badge value={r.completionStatus} /> },
+    { key: 'exitDate', header: 'Removed Date', render: (r) => r.user.exitDate ? new Date(r.user.exitDate).toLocaleDateString() : '—' },
+    {
+      key: 'actions', header: 'Actions',
+      render: (r) => (
+        <TableActions
+          actions={[
+            { key: 'view', icon: Eye, label: 'View', onClick: () => setViewingEnrollment(r) },
+            isManager && { key: 'restore', icon: RotateCcw, label: 'Restore', onClick: () => handleRestore(r) },
           ]}
         />
       ),
@@ -292,29 +465,46 @@ export default function Interns() {
       </div>
 
       {tab === 'enrollments' && (
-        <div className="toolbar">
-          <input className="search-input" placeholder="Search by name or email..." value={search} onChange={(e) => setSearch(e.target.value)} />
-          <select value={batchFilter} onChange={(e) => setBatchFilter(e.target.value)}>
-            <option value="">All batches</option>
-            {batches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
-          {isManager && (
-            <select value={mentorFilter} onChange={(e) => setMentorFilter(e.target.value)}>
-              <option value="">All mentors</option>
-              {users.filter((u) => u.role === 'EMPLOYEE' || u.role === 'ADMIN').map((u) => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+        <>
+          <div className="tabs">
+            {VIEW_TABS.map((t) => (
+              <button key={t.value} className={`tab ${viewTab === t.value ? 'active' : ''}`} onClick={() => setViewTab(t.value)}>{t.label}</button>
+            ))}
+          </div>
+
+          <div className="toolbar">
+            <input className="search-input" placeholder="Search by name or email..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            <select value={batchFilter} onChange={(e) => setBatchFilter(e.target.value)} aria-label="Filter by batch">
+              <option value="">All batches</option>
+              {batches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
+            {isManager && (
+              <select value={mentorFilter} onChange={(e) => setMentorFilter(e.target.value)} aria-label="Filter by mentor">
+                <option value="">All mentors</option>
+                {users.filter((u) => u.role === 'EMPLOYEE' || u.role === 'ADMIN').map((u) => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+              </select>
+            )}
+            <select value={viewTab} onChange={(e) => setViewTab(e.target.value)} aria-label="Filter by status">
+              {VIEW_TABS.map((t) => <option key={t.value} value={t.value}>{t.label.replace('🗑️ ', '')}</option>)}
+            </select>
+          </div>
+
+          {isManager && viewTab !== 'trash' && selectedIds.size > 0 && (
+            <div className="toolbar" style={{ marginBottom: 12 }}>
+              <span>{selectedIds.size} selected</span>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Clear selection</button>
+              <button type="button" className="btn btn-danger btn-sm" onClick={handleBulkDelete}>
+                <Trash2 size={14} /> Delete Selected ({selectedIds.size})
+              </button>
+            </div>
           )}
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="">All statuses</option>
-            {COMPLETION_STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
-          </select>
-        </div>
+        </>
       )}
 
       {loading ? <div className="page-loading">Loading...</div> : (
         tab === 'enrollments' ? (
           <>
-            {enrollableInterns.length > 0 && (
+            {viewTab === 'active' && enrollableInterns.length > 0 && (
               <div style={{ marginBottom: 20 }}>
                 <p className="detail-section-title">Not Yet Enrolled ({enrollableInterns.length})</p>
                 <p className="empty-state" style={{ padding: 0, textAlign: 'left', marginBottom: 8 }}>
@@ -340,7 +530,11 @@ export default function Interns() {
                 />
               </div>
             )}
-            <DataTable columns={enrollmentColumns} rows={enrollments} />
+            <DataTable
+              columns={viewTab === 'trash' ? trashColumns : enrollmentColumns}
+              rows={enrollments}
+              emptyMessage={viewTab === 'trash' ? 'Trash is empty.' : 'No interns found.'}
+            />
             <Pagination meta={meta} onPageChange={setPage} />
           </>
         ) : (
@@ -426,7 +620,9 @@ export default function Interns() {
         <Modal size="wide" title={`${viewingEnrollment.user.firstName} ${viewingEnrollment.user.lastName}`} onClose={() => setViewingEnrollment(null)}>
           <div className="detail-card">
             <div className="detail-card-header">
+              <span className="detail-field-value">{viewingEnrollment.user.employeeCode}</span>
               <Badge value={viewingEnrollment.completionStatus} />
+              <Badge value={viewingEnrollment.user.status} />
               {viewingEnrollment.category && <Badge value={viewingEnrollment.category} label={CATEGORY_LABELS[viewingEnrollment.category]} />}
             </div>
             <div className="detail-grid">
@@ -446,7 +642,18 @@ export default function Interns() {
       )}
 
       {editingEnrollment && (
-        <Modal title={`Edit Enrollment — ${editingEnrollment.user.firstName} ${editingEnrollment.user.lastName}`} onClose={() => setEditingEnrollment(null)}>
+        <Modal title={`Edit Intern — ${editingEnrollment.user.firstName} ${editingEnrollment.user.lastName}`} onClose={() => setEditingEnrollment(null)}>
+          <p className="detail-section-title">Profile</p>
+          <form className="form-grid" onSubmit={handleSaveProfileEdit}>
+            <label>First name<input required value={profileEditForm.firstName} onChange={(e) => setProfileEditForm({ ...profileEditForm, firstName: e.target.value })} /></label>
+            <label>Last name<input required value={profileEditForm.lastName} onChange={(e) => setProfileEditForm({ ...profileEditForm, lastName: e.target.value })} /></label>
+            <label>Email<input type="email" required value={profileEditForm.email} onChange={(e) => setProfileEditForm({ ...profileEditForm, email: e.target.value })} /></label>
+            <label>Phone<input value={profileEditForm.phone} onChange={(e) => setProfileEditForm({ ...profileEditForm, phone: e.target.value })} /></label>
+            <div className="form-actions">
+              <button type="submit" className="btn btn-primary" disabled={savingProfile}>{savingProfile ? 'Saving...' : 'Save Profile'}</button>
+            </div>
+          </form>
+          <p className="detail-section-title">Enrollment</p>
           <form className="form-grid" onSubmit={handleSaveEnrollEdit}>
             <label>Mentor
               <select value={enrollEditForm.mentorId} onChange={(e) => setEnrollEditForm({ ...enrollEditForm, mentorId: e.target.value })}>
@@ -456,7 +663,7 @@ export default function Interns() {
             </label>
             <label>Completion Status
               <select value={enrollEditForm.completionStatus} onChange={(e) => setEnrollEditForm({ ...enrollEditForm, completionStatus: e.target.value })}>
-                {COMPLETION_STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+                {EDITABLE_COMPLETION_STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
               </select>
             </label>
             <label>Performance Rating<input type="number" step="0.1" min="0" max="5" value={enrollEditForm.performanceRating} onChange={(e) => setEnrollEditForm({ ...enrollEditForm, performanceRating: e.target.value })} /></label>
@@ -471,8 +678,8 @@ export default function Interns() {
             </label>
             <label>Notes<textarea value={enrollEditForm.notes} onChange={(e) => setEnrollEditForm({ ...enrollEditForm, notes: e.target.value })} /></label>
             <div className="form-actions">
-              <button type="button" className="btn btn-ghost" onClick={() => setEditingEnrollment(null)}>Cancel</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+              <button type="button" className="btn btn-ghost" onClick={() => setEditingEnrollment(null)}>Close</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save Enrollment'}</button>
             </div>
           </form>
           <CustomFieldsSection entityType="INTERN" entityId={editingEnrollment.user.id} />
