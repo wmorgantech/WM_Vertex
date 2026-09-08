@@ -485,6 +485,34 @@ router.get('/enrollments', ctrl.listEnrollments);
 
 /**
  * @swagger
+ * /trainees/enrollable-users:
+ *   get:
+ *     tags: [Trainees]
+ *     summary: List trainee profiles (role=TRAINEE) not yet enrolled in any program
+ *     description: >
+ *       Used by the "Enroll Trainee" picker — deliberately narrower than a
+ *       generic user list so enrolling never offers an arbitrary
+ *       Employee/Admin account. Create Trainee (POST /users, role=TRAINEE)
+ *       and Enroll Trainee (POST /trainees/enrollments) are separate steps;
+ *       this bridges them.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.get('/enrollable-users', can('trainee', 'manage'), ctrl.listEnrollableUsers);
+
+/**
+ * @swagger
  * /trainees/enrollments:
  *   post:
  *     tags: [Trainees]
@@ -708,6 +736,55 @@ router.put('/enrollments/:id', can('trainee', 'manage'), ctrl.updateEnrollment);
  *             schema: { $ref: '#/components/schemas/ApiError' }
  */
 router.delete('/enrollments/:id', isSuperAdmin, ctrl.deleteEnrollment);
+
+/**
+ * @swagger
+ * /trainees/enrollments/{id}/restore:
+ *   post:
+ *     tags: [Trainees]
+ *     summary: Restore a soft-deleted (Trash) trainee enrollment
+ *     description: >
+ *       Reverses DELETE /enrollments/{id}: completionStatus back to
+ *       IN_PROGRESS and the account reactivated. Same gate as delete
+ *       (Super Admin only).
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message: { type: string }
+ *       400:
+ *         description: This trainee is not in Trash, or the record does not belong to a trainee account
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden — Super Admin only
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: Enrollment not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.post('/enrollments/:id/restore', isSuperAdmin, ctrl.restoreEnrollment);
 
 /**
  * @swagger

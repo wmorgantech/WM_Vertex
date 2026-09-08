@@ -131,8 +131,42 @@ async function deleteTopic(req, res) {
 
 // --- Trainee Enrollments --------------------------------------------------------
 
+// GET /api/trainees/enrollable-users — minimal user list for the "Enroll
+// Trainee" picker: existing trainee profiles (role=TRAINEE) not yet
+// enrolled in any program. Mirrors intern.controller.js's
+// listEnrollableUsers exactly — Create Trainee (POST /users with
+// role=TRAINEE) and Enroll Trainee are deliberately separate steps, so this
+// only ever offers trainees who have a profile but no enrollment yet, never
+// an arbitrary Employee/Admin account.
+async function listEnrollableUsers(req, res) {
+  const enrolledUserIds = (await prisma.traineeEnrollment.findMany({ select: { userId: true } })).map((e) => e.userId);
+  const users = await prisma.user.findMany({
+    where: { id: { notIn: enrolledUserIds }, role: 'TRAINEE' },
+    select: { id: true, firstName: true, lastName: true, email: true, role: true },
+    orderBy: { firstName: 'asc' },
+  });
+  return sendSuccess(res, 200, users);
+}
+
+function toList(value) {
+  return value ? value.split(',').map((s) => s.trim()).filter(Boolean) : null;
+}
+
+// `accountStatus` (User.status) is the Active-vs-Trash axis, mirroring the
+// same convention added to intern.controller.js's listEnrollments — a
+// trainee only ever reaches Trash via deleteEnrollment/restoreEnrollment
+// below, which keep completionStatus and User.status in sync, so this is
+// never ambiguous with a program-progress status like COMPLETED/EXTENDED.
 async function listEnrollments(req, res) {
-  const { programId, mentorId, completionStatus } = req.query;
+  const { programId, mentorId, completionStatus, accountStatus, page, limit } = req.query;
+  const completionStatuses = toList(completionStatus);
+  const accountStatuses = toList(accountStatus);
+  const accountStatusClause = accountStatuses && accountStatuses.length
+    ? { user: { status: accountStatuses.length === 1 ? accountStatuses[0] : { in: accountStatuses } } }
+    : null;
+  const completionStatusClause = completionStatuses && completionStatuses.length
+    ? { completionStatus: completionStatuses.length === 1 ? completionStatuses[0] : { in: completionStatuses } }
+    : null;
 
   // SUPER_ADMIN: unrestricted. ADMIN: only trainees they mentor. TRAINEE: only their own.
   let where;
@@ -140,29 +174,42 @@ async function listEnrollments(req, res) {
     where = {
       ...(programId && { programId }),
       ...(mentorId && { mentorId }),
-      ...(completionStatus && { completionStatus }),
+      ...(completionStatusClause && completionStatusClause),
+      ...(accountStatusClause && accountStatusClause),
     };
   } else if (req.user.role === 'ADMIN') {
     where = {
       mentorId: req.user.id,
       ...(programId && { programId }),
-      ...(completionStatus && { completionStatus }),
+      ...(completionStatusClause && completionStatusClause),
+      ...(accountStatusClause && accountStatusClause),
     };
   } else {
     where = { userId: req.user.id };
   }
 
-  const enrollments = await prisma.traineeEnrollment.findMany({
-    where,
-    include: {
-      user: { select: { id: true, firstName: true, lastName: true, email: true, status: true } },
-      program: true,
-      mentor: { select: { id: true, firstName: true, lastName: true } },
-      _count: { select: { payments: true } },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
-  return sendSuccess(res, 200, enrollments);
+  // Pagination is opt-in — other callers (e.g. a trainee's own dashboard)
+  // rely on this endpoint returning their full, unbounded result set, so a
+  // request with no page/limit keeps returning exactly what it does today.
+  const paginate = page !== undefined || limit !== undefined;
+  const take = paginate ? Math.min(parseInt(limit, 10) || 25, 100) : undefined;
+  const skip = paginate ? (Math.max(parseInt(page, 10), 1) - 1) * take : undefined;
+
+  const [enrollments, total] = await Promise.all([
+    prisma.traineeEnrollment.findMany({
+      where,
+      include: {
+        user: { select: { id: true, firstName: true, lastName: true, email: true, status: true, exitDate: true } },
+        program: true,
+        mentor: { select: { id: true, firstName: true, lastName: true } },
+        _count: { select: { payments: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      ...(paginate && { take, skip }),
+    }),
+    paginate ? prisma.traineeEnrollment.count({ where }) : Promise.resolve(undefined),
+  ]);
+  return sendSuccess(res, 200, enrollments, paginate ? { total, page: Math.max(parseInt(page, 10), 1) || 1, limit: take } : undefined);
 }
 
 function assertTraineeAccess(req, enrollment) {
@@ -248,6 +295,14 @@ async function updateEnrollment(req, res) {
   assertTraineeAccess(req, before);
 
   const { mentorId, completionStatus, trainingStartDate, trainingEndDate, totalFee, discount, finalFee, notes } = req.body;
+  // TERMINATED is reserved for the dedicated delete/restore flow below,
+  // which keeps completionStatus and the linked User.status in sync — same
+  // guard as intern.controller.js's updateEnrollment, for the same reason
+  // (prevents an enrollment reading "TERMINATED" while the account is
+  // still ACTIVE, which is exactly the Active-list/Trash inconsistency bug).
+  if (completionStatus === 'TERMINATED') {
+    throw new ApiError(400, 'Use DELETE /trainees/enrollments/:id to remove a trainee — completionStatus cannot be set to TERMINATED directly');
+  }
   const enrollment = await prisma.traineeEnrollment.update({
     where: { id: req.params.id },
     data: {
@@ -296,6 +351,41 @@ async function deleteEnrollment(req, res) {
   });
 
   return sendSuccess(res, 200, { message: 'Trainee removed' });
+}
+
+// POST /api/trainees/enrollments/:id/restore — Super Admin only (same gate
+// as delete), reverses deleteEnrollment: completionStatus back to
+// IN_PROGRESS and the account reactivated. Mirrors
+// intern.controller.js's restoreEnrollment exactly.
+async function restoreEnrollment(req, res) {
+  const enrollment = await prisma.traineeEnrollment.findUnique({
+    where: { id: req.params.id },
+    include: { user: { select: { id: true, firstName: true, lastName: true, role: true, status: true } } },
+  });
+  if (!enrollment) throw new ApiError(404, 'Enrollment not found');
+
+  if (enrollment.user.role !== 'TRAINEE') {
+    throw new ApiError(400, 'This record does not belong to a trainee account');
+  }
+  if (enrollment.completionStatus !== 'TERMINATED' && enrollment.user.status !== 'TERMINATED') {
+    throw new ApiError(400, 'This trainee is not in Trash');
+  }
+
+  const updated = await prisma.traineeEnrollment.update({
+    where: { id: req.params.id },
+    data: { completionStatus: 'IN_PROGRESS' },
+  });
+  await prisma.user.update({
+    where: { id: enrollment.userId },
+    data: { status: 'ACTIVE', exitDate: null },
+  });
+
+  await recordAudit({
+    actorId: req.user.id, action: 'RESTORED', module: 'TRAINEE_ENROLLMENT', entityId: enrollment.id,
+    entityLabel: `${enrollment.user.firstName} ${enrollment.user.lastName}`, before: enrollment, after: updated,
+  });
+
+  return sendSuccess(res, 200, { message: 'Trainee restored' });
 }
 
 // PUT /api/trainees/enrollments/me — Trainee self-service profile update
@@ -418,7 +508,7 @@ async function addPayment(req, res) {
 module.exports = {
   listPrograms, getProgram, createProgram, updateProgram, deleteProgram,
   listTopics, createTopic, updateTopic, deleteTopic,
-  listEnrollments, getEnrollment, enrollTrainee, updateEnrollment, deleteEnrollment, updateMyEnrollment, updateTopicProgress,
+  listEnrollments, listEnrollableUsers, getEnrollment, enrollTrainee, updateEnrollment, deleteEnrollment, restoreEnrollment, updateMyEnrollment, updateTopicProgress,
   listSessions, createSession,
   listPayments, addPayment,
 };

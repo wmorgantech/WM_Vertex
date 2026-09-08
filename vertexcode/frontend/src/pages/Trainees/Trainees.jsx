@@ -1,19 +1,36 @@
-import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Eye, Mail } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Plus, Pencil, Trash2, Eye, Mail, RotateCcw, Upload, FileText, FileSpreadsheet, Users, UserCheck, GraduationCap } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../api/axios';
 import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import Pagination from '../../components/common/Pagination';
 import TableActions from '../../components/common/TableActions';
 import DetailField from '../../components/common/DetailField';
+import StatCard from '../../components/common/StatCard';
 import toast from 'react-hot-toast';
 import { downloadReport } from '../../lib/download';
 import { useAuth } from '../../context/AuthContext';
 
 const numOrNull = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
-const COMPLETION_STATUSES = ['IN_PROGRESS', 'COMPLETED', 'TERMINATED', 'EXTENDED', 'CONVERTED_TO_EMPLOYEE'];
+// TERMINATED excluded — reserved for the dedicated Delete/Restore (Trash)
+// flow, never a value the Edit form can set directly (see backend
+// trainee.controller.js updateEnrollment's guard, mirroring the same fix
+// already applied to Interns).
+const EDITABLE_COMPLETION_STATUSES = ['IN_PROGRESS', 'COMPLETED', 'EXTENDED', 'CONVERTED_TO_EMPLOYEE'];
+const PAGE_SIZE = 25;
+
+// Active/All/Trash — same pattern as Employees/Interns. "Active" here means
+// currently in progress (completionStatus=IN_PROGRESS); Trash means
+// soft-deleted (User.status=TERMINATED, which deleteEnrollment/
+// restoreEnrollment always keep in sync with completionStatus=TERMINATED).
+const VIEW_TABS = [
+  { value: 'active', label: 'Active', scope: { accountStatus: 'ACTIVE', completionStatus: 'IN_PROGRESS' } },
+  { value: 'all', label: 'All', scope: { accountStatus: undefined, completionStatus: undefined } },
+  { value: 'trash', label: '🗑️ Trash', scope: { accountStatus: 'TERMINATED', completionStatus: undefined } },
+];
 
 export default function Trainees() {
   const { user } = useAuth();
@@ -24,37 +41,100 @@ export default function Trainees() {
   const [traineeEditForm, setTraineeEditForm] = useState({});
   const [savingTraineeEdit, setSavingTraineeEdit] = useState(false);
   const [tab, setTab] = useState('enrollments');
+  const [viewTab, setViewTab] = useState('active');
   const [enrollments, setEnrollments] = useState([]);
   const [programs, setPrograms] = useState([]);
   const [topics, setTopics] = useState([]);
   const [selectedProgramId, setSelectedProgramId] = useState('');
   const [users, setUsers] = useState([]);
+  const [enrollableTrainees, setEnrollableTrainees] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState(null);
+  const [summary, setSummary] = useState({ total: 0, active: 0, completed: 0, trash: 0 });
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
   const [showProgramModal, setShowProgramModal] = useState(false);
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [showTopicModal, setShowTopicModal] = useState(false);
+  const [showCreateTraineeModal, setShowCreateTraineeModal] = useState(false);
   const [programForm, setProgramForm] = useState({ name: '', description: '', technology: '', duration: '', trainerId: '', mentorId: '', fee: '', discount: '', finalFee: '', startDate: '', endDate: '' });
   const [enrollForm, setEnrollForm] = useState({ userId: '', programId: '', mentorId: '', totalFee: '', discount: '', finalFee: '' });
   const [topicForm, setTopicForm] = useState({ topic: '', sequence: '', expectedDurationHours: '' });
+  const emptyNewTraineeForm = { email: '', password: '', firstName: '', lastName: '', phone: '' };
+  const [newTraineeForm, setNewTraineeForm] = useState(emptyNewTraineeForm);
+  const [savingNewTrainee, setSavingNewTrainee] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingProgram, setEditingProgram] = useState(null);
   const [programEditForm, setProgramEditForm] = useState({});
   const [editingTopic, setEditingTopic] = useState(null);
   const [topicEditForm, setTopicEditForm] = useState({});
+  const [importing, setImporting] = useState(false);
+  const [importErrors, setImportErrors] = useState(null);
+  const fileInputRef = useRef(null);
 
   const load = () => {
     setLoading(true);
-    Promise.all([api.get('/trainees/enrollments'), api.get('/trainees/programs'), api.get('/users')])
-      .then(([e, p, u]) => {
-        setEnrollments(e.data.data);
-        setPrograms(p.data.data);
-        setUsers(u.data.data);
-        if (!selectedProgramId && p.data.data.length) setSelectedProgramId(p.data.data[0].id);
+    const scope = VIEW_TABS.find((t) => t.value === viewTab).scope;
+    const countCall = (completionStatus) => api.get('/trainees/enrollments', { params: { completionStatus, limit: 1 } });
+
+    // allSettled so one failing call (e.g. a transient 429/500) doesn't
+    // blank the whole page — same fix already applied to Interns/Employees.
+    Promise.allSettled([
+      api.get('/trainees/enrollments', {
+        params: {
+          accountStatus: scope.accountStatus,
+          completionStatus: scope.completionStatus,
+          page,
+          limit: PAGE_SIZE,
+        },
+      }),
+      api.get('/trainees/programs'),
+      api.get('/users'),
+      api.get('/trainees/enrollable-users'),
+      countCall(undefined), // grand total, no completionStatus filter
+      countCall('IN_PROGRESS'),
+      countCall('COMPLETED'),
+      countCall('TERMINATED'),
+    ])
+      .then(([e, p, u, en, totalCount, activeCount, completedCount, trashCount]) => {
+        if (e.status === 'fulfilled') {
+          setEnrollments(e.value.data.data);
+          setMeta(e.value.data.meta || null);
+          setSelectedIds(new Set());
+        }
+        if (p.status === 'fulfilled') {
+          setPrograms(p.value.data.data);
+          if (!selectedProgramId && p.value.data.data.length) setSelectedProgramId(p.value.data.data[0].id);
+        }
+        if (u.status === 'fulfilled') setUsers(u.value.data.data);
+        if (en.status === 'fulfilled') setEnrollableTrainees(en.value.data.data);
+        // Total counts every enrollment regardless of status (IN_PROGRESS/
+        // COMPLETED/EXTENDED/CONVERTED_TO_EMPLOYEE/TERMINATED) — it isn't
+        // simply active+completed+trash, since EXTENDED/CONVERTED_TO_EMPLOYEE
+        // fall outside those three specific buckets. Each card updates
+        // independently from whichever count call succeeded, so one
+        // transient failure doesn't zero out the others.
+        setSummary((prev) => ({
+          total: totalCount.status === 'fulfilled' ? (totalCount.value.data.meta?.total ?? 0) : prev.total,
+          active: activeCount.status === 'fulfilled' ? (activeCount.value.data.meta?.total ?? 0) : prev.active,
+          completed: completedCount.status === 'fulfilled' ? (completedCount.value.data.meta?.total ?? 0) : prev.completed,
+          trash: trashCount.status === 'fulfilled' ? (trashCount.value.data.meta?.total ?? 0) : prev.trash,
+        }));
+
+        const failed = [e, p, u, en, totalCount, activeCount, completedCount, trashCount].find((r) => r.status === 'rejected');
+        if (failed) {
+          const status = failed.reason?.response?.status;
+          const message = status === 429
+            ? 'Too many requests right now — some data may be out of date. Please wait a moment and refresh.'
+            : (failed.reason?.response?.data?.message || 'Some trainee data failed to load — showing partial results.');
+          toast.error(message);
+        }
       })
       .finally(() => setLoading(false));
   };
-  useEffect(load, []);
+  useEffect(() => { setPage(1); }, [viewTab]);
+  useEffect(load, [viewTab, page]);
 
   useEffect(() => {
     if (!selectedProgramId) return;
@@ -81,6 +161,28 @@ export default function Trainees() {
     }
   };
 
+  // Create Trainee (profile only, no program) is deliberately separate from
+  // Enroll Trainee (assigns an existing trainee profile to a program) — see
+  // Interns' identical New Intern / Enroll to Batch split. Reuses the
+  // existing generic POST /users (role=TRAINEE) rather than a new endpoint;
+  // createUser already handles TRAINEE's employmentType default.
+  const handleCreateTrainee = async (e) => {
+    e.preventDefault();
+    if (savingNewTrainee) return;
+    setSavingNewTrainee(true);
+    try {
+      await api.post('/users', { ...newTraineeForm, phone: newTraineeForm.phone || null, role: 'TRAINEE' });
+      toast.success('Trainee profile created');
+      setShowCreateTraineeModal(false);
+      setNewTraineeForm(emptyNewTraineeForm);
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to create trainee profile');
+    } finally {
+      setSavingNewTrainee(false);
+    }
+  };
+
   const handleEnroll = async (e) => {
     e.preventDefault();
     setSaving(true);
@@ -93,6 +195,7 @@ export default function Trainees() {
       });
       toast.success('Trainee enrolled');
       setShowEnrollModal(false);
+      setEnrollForm({ userId: '', programId: '', mentorId: '', totalFee: '', discount: '', finalFee: '' });
       load();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to enroll trainee');
@@ -124,13 +227,91 @@ export default function Trainees() {
   };
 
   const handleTerminate = async (enrollment) => {
-    if (!window.confirm(`Remove ${enrollment.user.firstName} ${enrollment.user.lastName} as a trainee? This deactivates their account (soft delete) — the record is kept for history.`)) return;
+    if (!window.confirm(`Remove ${enrollment.user.firstName} ${enrollment.user.lastName} as a trainee? Their account will be deactivated and the record moved to Trash — this can be undone with Restore.`)) return;
     try {
       await api.delete(`/trainees/enrollments/${enrollment.id}`);
-      toast.success('Trainee removed');
+      toast.success('Trainee moved to Trash');
       load();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to remove trainee');
+    }
+  };
+
+  const handleRestore = async (enrollment) => {
+    try {
+      await api.post(`/trainees/enrollments/${enrollment.id}/restore`);
+      toast.success('Trainee restored');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to restore trainee');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Remove ${ids.length} selected trainee(s)? Their accounts will be deactivated and moved to Trash — this can be undone with Restore.`)) return;
+    try {
+      await Promise.all(ids.map((id) => api.delete(`/trainees/enrollments/${id}`)));
+      toast.success(`${ids.length} trainee(s) moved to Trash`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to remove some of the selected trainees');
+    } finally {
+      setSelectedIds(new Set());
+      load();
+    }
+  };
+
+  const toggleSelectOne = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const visibleIds = enrollments.map((r) => r.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+  const someVisibleSelected = visibleIds.some((id) => selectedIds.has(id));
+  const toggleSelectAllVisible = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        visibleIds.forEach((id) => next.delete(id));
+      } else {
+        visibleIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const handleImportClick = () => fileInputRef.current?.click();
+
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImporting(true);
+    setImportErrors(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      // Rows with no "Role" column default to TRAINEE here (Employees'
+      // Import leaves this unset, defaulting to EMPLOYEE) — same shared
+      // POST /users/import endpoint, see user.controller.js.
+      formData.append('defaultRole', 'TRAINEE');
+      const { data } = await api.post('/users/import', formData);
+      toast.success(data.data.message || `${data.data.imported} trainee(s) imported`);
+      load();
+    } catch (err) {
+      const details = err.response?.data?.details;
+      if (details?.errors?.length) {
+        setImportErrors(details.errors);
+        toast.error(`${details.errors.length} row(s) failed validation — nothing was imported. See details below.`);
+      } else {
+        toast.error(err.response?.data?.message || 'Import failed');
+      }
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -249,7 +430,29 @@ export default function Trainees() {
     }
   };
 
+  const selectColumn = {
+    key: 'select',
+    header: (
+      <input
+        type="checkbox"
+        aria-label="Select all visible trainees"
+        checked={allVisibleSelected}
+        ref={(el) => { if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected; }}
+        onChange={toggleSelectAllVisible}
+      />
+    ),
+    render: (r) => (
+      <input
+        type="checkbox"
+        aria-label={`Select ${r.user.firstName} ${r.user.lastName}`}
+        checked={selectedIds.has(r.id)}
+        onChange={() => toggleSelectOne(r.id)}
+      />
+    ),
+  };
+
   const enrollmentColumns = [
+    ...(isSuperAdmin ? [selectColumn] : []),
     { key: 'name', header: 'Trainee', render: (r) => <Link to={`/trainees/${r.id}`}>{r.user.firstName} {r.user.lastName}</Link> },
     { key: 'program', header: 'Program', render: (r) => r.program.name },
     { key: 'mentor', header: 'Mentor', render: (r) => r.mentor ? `${r.mentor.firstName} ${r.mentor.lastName}` : '—' },
@@ -262,7 +465,31 @@ export default function Trainees() {
           actions={[
             { key: 'view', icon: Eye, label: 'View', onClick: () => setViewingTrainee(r) },
             isManager && { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openTraineeEdit(r) },
-            isSuperAdmin && r.completionStatus !== 'TERMINATED' && { key: 'trash', icon: Trash2, label: 'Deactivate (soft delete)', danger: true, onClick: () => handleTerminate(r) },
+            // Delete is Super-Admin-only, matching the existing backend gate
+            // (DELETE /trainees/enrollments/:id, isSuperAdmin) — unlike
+            // Interns, this was never opened up to mentor-scoped Admins.
+            isSuperAdmin && { key: 'trash', icon: Trash2, label: 'Delete (move to Trash)', danger: true, onClick: () => handleTerminate(r) },
+          ]}
+        />
+      ),
+    },
+  ];
+
+  // Trash gets its own narrower column set — no Edit/Delete on an
+  // already-removed record, just enough to identify who it is and restore
+  // them (same convention as Employees/Interns' trashColumns).
+  const trashColumns = [
+    { key: 'name', header: 'Trainee', render: (r) => <Link to={`/trainees/${r.id}`}>{r.user.firstName} {r.user.lastName}</Link> },
+    { key: 'program', header: 'Program', render: (r) => r.program.name },
+    { key: 'status', header: 'Status', render: (r) => <Badge value={r.completionStatus} /> },
+    { key: 'exitDate', header: 'Removed Date', render: (r) => r.user.exitDate ? new Date(r.user.exitDate).toLocaleDateString() : '—' },
+    {
+      key: 'actions', header: 'Actions',
+      render: (r) => (
+        <TableActions
+          actions={[
+            { key: 'view', icon: Eye, label: 'View', onClick: () => setViewingTrainee(r) },
+            isSuperAdmin && { key: 'restore', icon: RotateCcw, label: 'Restore', onClick: () => handleRestore(r) },
           ]}
         />
       ),
@@ -308,7 +535,6 @@ export default function Trainees() {
     },
   ];
 
-  const potentialTrainees = users.filter((u) => !enrollments.some((e) => e.user.id === u.id) && u.role !== 'INTERN');
   const staffUsers = users.filter((u) => ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'].includes(u.role));
 
   return (
@@ -318,17 +544,37 @@ export default function Trainees() {
         subtitle="Training programs, curriculum topics, and trainee lifecycle"
         actions={(
           <>
-            {user.role === 'SUPER_ADMIN' && (
+            {isSuperAdmin && (
               <>
-                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/trainees', 'trainees.csv')}>Export CSV</button>
-                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/trainees?format=xlsx', 'trainees.xlsx')}>Export Excel</button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  style={{ display: 'none' }}
+                  onChange={handleImportFile}
+                />
+                <button className="btn btn-secondary" onClick={handleImportClick} disabled={importing}>
+                  <Upload size={14} /> {importing ? 'Importing...' : 'Import'}
+                </button>
+                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/trainees', 'trainees.csv')}><FileText size={14} /> Export CSV</button>
+                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/trainees?format=xlsx', 'trainees.xlsx')}><FileSpreadsheet size={14} /> Export Excel</button>
               </>
             )}
             <button className="btn btn-secondary" onClick={() => setShowProgramModal(true)}><Plus size={14} /> New Program</button>
+            <button className="btn btn-secondary" onClick={() => setShowCreateTraineeModal(true)}><Plus size={14} /> New Trainee</button>
             <button className="btn btn-primary" onClick={() => setShowEnrollModal(true)}><Plus size={14} /> Enroll Trainee</button>
           </>
         )}
       />
+
+      {tab === 'enrollments' && (
+        <div className="stat-grid">
+          <StatCard label="Total Trainees" value={summary.total} accent="blue" icon={Users} />
+          <StatCard label="Active / In Progress" value={summary.active} accent="green" icon={UserCheck} />
+          <StatCard label="Completed" value={summary.completed} accent="purple" icon={GraduationCap} />
+          <StatCard label="Trash" value={summary.trash} accent="red" icon={Trash2} />
+        </div>
+      )}
 
       <div className="tabs">
         <button className={`tab ${tab === 'enrollments' ? 'active' : ''}`} onClick={() => setTab('enrollments')}>Trainees</button>
@@ -336,9 +582,66 @@ export default function Trainees() {
         <button className={`tab ${tab === 'topics' ? 'active' : ''}`} onClick={() => setTab('topics')}>Curriculum Topics</button>
       </div>
 
+      {tab === 'enrollments' && (
+        <>
+          <div className="tabs">
+            {VIEW_TABS.map((t) => (
+              <button key={t.value} className={`tab ${viewTab === t.value ? 'active' : ''}`} onClick={() => setViewTab(t.value)}>
+                {t.value === 'trash' ? (<>{t.label}{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}</>) : t.label}
+              </button>
+            ))}
+          </div>
+
+          {isSuperAdmin && viewTab !== 'trash' && selectedIds.size > 0 && (
+            <div className="toolbar" style={{ marginBottom: 12 }}>
+              <span>{selectedIds.size} selected</span>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Clear selection</button>
+              <button type="button" className="btn btn-danger btn-sm" onClick={handleBulkDelete}>
+                <Trash2 size={14} /> Delete Selected ({selectedIds.size})
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
       {loading ? <div className="page-loading">Loading...</div> : (
         <>
-          {tab === 'enrollments' && <DataTable columns={enrollmentColumns} rows={enrollments} emptyMessage="No trainees enrolled yet." />}
+          {tab === 'enrollments' && (
+            <>
+              {viewTab === 'active' && enrollableTrainees.length > 0 && (
+                <div style={{ marginBottom: 20 }}>
+                  <p className="detail-section-title">Not Yet Enrolled ({enrollableTrainees.length})</p>
+                  <p className="empty-state" style={{ padding: 0, textAlign: 'left', marginBottom: 8 }}>
+                    These trainee profiles have been created but not yet assigned to a program — use Enroll Trainee to add them below.
+                  </p>
+                  <DataTable
+                    columns={[
+                      { key: 'name', header: 'Name', render: (r) => `${r.firstName} ${r.lastName}` },
+                      { key: 'email', header: 'Email' },
+                      {
+                        key: 'actions', header: '', render: (r) => (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => { setEnrollForm({ userId: r.id, programId: '', mentorId: '', totalFee: '', discount: '', finalFee: '' }); setShowEnrollModal(true); }}
+                          >
+                            Enroll
+                          </button>
+                        ),
+                      },
+                    ]}
+                    rows={enrollableTrainees}
+                  />
+                </div>
+              )}
+              <DataTable
+                columns={viewTab === 'trash' ? trashColumns : enrollmentColumns}
+                rows={enrollments}
+                emptyMessage={viewTab === 'trash' ? 'Trash is empty.' : 'No trainees enrolled yet.'}
+              />
+              <Pagination meta={meta} onPageChange={setPage} />
+            </>
+          )}
           {tab === 'programs' && <DataTable columns={programColumns} rows={programs} emptyMessage="No training programs yet." />}
           {tab === 'topics' && (
             <div>
@@ -386,13 +689,32 @@ export default function Trainees() {
         </Modal>
       )}
 
+      {showCreateTraineeModal && (
+        <Modal title="New Trainee" onClose={() => setShowCreateTraineeModal(false)}>
+          <form className="form-grid" onSubmit={handleCreateTrainee}>
+            <label>First name<input required value={newTraineeForm.firstName} onChange={(e) => setNewTraineeForm({ ...newTraineeForm, firstName: e.target.value })} /></label>
+            <label>Last name<input required value={newTraineeForm.lastName} onChange={(e) => setNewTraineeForm({ ...newTraineeForm, lastName: e.target.value })} /></label>
+            <label>Email<input type="email" required value={newTraineeForm.email} onChange={(e) => setNewTraineeForm({ ...newTraineeForm, email: e.target.value })} /></label>
+            <label>Temporary password<input type="password" required value={newTraineeForm.password} onChange={(e) => setNewTraineeForm({ ...newTraineeForm, password: e.target.value })} /></label>
+            <label>Phone<input value={newTraineeForm.phone} onChange={(e) => setNewTraineeForm({ ...newTraineeForm, phone: e.target.value })} /></label>
+            <p className="empty-state" style={{ padding: 0, textAlign: 'left', marginTop: -4 }}>
+              This only creates the trainee's profile. Use "Enroll Trainee" afterward to assign them to a program.
+            </p>
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setShowCreateTraineeModal(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={savingNewTrainee}>{savingNewTrainee ? 'Creating...' : 'Create'}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
       {showEnrollModal && (
         <Modal title="Enroll Trainee" onClose={() => setShowEnrollModal(false)}>
           <form className="form-grid" onSubmit={handleEnroll}>
             <label>Trainee
               <select required value={enrollForm.userId} onChange={(e) => setEnrollForm({ ...enrollForm, userId: e.target.value })}>
-                <option value="">Select user...</option>
-                {potentialTrainees.map((u) => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+                <option value="">Select trainee...</option>
+                {enrollableTrainees.map((u) => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
               </select>
             </label>
             <label>Program
@@ -437,6 +759,7 @@ export default function Trainees() {
           <div className="detail-card">
             <div className="detail-card-header">
               <Badge value={viewingTrainee.completionStatus} />
+              <Badge value={viewingTrainee.user.status} />
             </div>
             <div className="detail-grid">
               <DetailField icon={Mail} label="Email" value={viewingTrainee.user.email} />
@@ -465,7 +788,7 @@ export default function Trainees() {
             </label>
             <label>Completion Status
               <select value={traineeEditForm.completionStatus} onChange={(e) => setTraineeEditForm({ ...traineeEditForm, completionStatus: e.target.value })}>
-                {COMPLETION_STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+                {EDITABLE_COMPLETION_STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
               </select>
             </label>
             <label>Training Start Date<input type="date" value={traineeEditForm.trainingStartDate} onChange={(e) => setTraineeEditForm({ ...traineeEditForm, trainingStartDate: e.target.value })} /></label>
@@ -534,6 +857,33 @@ export default function Trainees() {
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {importErrors && (
+        <Modal size="wide" title={`Import failed — ${importErrors.length} row(s) had errors`} onClose={() => setImportErrors(null)}>
+          <p className="empty-state" style={{ padding: 0, textAlign: 'left', marginBottom: 12 }}>
+            Nothing was imported — fix these rows in your CSV and try again.
+          </p>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr><th>Row</th><th>Email</th><th>Errors</th></tr>
+              </thead>
+              <tbody>
+                {importErrors.map((e) => (
+                  <tr key={e.row}>
+                    <td>{e.row}</td>
+                    <td>{e.email || '—'}</td>
+                    <td>{e.errors.join('; ')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="form-actions">
+            <button type="button" className="btn btn-ghost" onClick={() => setImportErrors(null)}>Close</button>
+          </div>
         </Modal>
       )}
     </div>
