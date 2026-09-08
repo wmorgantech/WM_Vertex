@@ -224,5 +224,35 @@ router.get('/expenses', ctrl.exportExpenses);
  *             schema: { $ref: '#/components/schemas/ApiError' }
  */
 router.get('/enquiries', ctrl.exportEnquiries);
+/**
+ * @swagger
+ * /reports/intern-documents:
+ *   get:
+ *     tags: [Reports]
+ *     summary: Export intern document review metadata report
+ *     description: >
+ *       SUPER_ADMIN only. Metadata only (intern, type, status, reviewer,
+ *       dates) — never the uploaded binary files themselves; use
+ *       GET /documents/{id}/download for an individual file. Excludes
+ *       soft-deleted (Trash) documents.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { name: format, in: query, schema: { type: string, enum: [csv, xlsx], default: csv } }
+ *     responses:
+ *       200:
+ *         description: File download (CSV or XLSX depending on `format`); filename is set in the Content-Disposition header.
+ *         content:
+ *           text/csv:
+ *             schema: { type: string, format: binary }
+ *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+ *             schema: { type: string, format: binary }
+ *       403:
+ *         description: Forbidden (SUPER_ADMIN only)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.get('/intern-documents', ctrl.exportDocuments);
 
 module.exports = router;

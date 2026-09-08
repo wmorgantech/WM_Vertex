@@ -337,7 +337,7 @@ async function updateRemarks(req, res) {
     data: { adminRemarks: remarks || null },
   });
   await prisma.internDocumentAudit.create({
-    data: { documentId: document.id, action: 'SUBMITTED', actorId: req.user.id, remarks: 'Remarks edited by reviewer' },
+    data: { documentId: document.id, action: 'EDITED', actorId: req.user.id, remarks: 'Remarks edited by reviewer' },
   });
   return sendSuccess(res, 200, document);
 }
@@ -355,7 +355,7 @@ async function deleteDocument(req, res) {
   if (document.deletedAt) throw new ApiError(400, 'This document is already in Trash');
 
   const updated = await prisma.internDocument.update({ where: { id: req.params.id }, data: { deletedAt: new Date() } });
-  await prisma.internDocumentAudit.create({ data: { documentId: document.id, action: 'REJECTED', actorId: req.user.id, remarks: 'Moved to Trash' } });
+  await prisma.internDocumentAudit.create({ data: { documentId: document.id, action: 'DELETED', actorId: req.user.id } });
   await recordAuditSafe(req, document, updated);
   return sendSuccess(res, 200, { message: 'Document moved to Trash' });
 }
@@ -367,7 +367,7 @@ async function restoreDocument(req, res) {
   if (!document.deletedAt) throw new ApiError(400, 'This document is not in Trash');
 
   const updated = await prisma.internDocument.update({ where: { id: req.params.id }, data: { deletedAt: null } });
-  await prisma.internDocumentAudit.create({ data: { documentId: document.id, action: 'SUBMITTED', actorId: req.user.id, remarks: 'Restored from Trash' } });
+  await prisma.internDocumentAudit.create({ data: { documentId: document.id, action: 'RESTORED', actorId: req.user.id } });
   return sendSuccess(res, 200, updated);
 }
 

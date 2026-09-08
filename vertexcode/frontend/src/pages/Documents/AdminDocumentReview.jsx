@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, XCircle, ShieldCheck, FileText, Award, Download, Eye, Send } from 'lucide-react';
+import { CheckCircle2, XCircle, ShieldCheck, FileText, FileSpreadsheet, Award, Download, Eye, Send, Trash2, RotateCcw, Pencil, ClipboardList, Clock, Archive } from 'lucide-react';
 import api from '@/api/axios';
 import { useAuth } from '@/context/AuthContext';
 import PageHeader from '@/components/shared/PageHeader';
 import Table from '@/components/shared/Table';
 import Dialog from '@/components/shared/Dialog';
 import Badge from '@/components/shared/Badge';
+import KpiCard from '@/components/shared/KpiCard';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import toast from 'react-hot-toast';
+import { downloadReport } from '../../lib/download';
 
 const DOC_LABELS = {
   BONAFIDE: 'Bonafide Certificate',
@@ -31,6 +33,41 @@ const PROFILE_FIELDS = [
   { key: 'hodName', label: 'HOD / Staff Name' },
 ];
 
+// Client-side only — builds a CSV from the already-loaded on-screen rows for
+// whichever interns are currently checked. Deliberately not a backend call:
+// this is a lightweight "export just what I've selected" convenience, not a
+// substitute for the full Export CSV/Excel (which pulls fresh document
+// metadata from the API) below.
+function exportSelectedToCsv(rows) {
+  const headers = ['Intern', 'Batch', 'Category', 'Register Number', 'Pending Review', 'Verified', 'Rejected', 'Approved'];
+  const escape = (v) => {
+    const s = String(v ?? '');
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [headers.join(',')];
+  rows.forEach((r) => {
+    lines.push([
+      `${r.user.firstName} ${r.user.lastName}`,
+      r.batch?.name || '',
+      r.category || '',
+      r.registerNumber || '',
+      r.documents.filter((d) => d.status === 'PENDING_REVIEW').length,
+      r.documents.filter((d) => d.status === 'VERIFIED').length,
+      r.documents.filter((d) => d.status === 'REJECTED').length,
+      r.finalApprovedAt ? 'Yes' : 'No',
+    ].map(escape).join(','));
+  });
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `selected-interns-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export default function AdminDocumentReview() {
   const { user } = useAuth();
   const isSuperAdmin = user.role === 'SUPER_ADMIN';
@@ -40,23 +77,44 @@ export default function AdminDocumentReview() {
   // else in this review flow (document approve/reject, enrollment detail).
   // Certificate generation stays Super-Admin-only (unchanged, out of scope).
   const isManager = isSuperAdmin || user.role === 'ADMIN';
+  const [pageTab, setPageTab] = useState('review');
   const [enrollments, setEnrollments] = useState([]);
+  const [trashDocs, setTrashDocs] = useState([]);
+  const [summary, setSummary] = useState({ totalDocuments: 0, pendingReview: 0, verified: 0, rejected: 0, approved: 0, trash: 0 });
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
   const [acting, setActing] = useState(null);
   const [lifecycleActing, setLifecycleActing] = useState(null);
+  const [selectedEnrollmentIds, setSelectedEnrollmentIds] = useState(new Set());
+  const [selectedDocIds, setSelectedDocIds] = useState(new Set());
+  const [editingRemarksDoc, setEditingRemarksDoc] = useState(null);
+  const [remarksDraft, setRemarksDraft] = useState('');
 
   const load = () => {
     setLoading(true);
-    api.get('/documents')
-      .then(({ data }) => setEnrollments(data.data))
+    Promise.allSettled([
+      api.get('/documents'),
+      api.get('/documents/summary'),
+      pageTab === 'trash' ? api.get('/documents/trash') : Promise.resolve(null),
+    ])
+      .then(([e, s, t]) => {
+        if (e.status === 'fulfilled') {
+          setEnrollments(e.value.data.data);
+          setSelectedEnrollmentIds(new Set());
+        }
+        if (s.status === 'fulfilled') setSummary(s.value.data.data);
+        if (t?.status === 'fulfilled') setTrashDocs(t.value.data.data);
+        const failed = [e, s, t].filter(Boolean).find((r) => r.status === 'rejected');
+        if (failed) toast.error(failed.reason?.response?.data?.message || 'Some data failed to load');
+      })
       .finally(() => setLoading(false));
   };
-  useEffect(load, []);
+  useEffect(load, [pageTab]);
 
   const openDetail = async (enrollment) => {
     const { data } = await api.get(`/documents/enrollment/${enrollment.id}`);
     setSelected(data.data);
+    setSelectedDocIds(new Set());
   };
 
   const refreshSelected = async () => {
@@ -93,6 +151,64 @@ export default function AdminDocumentReview() {
       toast.error(err.response?.data?.message || 'Failed to reject document');
     } finally {
       setActing(null);
+    }
+  };
+
+  const openEditRemarks = (doc) => {
+    setEditingRemarksDoc(doc);
+    setRemarksDraft(doc.adminRemarks || '');
+  };
+
+  const handleSaveRemarks = async () => {
+    setActing(editingRemarksDoc.id);
+    try {
+      await api.patch(`/documents/${editingRemarksDoc.id}/remarks`, { remarks: remarksDraft });
+      toast.success('Remarks updated');
+      setEditingRemarksDoc(null);
+      await refreshSelected();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update remarks');
+    } finally {
+      setActing(null);
+    }
+  };
+
+  const handleDeleteDoc = async (docId) => {
+    if (!window.confirm('Move this document to Trash? This can be undone with Restore.')) return;
+    setActing(docId);
+    try {
+      await api.delete(`/documents/${docId}`);
+      toast.success('Document moved to Trash');
+      await refreshSelected();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to remove document');
+    } finally {
+      setActing(null);
+    }
+  };
+
+  const handleBulkDeleteDocs = async () => {
+    const ids = Array.from(selectedDocIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Move ${ids.length} selected document(s) to Trash? This can be undone with Restore.`)) return;
+    try {
+      await Promise.all(ids.map((id) => api.delete(`/documents/${id}`)));
+      toast.success(`${ids.length} document(s) moved to Trash`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to remove some of the selected documents');
+    } finally {
+      setSelectedDocIds(new Set());
+      await refreshSelected();
+    }
+  };
+
+  const handleRestoreDoc = async (docId) => {
+    try {
+      await api.post(`/documents/${docId}/restore`);
+      toast.success('Document restored');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to restore document');
     }
   };
 
@@ -175,7 +291,66 @@ export default function AdminDocumentReview() {
     }
   };
 
+  const toggleSelectEnrollment = (id) => {
+    setSelectedEnrollmentIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const visibleEnrollmentIds = enrollments.map((r) => r.id);
+  const allEnrollmentsSelected = visibleEnrollmentIds.length > 0 && visibleEnrollmentIds.every((id) => selectedEnrollmentIds.has(id));
+  const someEnrollmentsSelected = visibleEnrollmentIds.some((id) => selectedEnrollmentIds.has(id));
+  const toggleSelectAllEnrollments = () => {
+    setSelectedEnrollmentIds((prev) => {
+      const next = new Set(prev);
+      if (allEnrollmentsSelected) visibleEnrollmentIds.forEach((id) => next.delete(id));
+      else visibleEnrollmentIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
+  const toggleSelectDoc = (id) => {
+    setSelectedDocIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const visibleDocIds = (selected?.documents || []).map((d) => d.id);
+  const allDocsSelected = visibleDocIds.length > 0 && visibleDocIds.every((id) => selectedDocIds.has(id));
+  const someDocsSelected = visibleDocIds.some((id) => selectedDocIds.has(id));
+  const toggleSelectAllDocs = () => {
+    setSelectedDocIds((prev) => {
+      const next = new Set(prev);
+      if (allDocsSelected) visibleDocIds.forEach((id) => next.delete(id));
+      else visibleDocIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
   const columns = [
+    ...(isSuperAdmin ? [{
+      key: 'select',
+      header: (
+        <input
+          type="checkbox"
+          aria-label="Select all visible interns"
+          checked={allEnrollmentsSelected}
+          ref={(el) => { if (el) el.indeterminate = someEnrollmentsSelected && !allEnrollmentsSelected; }}
+          onChange={toggleSelectAllEnrollments}
+        />
+      ),
+      render: (r) => (
+        <input
+          type="checkbox"
+          aria-label={`Select ${r.user.firstName} ${r.user.lastName}`}
+          checked={selectedEnrollmentIds.has(r.id)}
+          onChange={() => toggleSelectEnrollment(r.id)}
+        />
+      ),
+    }] : []),
+    { key: 'id', header: 'ID', render: (r) => <span title={r.id}>{r.id.slice(0, 8)}</span> },
     { key: 'name', header: 'Intern', render: (r) => `${r.user.firstName} ${r.user.lastName}` },
     { key: 'batch', header: 'Batch', render: (r) => r.batch?.name || '—' },
     { key: 'category', header: 'Category', render: (r) => r.category ? <Badge value={r.category} /> : '—' },
@@ -184,10 +359,46 @@ export default function AdminDocumentReview() {
     { key: 'verified', header: 'Verified', render: (r) => r.documents.filter((d) => d.status === 'VERIFIED').length },
     { key: 'rejected', header: 'Rejected', render: (r) => r.documents.filter((d) => d.status === 'REJECTED').length },
     { key: 'approval', header: 'Approval', render: (r) => r.finalApprovedAt ? <Badge value="INTERNSHIP_CONFIRMED" /> : '—' },
-    { key: 'actions', header: 'Actions', render: (r) => <Button size="sm" onClick={() => openDetail(r)}>Review</Button> },
+    { key: 'actions', header: 'Actions', render: (r) => <Button size="sm" onClick={() => openDetail(r)}><Eye />Review</Button> },
+  ];
+
+  const trashColumns = [
+    { key: 'id', header: 'ID', render: (d) => <span title={d.id}>{d.id.slice(0, 8)}</span> },
+    { key: 'intern', header: 'Intern', render: (d) => `${d.enrollment.user.firstName} ${d.enrollment.user.lastName}` },
+    { key: 'batch', header: 'Batch', render: (d) => d.enrollment.batch?.name || '—' },
+    { key: 'type', header: 'Document', render: (d) => DOC_LABELS[d.type] },
+    { key: 'status', header: 'Status', render: (d) => <Badge value={d.status} /> },
+    { key: 'deletedAt', header: 'Removed', render: (d) => d.deletedAt ? new Date(d.deletedAt).toLocaleString() : '—' },
+    {
+      key: 'actions', header: 'Actions',
+      render: (d) => isSuperAdmin ? (
+        <Button size="sm" variant="secondary" onClick={() => handleRestoreDoc(d.id)}><RotateCcw />Restore</Button>
+      ) : '—',
+    },
   ];
 
   const docColumns = [
+    ...(isSuperAdmin ? [{
+      key: 'select',
+      header: (
+        <input
+          type="checkbox"
+          aria-label="Select all documents"
+          checked={allDocsSelected}
+          ref={(el) => { if (el) el.indeterminate = someDocsSelected && !allDocsSelected; }}
+          onChange={toggleSelectAllDocs}
+        />
+      ),
+      render: (d) => (
+        <input
+          type="checkbox"
+          aria-label={`Select ${DOC_LABELS[d.type]}`}
+          checked={selectedDocIds.has(d.id)}
+          onChange={() => toggleSelectDoc(d.id)}
+        />
+      ),
+    }] : []),
+    { key: 'id', header: 'ID', render: (d) => <span title={d.id}>{d.id.slice(0, 8)}</span> },
     { key: 'type', header: 'Document', render: (d) => DOC_LABELS[d.type] },
     { key: 'fileName', header: 'File Name' },
     { key: 'uploadedAt', header: 'Uploaded', render: (d) => new Date(d.uploadedAt).toLocaleDateString() },
@@ -196,27 +407,83 @@ export default function AdminDocumentReview() {
     {
       key: 'actions',
       header: 'Actions',
-      render: (d) => d.status === 'PENDING_REVIEW' ? (
+      render: (d) => (
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="success" disabled={acting === d.id} onClick={() => handleApprove(d.id)}>
-            <CheckCircle2 />
-            Approve
+          {d.status === 'PENDING_REVIEW' && (
+            <>
+              <Button size="sm" variant="success" disabled={acting === d.id} onClick={() => handleApprove(d.id)}>
+                <CheckCircle2 />
+                Approve
+              </Button>
+              <Button size="sm" variant="destructive" disabled={acting === d.id} onClick={() => handleReject(d.id)}>
+                <XCircle />
+                Reject
+              </Button>
+            </>
+          )}
+          <Button size="sm" variant="ghost" disabled={acting === d.id} onClick={() => openEditRemarks(d)}>
+            <Pencil />
           </Button>
-          <Button size="sm" variant="destructive" disabled={acting === d.id} onClick={() => handleReject(d.id)}>
-            <XCircle />
-            Reject
-          </Button>
+          {isSuperAdmin && (
+            <Button size="sm" variant="ghost" disabled={acting === d.id} onClick={() => handleDeleteDoc(d.id)}>
+              <Trash2 />
+            </Button>
+          )}
         </div>
-      ) : '—',
+      ),
     },
   ];
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Intern Document Review" subtitle="Review internship profiles and verify uploaded documents" />
+      <PageHeader
+        title="Intern Document Review"
+        subtitle="Review internship profiles and verify uploaded documents"
+        actions={isSuperAdmin ? (
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={() => downloadReport('/reports/intern-documents', 'intern-documents.csv')}><FileText />Export CSV</Button>
+            <Button variant="secondary" onClick={() => downloadReport('/reports/intern-documents?format=xlsx', 'intern-documents.xlsx')}><FileSpreadsheet />Export Excel</Button>
+          </div>
+        ) : undefined}
+      />
+
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+        <KpiCard label="Total Documents" value={summary.totalDocuments} accent="primary" icon={ClipboardList} />
+        <KpiCard label="Pending Review" value={summary.pendingReview} accent="warning" icon={Clock} />
+        <KpiCard label="Verified" value={summary.verified} accent="success" icon={CheckCircle2} />
+        <KpiCard label="Rejected" value={summary.rejected} accent="destructive" icon={XCircle} />
+        <KpiCard label="Approved (Interns)" value={summary.approved} accent="purple" icon={ShieldCheck} />
+      </div>
+
+      <div className="flex items-center gap-2 border-b border-border">
+        <button
+          className={`px-3 py-2 text-sm font-medium ${pageTab === 'review' ? 'border-b-2 border-primary text-foreground' : 'text-muted-foreground'}`}
+          onClick={() => setPageTab('review')}
+        >
+          Review Queue
+        </button>
+        <button
+          className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium ${pageTab === 'trash' ? 'border-b-2 border-primary text-foreground' : 'text-muted-foreground'}`}
+          onClick={() => setPageTab('trash')}
+        >
+          <Archive className="size-4" /> Trash {summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}
+        </button>
+      </div>
+
+      {isSuperAdmin && pageTab === 'review' && selectedEnrollmentIds.size > 0 && (
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 p-3 text-sm">
+          <span>{selectedEnrollmentIds.size} selected</span>
+          <Button size="sm" variant="ghost" onClick={() => setSelectedEnrollmentIds(new Set())}>Clear selection</Button>
+          <Button size="sm" variant="secondary" onClick={() => exportSelectedToCsv(enrollments.filter((r) => selectedEnrollmentIds.has(r.id)))}>
+            <FileText /> Export Selected
+          </Button>
+        </div>
+      )}
 
       {loading ? <Skeleton className="h-80" /> : (
-        <Table columns={columns} rows={enrollments} emptyMessage="No intern enrollments found." />
+        pageTab === 'trash'
+          ? <Table columns={trashColumns} rows={trashDocs} emptyMessage="Trash is empty." />
+          : <Table columns={columns} rows={enrollments} emptyMessage="No intern enrollments found." />
       )}
 
       {selected && (
@@ -238,6 +505,14 @@ export default function AdminDocumentReview() {
                 </div>
               ))}
             </dl>
+
+            {isSuperAdmin && selectedDocIds.size > 0 && (
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 p-2 text-sm">
+                <span>{selectedDocIds.size} selected</span>
+                <Button size="sm" variant="ghost" onClick={() => setSelectedDocIds(new Set())}>Clear</Button>
+                <Button size="sm" variant="destructive" onClick={handleBulkDeleteDocs}><Trash2 />Delete Selected</Button>
+              </div>
+            )}
             <Table columns={docColumns} rows={selected.documents} emptyMessage="No documents uploaded yet." />
 
             {isManager && (() => {
@@ -307,6 +582,25 @@ export default function AdminDocumentReview() {
                 </div>
               );
             })()}
+          </div>
+        </Dialog>
+      )}
+
+      {editingRemarksDoc && (
+        <Dialog title={`Edit Remarks — ${DOC_LABELS[editingRemarksDoc.type]}`} onClose={() => setEditingRemarksDoc(null)}>
+          <div className="space-y-4">
+            <textarea
+              className="min-h-24 w-full rounded-md border border-input bg-transparent p-2 text-sm"
+              value={remarksDraft}
+              onChange={(e) => setRemarksDraft(e.target.value)}
+              placeholder="Remarks visible to reviewers (not the file, type or status — those stay immutable)"
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setEditingRemarksDoc(null)}>Cancel</Button>
+              <Button disabled={acting === editingRemarksDoc.id} onClick={handleSaveRemarks}>
+                {acting === editingRemarksDoc.id ? 'Saving...' : 'Save'}
+              </Button>
+            </div>
           </div>
         </Dialog>
       )}

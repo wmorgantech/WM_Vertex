@@ -195,6 +195,42 @@ async function exportExpenses(req, res) {
   ], { totals: ['amount'], sheetName: 'Expenses' });
 }
 
+// Document metadata only — never the uploaded binary files themselves (a
+// CSV/XLSX row can't meaningfully contain a PDF/image anyway; use the
+// existing GET /documents/:id/download for the actual file). Excludes
+// soft-deleted (Trash) documents, matching every other export's convention
+// of reporting on the live/active data set.
+async function exportDocuments(req, res) {
+  const rows = await prisma.internDocument.findMany({
+    where: { deletedAt: null },
+    include: {
+      enrollment: {
+        include: {
+          user: { select: { firstName: true, lastName: true, email: true } },
+          batch: { select: { name: true } },
+        },
+      },
+      reviewedBy: { select: { firstName: true, lastName: true } },
+    },
+    orderBy: { uploadedAt: 'desc' },
+  });
+  await audited(req, 'INTERN_DOCUMENT_REPORT');
+  return sendReport(req, res, `intern-documents-${dateStamp()}`, rows, [
+    { key: 'enrollment.user.firstName', header: 'Intern First Name' },
+    { key: 'enrollment.user.lastName', header: 'Intern Last Name' },
+    { key: 'enrollment.user.email', header: 'Email' },
+    { key: 'enrollment.batch.name', header: 'Batch' },
+    { key: 'type', header: 'Document Type' },
+    { key: 'fileName', header: 'File Name' },
+    { key: 'status', header: 'Status' },
+    { key: 'adminRemarks', header: 'Remarks' },
+    { key: 'reviewedBy.firstName', header: 'Reviewed By First Name' },
+    { key: 'reviewedBy.lastName', header: 'Reviewed By Last Name' },
+    { key: 'reviewedAt', header: 'Reviewed At', type: 'date' },
+    { key: 'uploadedAt', header: 'Uploaded At', type: 'date' },
+  ]);
+}
+
 async function exportEnquiries(req, res) {
   const rows = await prisma.enquiry.findMany({
     include: { assignedEmployee: { select: { firstName: true, lastName: true } } },
@@ -218,5 +254,5 @@ async function exportEnquiries(req, res) {
 
 module.exports = {
   exportEmployees, exportAttendance, exportTimesheets, exportTasks, exportInterns, exportTrainees, exportExpenses,
-  exportEnquiries,
+  exportEnquiries, exportDocuments,
 };
