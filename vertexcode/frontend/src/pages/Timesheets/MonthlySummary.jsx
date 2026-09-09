@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Eye, Clock, CheckCircle2, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import api from '../../api/axios';
 import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
@@ -260,14 +260,15 @@ export default function MonthlySummary({ userId, onViewWeek }) {
       {loading ? <div className="page-loading">Loading...</div> : monthSummary && (
         <>
           <SummaryCards items={[
-            { label: 'Expected', value: `${monthSummary.expectedHours}h` },
-            { label: 'Actual', value: `${monthSummary.actualHours}h` },
+            { label: 'Expected', value: `${monthSummary.expectedHours}h`, icon: Clock, accent: 'blue' },
+            { label: 'Actual', value: `${monthSummary.actualHours}h`, icon: CheckCircle2, accent: 'blue' },
             {
               label: 'Difference',
               value: `${monthSummary.difference > 0 ? '+' : ''}${monthSummary.difference}h`,
-              tone: monthSummary.difference > 0 ? 'positive' : monthSummary.difference < 0 ? 'negative' : 'neutral',
+              icon: monthSummary.difference > 0 ? TrendingUp : monthSummary.difference < 0 ? TrendingDown : Minus,
+              accent: monthSummary.difference > 0 ? 'green' : monthSummary.difference < 0 ? 'amber' : 'gray',
             },
-            { label: 'Working Days', value: monthSummary.workingDays },
+            { label: 'Working Days', value: monthSummary.workingDays, icon: Calendar, accent: 'purple' },
           ]} />
 
           <MonthCalendar days={monthSummary.days} todayIso={todayIso} leaveByDate={leaveByDate} />

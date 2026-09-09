@@ -192,8 +192,9 @@ async function listEnrollments(req, res) {
   // rely on this endpoint returning their full, unbounded result set, so a
   // request with no page/limit keeps returning exactly what it does today.
   const paginate = page !== undefined || limit !== undefined;
+  const currentPage = Math.max(parseInt(page, 10) || 1, 1);
   const take = paginate ? Math.min(parseInt(limit, 10) || 25, 100) : undefined;
-  const skip = paginate ? (Math.max(parseInt(page, 10), 1) - 1) * take : undefined;
+  const skip = paginate ? (currentPage - 1) * take : undefined;
 
   const [enrollments, total] = await Promise.all([
     prisma.traineeEnrollment.findMany({
@@ -209,7 +210,7 @@ async function listEnrollments(req, res) {
     }),
     paginate ? prisma.traineeEnrollment.count({ where }) : Promise.resolve(undefined),
   ]);
-  return sendSuccess(res, 200, enrollments, paginate ? { total, page: Math.max(parseInt(page, 10), 1) || 1, limit: take } : undefined);
+  return sendSuccess(res, 200, enrollments, paginate ? { total, page: currentPage, limit: take } : undefined);
 }
 
 function assertTraineeAccess(req, enrollment) {

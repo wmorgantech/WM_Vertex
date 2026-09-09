@@ -485,30 +485,32 @@ input, select, textarea { font-family: inherit; }
   outline-offset: 2px;
 }
 
-/* --- Stat cards --- */
+/* --- Stat cards ---
+   Visually standardized to match the Intern Documents review page's
+   KpiCard (components/shared/KpiCard.jsx + components/ui/card.jsx, the
+   Tailwind/shadcn side of the app) exactly: same padding (20px = p-5), same
+   radius (14px = this app's --radius-xl, see styles/globals.css), same
+   border + shadow (shadow-xs), same internal gap (12px = gap-3), same icon
+   chip (32px/8px-radius/16px-icon), same label/value typography. Color is
+   conveyed only via the icon chip (no colored top border/stripe), matching
+   the reference — same accent→color mapping as before, just expressed the
+   same way KpiCard expresses it. */
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
 .stat-card {
   background: var(--surface);
-  border-radius: var(--radius);
+  border-radius: 14px;
   border: 1px solid var(--border);
-  box-shadow: var(--shadow);
-  padding: 18px;
-  border-top: 3px solid var(--brand);
+  box-shadow: 0 1px 2px hsl(220 20% 10% / 0.04);
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  min-height: 96px;
+  gap: 12px;
 }
-.stat-card.accent-green { border-top-color: var(--green); }
-.stat-card.accent-amber { border-top-color: var(--amber); }
-.stat-card.accent-red { border-top-color: var(--red); }
-.stat-card.accent-purple { border-top-color: var(--purple); }
-.stat-card.accent-gray { border-top-color: var(--gray); }
 .stat-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .stat-icon {
   display: flex;
@@ -528,7 +530,7 @@ input, select, textarea { font-family: inherit; }
 .stat-card.accent-purple .stat-icon { background: #ede9fe; color: var(--purple); }
 .stat-card.accent-gray .stat-icon { background: #f3f4f6; color: var(--gray); }
 .stat-label { font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; }
-.stat-value { font-size: 26px; font-weight: 700; margin-top: 4px; letter-spacing: -0.01em; }
+.stat-value { font-size: 24px; font-weight: 600; margin-top: 4px; letter-spacing: -0.01em; }
 .stat-hint { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
 /* --- Cards --- */
@@ -949,37 +951,6 @@ input, select, textarea { font-family: inherit; }
   flex-wrap: wrap;
   margin-top: 20px;
 }
-
-/* --- Timesheet summary stat cards (Weekly + Monthly) ---
-   Scoped to Timesheets only; .stat-card / .stat-grid (used by Dashboard and
-   other pages) are untouched — this is a smaller, quieter card purpose-built
-   for these four metrics: a subtle border instead of a shadow/accent-stripe,
-   no icon well, equal height via the grid itself. 4-up on desktop, 2x2 once
-   the row can no longer fit comfortably. */
-.ts-stat-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  margin: 10px 0 22px;
-}
-@media (max-width: 720px) {
-  .ts-stat-grid { grid-template-columns: repeat(2, 1fr); }
-}
-.ts-stat-card {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 4px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 14px 16px;
-}
-.ts-stat-value { font-size: 22px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1.2; }
-.ts-stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
-.ts-stat-value.ts-stat-positive { color: var(--green); }
-.ts-stat-value.ts-stat-negative { color: var(--amber); }
-.ts-stat-value.ts-stat-neutral { color: var(--text); }
 
 /* --- Badge --- */
 .badge {

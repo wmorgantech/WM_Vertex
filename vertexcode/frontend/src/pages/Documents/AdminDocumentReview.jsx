@@ -102,7 +102,16 @@ export default function AdminDocumentReview() {
           setEnrollments(e.value.data.data);
           setSelectedEnrollmentIds(new Set());
         }
-        if (s.status === 'fulfilled') setSummary(s.value.data.data);
+        if (s.status === 'fulfilled') {
+          setSummary(s.value.data?.data || {
+            totalDocuments: 0,
+            pendingReview: 0,
+            verified: 0,
+            rejected: 0,
+            approved: 0,
+            trash: 0,
+          });
+        }
         if (t?.status === 'fulfilled') setTrashDocs(t.value.data.data);
         const failed = [e, s, t].filter(Boolean).find((r) => r.status === 'rejected');
         if (failed) toast.error(failed.reason?.response?.data?.message || 'Some data failed to load');

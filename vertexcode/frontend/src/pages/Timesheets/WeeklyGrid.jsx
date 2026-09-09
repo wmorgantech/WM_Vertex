@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Plus, Trash2, CheckCircle2, TriangleAlert, Check, Pencil, X as XIcon } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Plus, Trash2, CheckCircle2, TriangleAlert, Check, Pencil, X as XIcon, Clock, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import api from '../../api/axios';
 import Badge from '../../components/common/Badge';
 import SummaryCards from './SummaryCards';
@@ -388,14 +388,15 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
         const diff = weekTotal - summary.expectedHours;
         return (
           <SummaryCards items={[
-            { label: 'Expected', value: `${summary.expectedHours.toFixed(2)}h` },
-            { label: 'Actual', value: `${weekTotal.toFixed(2)}h` },
+            { label: 'Expected', value: `${summary.expectedHours.toFixed(2)}h`, icon: Clock, accent: 'blue' },
+            { label: 'Actual', value: `${weekTotal.toFixed(2)}h`, icon: CheckCircle2, accent: 'blue' },
             {
               label: 'Difference',
               value: `${diff > 0 ? '+' : ''}${diff.toFixed(2)}h`,
-              tone: diff > 0 ? 'positive' : diff < 0 ? 'negative' : 'neutral',
+              icon: diff > 0 ? TrendingUp : diff < 0 ? TrendingDown : Minus,
+              accent: diff > 0 ? 'green' : diff < 0 ? 'amber' : 'gray',
             },
-            { label: 'Working Days', value: summary.workingDays },
+            { label: 'Working Days', value: summary.workingDays, icon: Calendar, accent: 'purple' },
           ]} />
         );
       })()}
