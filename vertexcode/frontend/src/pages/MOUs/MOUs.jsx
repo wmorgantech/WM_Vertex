@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Trash2, Eye, Pencil } from 'lucide-react';
+import { Plus, Trash2, Eye, Pencil, FileSignature, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -8,6 +8,7 @@ import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import TableActions from '../../components/common/TableActions';
 import DetailField from '../../components/common/DetailField';
+import StatCard from '../../components/common/StatCard';
 import toast from 'react-hot-toast';
 import { downloadReport } from '../../lib/download';
 
@@ -125,6 +126,18 @@ export default function MOUs() {
     }
   };
 
+  // Computed client-side from the already-fully-loaded `mous` list — no new
+  // backend call. Mirrors analytics.controller.js's exact definitions
+  // (active = status ACTIVE; expiring soon = the same `expiringSoon`/`expired`
+  // flags college.controller.js already attaches per row) so this never
+  // drifts from what the dashboard used to show before those two cards moved here.
+  const mouStats = {
+    total: mous.length,
+    active: mous.filter((m) => m.status === 'ACTIVE').length,
+    expiringSoon: mous.filter((m) => m.expiringSoon).length,
+    expired: mous.filter((m) => m.expired).length,
+  };
+
   const columns = [
     { key: 'mouType', header: 'Type', render: (r) => r.mouType || '—' },
     { key: 'college', header: 'College', render: (r) => r.college.name },
@@ -158,6 +171,13 @@ export default function MOUs() {
         subtitle="Memorandums of understanding with partner colleges"
         actions={<button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> New MOU</button>}
       />
+
+      <div className="stat-grid">
+        <StatCard label="Total MOUs" value={mouStats.total} accent="blue" icon={FileSignature} />
+        <StatCard label="Active" value={mouStats.active} accent="green" icon={CheckCircle2} />
+        <StatCard label="Expiring Soon" value={mouStats.expiringSoon} accent={mouStats.expiringSoon > 0 ? 'amber' : 'green'} icon={AlertTriangle} />
+        <StatCard label="Expired" value={mouStats.expired} accent={mouStats.expired > 0 ? 'red' : 'green'} icon={XCircle} />
+      </div>
 
       {loading ? <div className="page-loading">Loading...</div> : <DataTable columns={columns} rows={mous} emptyMessage="No MOUs recorded yet." />}
 

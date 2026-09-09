@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FileClock, FileText, FolderKanban, ListChecks, AlertTriangle, Users, ListTodo, ShieldCheck, ShieldAlert, FolderOpen, ClipboardCheck, UserX, Presentation, FileSignature } from 'lucide-react';
+import { FileClock, FileText, FolderKanban, Users, ListTodo, FolderOpen } from 'lucide-react';
 import api from '@/api/axios';
 import PageHeader from '@/components/shared/PageHeader';
 import KpiCard from '@/components/shared/KpiCard';
@@ -68,9 +68,7 @@ export default function AdminDashboard() {
     return <p className="text-sm text-muted-foreground">No analytics available.</p>;
   }
 
-  const { headcount, projects, tasks, pendingApprovals, documents, businessDevelopment } = overview;
-  const inProgress = tasks.byStatus.find((t) => t.status === 'IN_PROGRESS')?.count || 0;
-  const blocked = tasks.byStatus.find((t) => t.status === 'BLOCKED')?.count || 0;
+  const { headcount, tasks, pendingApprovals, documents } = overview;
   const taskChartData = tasks.byStatus.map((t) => ({ name: t.status.replace('_', ' '), count: t.count }));
 
   const leaderboard = [...team].sort((a, b) => (b.taskCompletionRate ?? 0) - (a.taskCompletionRate ?? 0)).slice(0, 5);
@@ -96,13 +94,18 @@ export default function AdminDashboard() {
     <div className="space-y-6">
       <PageHeader title="Team Operations" subtitle="Your team's day-to-day, at a glance" />
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+      {/* Trimmed to org-wide "needs my attention" metrics that aren't one
+          click away with more detail elsewhere: Active Projects lives on
+          the Projects page; Pending Verifications/Verified Interns/Rejected
+          Documents/Pending Applications are the same numbers the Intern
+          Document Review page's own KPI row already shows (as Pending
+          Review/Verified/Rejected/Pending Final Approval); Tasks In
+          Progress/Blocked/Not Allocated now live on the Tasks page; Upcoming
+          Workshops/Workshop Follow-ups moved to the Workshops page; Active
+          MOUs/MOUs Expiring Soon moved to the MOUs page. */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         <KpiCard label="Pending Timesheets" value={pendingApprovals.timesheets} icon={FileClock} accent="warning" />
         <KpiCard label="Pending Work Updates" value={pendingApprovals.workUpdates} icon={FileText} accent="warning" />
-        <KpiCard label="Active Projects" value={projects.activeProjects} icon={FolderKanban} accent="primary" />
-        <KpiCard label="Tasks In Progress" value={inProgress} icon={ListChecks} accent="info" />
-        <KpiCard label="Tasks Blocked" value={blocked} icon={AlertTriangle} accent="destructive" />
-        <KpiCard label="Tasks Not Allocated" value={tasks.unallocated} icon={UserX} accent="destructive" />
         <KpiCard
           label="Team Size"
           value={headcount.totalEmployees + headcount.totalInterns}
@@ -110,14 +113,6 @@ export default function AdminDashboard() {
           icon={Users}
           accent="purple"
         />
-        <KpiCard label="Pending Verifications" value={documents.pendingVerifications} icon={FolderOpen} accent="warning" />
-        <KpiCard label="Pending Applications" value={documents.pendingApplications} icon={ClipboardCheck} accent="warning" />
-        <KpiCard label="Verified Interns" value={documents.verifiedInterns} icon={ShieldCheck} accent="success" />
-        <KpiCard label="Rejected Documents" value={documents.rejectedDocuments} icon={ShieldAlert} accent="destructive" />
-        <KpiCard label="Upcoming Workshops" value={businessDevelopment.upcomingWorkshops} icon={Presentation} accent="info" />
-        <KpiCard label="Workshop Follow-ups" value={businessDevelopment.workshopFollowUpsOverdue} icon={AlertTriangle} accent={businessDevelopment.workshopFollowUpsOverdue > 0 ? 'destructive' : 'success'} />
-        <KpiCard label="Active MOUs" value={businessDevelopment.activeMous} icon={FileSignature} accent="primary" />
-        <KpiCard label="MOUs Expiring Soon" value={businessDevelopment.mousExpiringSoon} icon={FileSignature} accent={businessDevelopment.mousExpiringSoon > 0 ? 'warning' : 'success'} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

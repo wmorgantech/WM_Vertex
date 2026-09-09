@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Users, GraduationCap, UserCheck, Building2, FolderKanban, ClipboardCheck, FileText, Award, History, FolderOpen, UserX, Settings, Presentation, FileSignature, IndianRupee } from 'lucide-react';
+import { Users, UserCheck, Building2, FolderKanban, ClipboardCheck, FolderOpen, Settings, IndianRupee } from 'lucide-react';
 import api from '@/api/axios';
 import PageHeader from '@/components/shared/PageHeader';
 import KpiCard from '@/components/shared/KpiCard';
@@ -79,7 +79,7 @@ export default function SuperAdminDashboard() {
     return <p className="text-sm text-muted-foreground">No analytics available.</p>;
   }
 
-  const { headcount, projects, tasks, attendance, pendingApprovals, documents, reports, offerLetters, certificates, audit, businessDevelopment, finance } = overview;
+  const { headcount, tasks, attendance, pendingApprovals, reports, audit } = overview;
   const taskChartData = tasks.byStatus.map((t) => ({ name: t.status.replace('_', ' '), count: t.count }));
   const attendanceChartData = Object.entries(attendance.last30Days).map(([status, count]) => ({
     status: status.replace('_', ' '),
@@ -101,19 +101,17 @@ export default function SuperAdminDashboard() {
     <div className="space-y-6">
       <PageHeader title="Organization Overview" subtitle="Real-time snapshot across the entire organization" />
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-        <KpiCard label="Employees" value={headcount.totalEmployees} icon={Users} accent="primary" />
-        <KpiCard label="Interns" value={headcount.totalInterns} icon={GraduationCap} accent="purple" />
-        <KpiCard label="Trainees" value={headcount.totalTrainees} icon={GraduationCap} accent="purple" />
+      {/* Trimmed to org-wide "pulse" metrics that aren't already one click
+          away with more detail on their own module page: Employees/
+          Interns/Trainees/Departments/Active Projects/Total Expenses live
+          only on Employees, Interns, Trainees, Departments, Projects and
+          Expenses respectively; Pending Internship Approvals/Offer
+          Letters/Certificates live on the Intern Document Review page;
+          Tasks Not Allocated now lives on the Tasks page; Upcoming
+          Workshops/Workshop Follow-ups moved to the Workshops page; Active
+          MOUs/MOUs Expiring Soon moved to the MOUs page. */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         <KpiCard label="Active Users" value={headcount.activeUsers} icon={UserCheck} accent="success" />
-        <KpiCard label="Departments" value={headcount.totalDepartments} icon={Building2} accent="info" />
-        <KpiCard
-          label="Active Projects"
-          value={projects.activeProjects}
-          hint={`${projects.totalProjects} total`}
-          icon={FolderKanban}
-          accent="primary"
-        />
         <KpiCard
           label="Pending Approvals"
           value={pendingApprovals.timesheets + pendingApprovals.workUpdates}
@@ -121,21 +119,6 @@ export default function SuperAdminDashboard() {
           icon={ClipboardCheck}
           accent="warning"
         />
-        <KpiCard label="Pending Internship Approvals" value={documents.pendingApplications} icon={ClipboardCheck} accent="warning" />
-        <KpiCard label="Tasks Not Allocated" value={tasks.unallocated} icon={UserX} accent="destructive" />
-        {offerLetters && (
-          <KpiCard label="Offer Letters" value={offerLetters.generated} hint={`${offerLetters.pending} pending`} icon={FileText} accent="info" />
-        )}
-        {certificates && (
-          <KpiCard label="Certificates" value={certificates.generated} hint={`${certificates.eligiblePending} ready to issue`} icon={Award} accent="success" />
-        )}
-        <KpiCard label="Upcoming Workshops" value={businessDevelopment.upcomingWorkshops} icon={Presentation} accent="info" />
-        <KpiCard label="Workshop Follow-ups" value={businessDevelopment.workshopFollowUpsOverdue} icon={ClipboardCheck} accent={businessDevelopment.workshopFollowUpsOverdue > 0 ? 'destructive' : 'success'} />
-        <KpiCard label="Active MOUs" value={businessDevelopment.activeMous} icon={FileSignature} accent="primary" />
-        <KpiCard label="MOUs Expiring Soon" value={businessDevelopment.mousExpiringSoon} icon={FileSignature} accent={businessDevelopment.mousExpiringSoon > 0 ? 'warning' : 'success'} />
-        {finance && (
-          <KpiCard label="Total Expenses" value={`₹${finance.totalExpenses.toLocaleString()}`} hint={`₹${finance.last30DaysExpenses.toLocaleString()} last 30 days`} icon={IndianRupee} accent="warning" />
-        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

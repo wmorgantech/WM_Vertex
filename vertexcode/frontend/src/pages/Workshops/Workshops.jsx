@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Eye, Pencil } from 'lucide-react';
+import { Plus, Trash2, Eye, Pencil, Presentation, CalendarClock, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -9,6 +9,7 @@ import Modal from '../../components/common/Modal';
 import TableActions from '../../components/common/TableActions';
 import DetailField from '../../components/common/DetailField';
 import CustomFieldsSection from '../../components/common/CustomFieldsSection';
+import StatCard from '../../components/common/StatCard';
 import toast from 'react-hot-toast';
 
 const STATUSES = ['LEAD', 'CONTACTED', 'DISCUSSION', 'PROPOSED', 'SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'FOLLOW_UP_REQUIRED'];
@@ -108,6 +109,19 @@ export default function Workshops() {
 
   const selectedCollege = colleges.find((c) => c.id === form.collegeId);
 
+  // Computed client-side from the already-fully-loaded `workshops` list —
+  // no new backend call. Mirrors analytics.controller.js's exact definitions
+  // (upcoming = SCHEDULED/CONFIRMED; follow-up overdue = the same
+  // `followUpOverdue` flag college.controller.js already attaches per row)
+  // so this never drifts from what the dashboard used to show before those
+  // two cards moved here.
+  const workshopStats = {
+    total: workshops.length,
+    upcoming: workshops.filter((w) => ['SCHEDULED', 'CONFIRMED'].includes(w.status)).length,
+    followUpsOverdue: workshops.filter((w) => w.followUpOverdue).length,
+    completed: workshops.filter((w) => w.status === 'COMPLETED').length,
+  };
+
   const columns = [
     { key: 'topic', header: 'Topic' },
     { key: 'college', header: 'College', render: (r) => r.college.name },
@@ -139,6 +153,13 @@ export default function Workshops() {
         subtitle="College workshop pipeline — from lead to completion"
         actions={isManager && <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> New Workshop</button>}
       />
+
+      <div className="stat-grid">
+        <StatCard label="Total Workshops" value={workshopStats.total} accent="blue" icon={Presentation} />
+        <StatCard label="Upcoming" value={workshopStats.upcoming} accent="purple" icon={CalendarClock} />
+        <StatCard label="Follow-ups Overdue" value={workshopStats.followUpsOverdue} accent={workshopStats.followUpsOverdue > 0 ? 'red' : 'green'} icon={AlertTriangle} />
+        <StatCard label="Completed" value={workshopStats.completed} accent="green" icon={CheckCircle2} />
+      </div>
 
       {loading ? <div className="page-loading">Loading...</div> : <DataTable columns={columns} rows={workshops} emptyMessage="No workshops recorded yet." />}
 
