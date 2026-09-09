@@ -3,9 +3,9 @@ import { Badge as UiBadge } from '@/components/ui/badge';
 const COLORS = {
   DONE: 'success', APPROVED: 'success', ACTIVE: 'success', PRESENT: 'success', COMPLETED: 'success', REVIEWED: 'success',
   PENDING: 'warning', TODO: 'muted', SUBMITTED: 'warning', IN_PROGRESS: 'info', UPCOMING: 'info', ONGOING: 'info',
-  LATE: 'warning', REJECTED: 'destructive', ABSENT: 'destructive', TERMINATED: 'destructive', BLOCKED: 'destructive', FLAGGED: 'destructive',
+  LATE: 'warning', REJECTED: 'destructive', ABSENT: 'destructive', TERMINATED: 'destructive', BLOCKED: 'destructive', FLAGGED: 'destructive', CANCELLED: 'destructive',
   ON_LEAVE: 'purple', IN_REVIEW: 'purple', HIGH: 'destructive', URGENT: 'destructive', MEDIUM: 'warning', LOW: 'muted',
-  PENDING_REVIEW: 'warning', VERIFIED: 'success', DRAFT: 'muted',
+  PENDING_REVIEW: 'warning', VERIFIED: 'success', DRAFT: 'muted', INACTIVE: 'muted',
   // Internship category
   FREE_INTERNSHIP: 'muted', JOT: 'purple', UNCATEGORIZED: 'muted',
   // Internship lifecycle stage

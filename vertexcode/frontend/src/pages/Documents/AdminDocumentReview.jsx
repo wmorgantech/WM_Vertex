@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, XCircle, ShieldCheck, FileText, FileSpreadsheet, Award, Download, Eye, Send, Trash2, RotateCcw, Pencil, ClipboardList, Clock, Archive } from 'lucide-react';
+import { CheckCircle2, XCircle, ShieldCheck, FileText, FileSpreadsheet, Award, Download, Eye, Send, Trash2, RotateCcw, Pencil, ClipboardList, Clock, Archive, ClipboardCheck } from 'lucide-react';
 import api from '@/api/axios';
 import { useAuth } from '@/context/AuthContext';
 import PageHeader from '@/components/shared/PageHeader';
@@ -81,6 +81,7 @@ export default function AdminDocumentReview() {
   const [enrollments, setEnrollments] = useState([]);
   const [trashDocs, setTrashDocs] = useState([]);
   const [summary, setSummary] = useState({ totalDocuments: 0, pendingReview: 0, verified: 0, rejected: 0, approved: 0, trash: 0 });
+  const [lifecycleStats, setLifecycleStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
   const [acting, setActing] = useState(null);
@@ -96,8 +97,15 @@ export default function AdminDocumentReview() {
       api.get('/documents'),
       api.get('/documents/summary'),
       pageTab === 'trash' ? api.get('/documents/trash') : Promise.resolve(null),
+      // Reused, not duplicated — the same /analytics/overview endpoint both
+      // dashboards already call. Pending Internship Approvals / Offer
+      // Letters / Certificates used to live only on the Super Admin and
+      // Admin dashboards; they're internship-lifecycle metrics that belong
+      // on this page instead, so the dashboards were trimmed to stop
+      // duplicating them (see SuperAdminDashboard.jsx/AdminDashboard.jsx).
+      api.get('/analytics/overview'),
     ])
-      .then(([e, s, t]) => {
+      .then(([e, s, t, ov]) => {
         if (e.status === 'fulfilled') {
           setEnrollments(e.value.data.data);
           setSelectedEnrollmentIds(new Set());
@@ -113,7 +121,8 @@ export default function AdminDocumentReview() {
           });
         }
         if (t?.status === 'fulfilled') setTrashDocs(t.value.data.data);
-        const failed = [e, s, t].filter(Boolean).find((r) => r.status === 'rejected');
+        if (ov.status === 'fulfilled') setLifecycleStats(ov.value.data.data);
+        const failed = [e, s, t, ov].filter(Boolean).find((r) => r.status === 'rejected');
         if (failed) toast.error(failed.reason?.response?.data?.message || 'Some data failed to load');
       })
       .finally(() => setLoading(false));
@@ -462,6 +471,17 @@ export default function AdminDocumentReview() {
         <KpiCard label="Verified" value={summary.verified} accent="success" icon={CheckCircle2} />
         <KpiCard label="Rejected" value={summary.rejected} accent="destructive" icon={XCircle} />
         <KpiCard label="Approved (Interns)" value={summary.approved} accent="purple" icon={ShieldCheck} />
+        {lifecycleStats && (
+          <>
+            <KpiCard label="Pending Final Approval" value={lifecycleStats.documents.pendingApplications} accent="warning" icon={ClipboardCheck} />
+            {lifecycleStats.offerLetters && (
+              <KpiCard label="Offer Letters" value={lifecycleStats.offerLetters.generated} hint={`${lifecycleStats.offerLetters.pending} pending`} accent="info" icon={FileText} />
+            )}
+            {lifecycleStats.certificates && (
+              <KpiCard label="Certificates" value={lifecycleStats.certificates.generated} hint={`${lifecycleStats.certificates.eligiblePending} ready to issue`} accent="success" icon={Award} />
+            )}
+          </>
+        )}
       </div>
 
       <div className="flex items-center gap-2 border-b border-border">

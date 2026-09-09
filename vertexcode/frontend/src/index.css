@@ -979,6 +979,17 @@ input, select, textarea { font-family: inherit; }
    previously-stacked rows can share one compact row without their groups
    visually running together. */
 .toolbar-divider { width: 1px; align-self: stretch; background: var(--border); margin: 4px 2px; }
+/* Shared right-pinned action group — wraps Trash/bulk-delete/other
+   destructive or primary row actions inside a .toolbar so they always sit
+   at the far right of the same row as search/filters, on every module that
+   has them. `margin-left: auto` (a flex item consuming all remaining free
+   space) does the pinning, so it works with zero changes to any existing
+   .toolbar usage that doesn't have a .toolbar-actions child — those are
+   completely unaffected. `flex-wrap: nowrap` keeps every action inside the
+   group together as one unit: on a narrow viewport the whole group wraps
+   to its own line as a block (controlled wrapping) instead of Trash
+   splitting away from the rest of the toolbar or landing mid-row. */
+.toolbar-actions { display: flex; align-items: center; flex-wrap: nowrap; gap: 8px; margin-left: auto; flex-shrink: 0; }
 .search-input, .toolbar select {
   padding: 9px 12px;
   border: 1px solid var(--border);

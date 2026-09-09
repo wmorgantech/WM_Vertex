@@ -480,12 +480,10 @@ export default function EmployeeList() {
         <StatCard label="Trash" value={summary.trash} accent="red" icon={Trash2} />
       </div>
 
-      {/* Single compact toolbar row: search/role/department/designation
-          filters, then a divider, then the Active/All status dropdown +
-          Trash — replaces the previous 2-row stack (a standalone
-          Active/All/Trash tabs row above a separate filter toolbar row,
-          which duplicated the status control twice: the tabs AND a
-          "Filter by status" dropdown offering the same three states). */}
+      {/* Single compact toolbar row, shared pattern: filters flow left to
+          right (wrapping as a block if the viewport is too narrow), Trash
+          is wrapped in .toolbar-actions so it always stays pinned to the
+          far right of the row — never between filters, never orphaned. */}
       <div className="toolbar">
         <input className="search-input" placeholder="Search by name or email..." value={search} onChange={(e) => setSearch(e.target.value)} />
         <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} aria-label="Filter by role">
@@ -499,7 +497,6 @@ export default function EmployeeList() {
           <option value="">All designations</option>
           {designations.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
         </select>
-        <span className="toolbar-divider" />
         <select
           value={viewTab === 'trash' ? 'active' : viewTab}
           onChange={(e) => setViewTab(e.target.value)}
@@ -508,12 +505,14 @@ export default function EmployeeList() {
           <option value="active">Active</option>
           <option value="all">All</option>
         </select>
-        <button type="button" className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab('trash')}>
-          🗑️ Trash{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}
-        </button>
         {hasActiveFilters && (
           <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>Clear Filters</button>
         )}
+        <div className="toolbar-actions">
+          <button type="button" className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab('trash')}>
+            🗑️ Trash{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}
+          </button>
+        </div>
       </div>
 
       {isSuperAdmin && viewTab !== 'trash' && selectedIds.size > 0 && (
