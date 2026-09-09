@@ -576,9 +576,9 @@ export default function Trainees() {
         </div>
       )}
 
-      {/* Single compact toolbar row: main tabs, then a divider, then the
-          Active/All status dropdown + Trash — replaces the previous 2-row
-          stack (main tabs row + a second Active/All/Trash tabs row). */}
+      {/* Single compact toolbar row, shared pattern: main tabs, then the
+          Active/All status filter, then Trash pinned to the far right via
+          .toolbar-actions. */}
       <div className="toolbar">
         <div className="tabs" style={{ marginBottom: 0, border: 'none' }}>
           <button className={`tab ${tab === 'enrollments' ? 'active' : ''}`} onClick={() => setTab('enrollments')}>Trainees</button>
@@ -588,13 +588,14 @@ export default function Trainees() {
 
         {tab === 'enrollments' && (
           <>
-            <span className="toolbar-divider" />
             <select value={viewTab === 'trash' ? 'active' : viewTab} onChange={(e) => setViewTab(e.target.value)} aria-label="Filter by status">
               {VIEW_TABS.filter((t) => t.value !== 'trash').map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
-            <button type="button" className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab('trash')}>
-              🗑️ Trash{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}
-            </button>
+            <div className="toolbar-actions">
+              <button type="button" className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab('trash')}>
+                🗑️ Trash{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}
+              </button>
+            </div>
           </>
         )}
       </div>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Pencil, Trash2, Eye, RotateCcw, Upload, FileText, FileSpreadsheet } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye, RotateCcw, Upload, FileText, FileSpreadsheet, ListChecks, Clock, AlertTriangle, UserX } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -9,6 +9,7 @@ import Modal from '../../components/common/Modal';
 import Pagination from '../../components/common/Pagination';
 import TableActions from '../../components/common/TableActions';
 import DetailField from '../../components/common/DetailField';
+import StatCard from '../../components/common/StatCard';
 import toast from 'react-hot-toast';
 import { downloadReport } from '../../lib/download';
 
@@ -49,6 +50,7 @@ export default function Tasks() {
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [summary, setSummary] = useState({ total: 0, inProgress: 0, blocked: 0, unallocated: 0 });
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', type: 'DAILY', priority: 'MEDIUM', dueDate: '', assigneeId: '', projectId: '' });
   const [saving, setSaving] = useState(false);
@@ -91,6 +93,19 @@ export default function Tasks() {
     if (isManager) {
       calls.push(api.get('/users'), api.get('/projects'));
     }
+    // Manager-only KPI counts, reusing GET /tasks?limit=1 (no new backend
+    // endpoint) exactly like Interns/Employees' summary cards. Deliberately
+    // scoped without `scope`/`excludeStatus` so it always reflects the same
+    // "active, non-deleted" default the table itself falls back to.
+    const countStart = calls.length;
+    if (isManager) {
+      calls.push(
+        api.get('/tasks', { params: { limit: 1 } }),
+        api.get('/tasks', { params: { status: 'IN_PROGRESS', limit: 1 } }),
+        api.get('/tasks', { params: { status: 'BLOCKED', limit: 1 } }),
+        api.get('/tasks', { params: { unallocated: 'true', limit: 1 } }),
+      );
+    }
     Promise.allSettled(calls).then((results) => {
       const [t, st, pr, ty, u, p] = results;
       if (t.status === 'fulfilled') {
@@ -103,6 +118,15 @@ export default function Tasks() {
       if (ty.status === 'fulfilled') setTypes(ty.value.data.data.filter((x) => x.active));
       if (u?.status === 'fulfilled') setUsers(u.value.data.data);
       if (p?.status === 'fulfilled') setProjects(p.value.data.data);
+      if (isManager) {
+        const [totalC, inProgressC, blockedC, unallocatedC] = results.slice(countStart);
+        setSummary((prev) => ({
+          total: totalC.status === 'fulfilled' ? (totalC.value.data.meta?.total ?? 0) : prev.total,
+          inProgress: inProgressC.status === 'fulfilled' ? (inProgressC.value.data.meta?.total ?? 0) : prev.inProgress,
+          blocked: blockedC.status === 'fulfilled' ? (blockedC.value.data.meta?.total ?? 0) : prev.blocked,
+          unallocated: unallocatedC.status === 'fulfilled' ? (unallocatedC.value.data.meta?.total ?? 0) : prev.unallocated,
+        }));
+      }
 
       const failed = results.find((r) => r.status === 'rejected');
       if (failed) {
@@ -353,24 +377,22 @@ export default function Tasks() {
         )}
       />
 
-      {/* Single compact toolbar row: the Active/All/Trash scope tabs (Super
-          Admin only), then a divider, then search/status/allocation filters
-          — replaces the previous 2-row stack (a standalone tabs row above a
-          separate filter toolbar row). Kept as tab buttons rather than a
-          second "Status" dropdown since a real TaskStatus dropdown already
-          lives in this same row — two controls both labeled "Status" would
-          be more confusing, not less. */}
+      {isManager && (
+        <div className="stat-grid">
+          <StatCard label="Total Tasks" value={summary.total} accent="blue" icon={ListChecks} />
+          <StatCard label="In Progress" value={summary.inProgress} accent="amber" icon={Clock} />
+          <StatCard label="Blocked" value={summary.blocked} accent="red" icon={AlertTriangle} />
+          <StatCard label="Not Allocated" value={summary.unallocated} accent="red" icon={UserX} />
+        </div>
+      )}
+
+      {/* Single compact toolbar row, shared pattern: search/status/allocation
+          filters flow left to right; the Active/All/Trash scope tabs (Super
+          Admin only) are pinned to the far right via .toolbar-actions.
+          Kept as tab buttons rather than a second "Status" dropdown since a
+          real TaskStatus dropdown already lives in this same row — two
+          controls both labeled "Status" would be more confusing, not less. */}
       <div className="toolbar">
-        {isSuperAdmin && (
-          <>
-            <div className="tabs" style={{ marginBottom: 0, border: 'none' }}>
-              {VIEW_TABS.map((t) => (
-                <button key={t.value} className={`tab ${viewTab === t.value ? 'active' : ''}`} onClick={() => setViewTab(t.value)}>{t.label}</button>
-              ))}
-            </div>
-            <span className="toolbar-divider" />
-          </>
-        )}
         <input className="search-input" placeholder="Search by title..." value={search} onChange={(e) => setSearch(e.target.value)} />
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option value="">{isManager ? 'All statuses' : 'Active'}</option>
@@ -381,6 +403,15 @@ export default function Tasks() {
             <input type="checkbox" checked={unallocatedOnly} onChange={(e) => setUnallocatedOnly(e.target.checked)} />
             Not Allocated Only
           </label>
+        )}
+        {isSuperAdmin && (
+          <div className="toolbar-actions">
+            <div className="tabs" style={{ marginBottom: 0, border: 'none' }}>
+              {VIEW_TABS.map((t) => (
+                <button key={t.value} className={`tab ${viewTab === t.value ? 'active' : ''}`} onClick={() => setViewTab(t.value)}>{t.label}</button>
+              ))}
+            </div>
+          </div>
         )}
       </div>
 

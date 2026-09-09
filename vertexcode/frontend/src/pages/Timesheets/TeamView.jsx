@@ -50,12 +50,12 @@ export default function TeamView() {
 
   return (
     <div>
-      <div className="toolbar" style={{ justifyContent: 'space-between' }}>
-        <div className="tabs" style={{ marginBottom: 0 }}>
+      <div className="toolbar">
+        <div className="tabs" style={{ marginBottom: 0, border: 'none' }}>
           <button className={`tab ${period === 'weekly' ? 'active' : ''}`} onClick={() => setPeriod('weekly')}>Weekly</button>
           <button className={`tab ${period === 'monthly' ? 'active' : ''}`} onClick={() => setPeriod('monthly')}>Monthly</button>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="toolbar-actions">
           <button
             className="btn btn-ghost btn-icon"
             onClick={() => (period === 'weekly' ? setMonday((m) => addDays(m, -7)) : setMonthCursor((c) => new Date(c.getFullYear(), c.getMonth() - 1, 1)))}

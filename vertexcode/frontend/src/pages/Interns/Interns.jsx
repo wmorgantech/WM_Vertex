@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Pencil, Eye, Mail, RotateCcw } from 'lucide-react';
+import { Plus, Trash2, Pencil, Eye, Mail, RotateCcw, GraduationCap, UserCheck, UserX, Archive } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -11,6 +11,7 @@ import TableActions from '../../components/common/TableActions';
 import DetailField from '../../components/common/DetailField';
 import SearchableSelect from '../../components/common/SearchableSelect';
 import CustomFieldsSection from '../../components/common/CustomFieldsSection';
+import StatCard from '../../components/common/StatCard';
 import toast from 'react-hot-toast';
 import { downloadReport } from '../../lib/download';
 
@@ -60,6 +61,7 @@ export default function Interns() {
   const [mentorFilter, setMentorFilter] = useState('');
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState(null);
+  const [summary, setSummary] = useState({ total: 0, active: 0, inactive: 0, trash: 0 });
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [showEnrollModal, setShowEnrollModal] = useState(false);
@@ -105,12 +107,25 @@ export default function Interns() {
         limit: PAGE_SIZE,
       },
     });
+    // Real, live counts for the summary cards — reuses GET /interns/enrollments
+    // (no new backend endpoint) with limit=1, same technique already used by
+    // Employees/Trainees/Departments/Projects. Always scoped to the full
+    // module regardless of the current batch/mentor/search filters, so the
+    // cards stay a stable "whole module" snapshot.
+    const countCall = (accountStatus, completionStatus) => api.get('/interns/enrollments', { params: { accountStatus, completionStatus, limit: 1 } });
+
     // allSettled (not all) so one failing call — e.g. a transient 429/500 on
     // /users — doesn't wipe out an otherwise-successful Intern List; each
     // slice of state only updates from a call that actually succeeded, and
     // any failure is surfaced instead of silently rendering an empty table.
-    Promise.allSettled([enrollmentsCall, api.get('/interns/batches'), usersCall, enrollableCall, api.get('/masters/designations')])
-      .then(([e, b, u, en, des]) => {
+    Promise.allSettled([
+      enrollmentsCall, api.get('/interns/batches'), usersCall, enrollableCall, api.get('/masters/designations'),
+      countCall(undefined, undefined),
+      countCall('ACTIVE', 'IN_PROGRESS'),
+      countCall('ACTIVE', 'COMPLETED,EXTENDED,CONVERTED_TO_EMPLOYEE'),
+      countCall('TERMINATED', undefined),
+    ])
+      .then(([e, b, u, en, des, totalCount, activeCount, inactiveCount, trashCount]) => {
         if (e.status === 'fulfilled') {
           setEnrollments(e.value.data.data);
           setMeta(e.value.data.meta || null);
@@ -122,8 +137,16 @@ export default function Interns() {
         if (u.status === 'fulfilled') setUsers(u.value.data.data);
         if (en.status === 'fulfilled') setEnrollableInterns(en.value.data.data);
         if (des.status === 'fulfilled') setDesignations(des.value.data.data.filter((d) => d.active));
+        // Each card updates independently from whichever count call
+        // succeeded, so one transient failure doesn't zero out the others.
+        setSummary((prev) => ({
+          total: totalCount.status === 'fulfilled' ? (totalCount.value.data.meta?.total ?? 0) : prev.total,
+          active: activeCount.status === 'fulfilled' ? (activeCount.value.data.meta?.total ?? 0) : prev.active,
+          inactive: inactiveCount.status === 'fulfilled' ? (inactiveCount.value.data.meta?.total ?? 0) : prev.inactive,
+          trash: trashCount.status === 'fulfilled' ? (trashCount.value.data.meta?.total ?? 0) : prev.trash,
+        }));
 
-        const failed = [e, b, u, en, des].find((r) => r.status === 'rejected');
+        const failed = [e, b, u, en, des, totalCount, activeCount, inactiveCount, trashCount].find((r) => r.status === 'rejected');
         if (failed) {
           const status = failed.reason?.response?.status;
           const message = status === 429
@@ -459,11 +482,18 @@ export default function Interns() {
         )}
       />
 
-      {/* Single compact toolbar row: main tabs, then a divider, then the
-          Active/Inactive/All status dropdown + Trash, then a divider, then
-          search/batch/mentor filters — replaces the previous 3-row stack
-          (main tabs row + a second Active/All/Trash tabs row + a separate
-          filter toolbar row, which duplicated the status control twice). */}
+      {tab === 'enrollments' && (
+        <div className="stat-grid">
+          <StatCard label="Total Interns" value={summary.total} accent="blue" icon={GraduationCap} />
+          <StatCard label="Active" value={summary.active} accent="green" icon={UserCheck} />
+          <StatCard label="Inactive" value={summary.inactive} accent="amber" icon={UserX} />
+          <StatCard label="Trash" value={summary.trash} accent="red" icon={Archive} />
+        </div>
+      )}
+
+      {/* Single compact toolbar row, shared pattern: main tabs, then
+          filters flowing left to right, then Trash pinned to the far right
+          via .toolbar-actions (never between filters, never orphaned mid-row). */}
       <div className="toolbar">
         <div className="tabs" style={{ marginBottom: 0, border: 'none' }}>
           <button className={`tab ${tab === 'enrollments' ? 'active' : ''}`} onClick={() => setTab('enrollments')}>Intern List</button>
@@ -472,12 +502,9 @@ export default function Interns() {
 
         {tab === 'enrollments' && (
           <>
-            <span className="toolbar-divider" />
             <select value={viewTab === 'trash' ? 'active' : viewTab} onChange={(e) => setViewTab(e.target.value)} aria-label="Filter by status">
               {VIEW_TABS.filter((t) => t.value !== 'trash').map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
-            <button type="button" className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab('trash')}>🗑️ Trash</button>
-            <span className="toolbar-divider" />
             <input className="search-input" placeholder="Search by name or email..." value={search} onChange={(e) => setSearch(e.target.value)} />
             <select value={batchFilter} onChange={(e) => setBatchFilter(e.target.value)} aria-label="Filter by batch">
               <option value="">All batches</option>
@@ -489,6 +516,9 @@ export default function Interns() {
                 {users.filter((u) => u.role === 'EMPLOYEE' || u.role === 'ADMIN').map((u) => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
               </select>
             )}
+            <div className="toolbar-actions">
+              <button type="button" className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab('trash')}>🗑️ Trash</button>
+            </div>
           </>
         )}
       </div>
