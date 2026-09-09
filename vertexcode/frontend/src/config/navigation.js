@@ -2,6 +2,7 @@ import {
   LayoutDashboard,
   Users,
   GraduationCap,
+  BookOpen,
   Building2,
   FolderKanban,
   ListChecks,
@@ -36,7 +37,7 @@ const MANAGER_GROUPS = [
     items: [
       { to: '/employees', label: 'Employees', icon: Users },
       { to: '/interns', label: 'Interns', icon: GraduationCap },
-      { to: '/trainees', label: 'Trainees', icon: GraduationCap },
+      { to: '/trainees', label: 'Trainees', icon: BookOpen },
       { to: '/documents', label: 'Intern Documents', icon: FolderOpen },
       { to: '/departments', label: 'Departments', icon: Building2 },
     ],
