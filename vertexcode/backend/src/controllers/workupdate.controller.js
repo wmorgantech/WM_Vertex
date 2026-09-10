@@ -42,8 +42,12 @@ async function listWorkUpdates(req, res) {
       user: { select: { id: true, firstName: true, lastName: true, departmentId: true } },
       reviewedBy: { select: { id: true, firstName: true, lastName: true } },
     },
-    orderBy: { date: 'desc' },
+    orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
   });
+  // Explicit no-store — this list changes on every submission (possibly
+  // more than once on the same day) and must never be served stale from a
+  // browser/proxy HTTP cache after a POST.
+  res.set('Cache-Control', 'no-store');
   return sendSuccess(res, 200, updates);
 }
 
@@ -52,10 +56,8 @@ async function submitWorkUpdate(req, res) {
   if (!summary) throw new ApiError(400, 'summary is required');
   const targetDate = dayStart(date || new Date());
 
-  const update = await prisma.dailyWorkUpdate.upsert({
-    where: { userId_date: { userId: req.user.id, date: targetDate } },
-    update: { summary, tasksCompleted, blockers, planForTomorrow, status: 'SUBMITTED' },
-    create: {
+  const update = await prisma.dailyWorkUpdate.create({
+    data: {
       userId: req.user.id,
       date: targetDate,
       summary,

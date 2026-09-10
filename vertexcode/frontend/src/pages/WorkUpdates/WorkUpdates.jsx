@@ -17,7 +17,8 @@ export default function WorkUpdates() {
   const [showModal, setShowModal] = useState(false);
   const [reviewTarget, setReviewTarget] = useState(null);
   const [feedback, setFeedback] = useState('');
-  const [form, setForm] = useState({ date: localDateString(), summary: '', tasksCompleted: '', blockers: '', planForTomorrow: '' });
+  const emptyForm = { date: localDateString(), summary: '', tasksCompleted: '', blockers: '', planForTomorrow: '' };
+  const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
 
   const load = () => {
@@ -33,6 +34,12 @@ export default function WorkUpdates() {
       await api.post('/work-updates', form);
       toast.success('Work update submitted');
       setShowModal(false);
+      // Reset for next time — without this, reopening the modal to submit a
+      // second update the same day pre-fills it with the previous update's
+      // leftover text (each submission still creates its own correct DB
+      // row either way, but the stale text made repeat submissions
+      // confusing/easy to mistake for "nothing new happened").
+      setForm(emptyForm);
       load();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to submit update');
