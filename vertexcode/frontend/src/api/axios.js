@@ -42,6 +42,7 @@ export function isServerAvailable() {
 
 let isRefreshing = false;
 let queue = [];
+let redirectingToLogin = false;
 
 const processQueue = (error, token = null) => {
   queue.forEach((p) => (error ? p.reject(error) : p.resolve(token)));
@@ -97,7 +98,10 @@ api.interceptors.response.use(
           localStorage.removeItem('vertexwm_access_token');
           localStorage.removeItem('vertexwm_refresh_token');
           localStorage.removeItem('vertexwm_user');
-          window.location.href = '/login';
+          if (!redirectingToLogin && window.location.pathname !== '/login') {
+            redirectingToLogin = true;
+            window.location.replace('/login');
+          }
         }
         return Promise.reject(refreshError);
       } finally {

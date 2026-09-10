@@ -16,17 +16,6 @@ export default function ServerStatusGate({ children }) {
 
   useEffect(() => onServerAvailabilityChange((available) => setDown(!available)), []);
 
-  // AuthContext only calls the API on mount when a token is present, so a
-  // logged-out visitor sitting on the login page with the server down would
-  // otherwise see nothing happen until they submit the form. This one-time
-  // probe closes that gap without duplicating AuthContext's own /auth/me
-  // call for the (far more common) logged-in case.
-  useEffect(() => {
-    if (!localStorage.getItem('vertexwm_access_token')) {
-      api.get('/auth/me').catch(() => {});
-    }
-  }, []);
-
   useEffect(() => {
     if (!down) return undefined;
     const id = setInterval(() => {
