@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Eye, Pencil } from 'lucide-react';
+import { Plus, Trash2, Eye, Pencil, Download } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -191,11 +191,11 @@ export default function Enquiries() {
           <>
             {user.role === 'SUPER_ADMIN' && (
               <>
-                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/enquiries', 'enquiries.csv')}>Export CSV</button>
-                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/enquiries?format=xlsx', 'enquiries.xlsx')}>Export Excel</button>
+                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/enquiries', 'enquiries.csv')}><Download size={16} strokeWidth={2.5} /> Export CSV</button>
+                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/enquiries?format=xlsx', 'enquiries.xlsx')}><Download size={16} strokeWidth={2.5} /> Export Excel</button>
               </>
             )}
-            <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> New Enquiry</button>
+            <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={16} strokeWidth={2.5} /> New Enquiry</button>
           </>
         )}
       />

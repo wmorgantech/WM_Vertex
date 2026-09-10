@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Eye } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye, Download } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -204,11 +204,11 @@ export default function Expenses() {
           <>
             {isSuperAdmin && (
               <>
-                <button className="btn btn-secondary" onClick={() => downloadReport(`/reports/expenses?${new URLSearchParams(exportFilterParams)}`, 'expenses.csv')}>Export CSV</button>
-                <button className="btn btn-secondary" onClick={() => downloadReport(`/reports/expenses?${new URLSearchParams({ ...exportFilterParams, format: 'xlsx' })}`, 'expenses.xlsx')}>Export Excel</button>
+                <button className="btn btn-secondary" onClick={() => downloadReport(`/reports/expenses?${new URLSearchParams(exportFilterParams)}`, 'expenses.csv')}><Download size={16} strokeWidth={2.5} /> Export CSV</button>
+                <button className="btn btn-secondary" onClick={() => downloadReport(`/reports/expenses?${new URLSearchParams({ ...exportFilterParams, format: 'xlsx' })}`, 'expenses.xlsx')}><Download size={16} strokeWidth={2.5} /> Export Excel</button>
               </>
             )}
-            <button className="btn btn-primary" onClick={openCreate}><Plus size={14} /> Add Expense</button>
+            <button className="btn btn-primary" onClick={openCreate}><Plus size={16} strokeWidth={2.5} /> Add Expense</button>
           </>
         )}
       />

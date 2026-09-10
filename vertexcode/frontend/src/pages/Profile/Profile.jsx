@@ -167,7 +167,7 @@ export default function Profile() {
 
       <Card className="mt-4 gap-0 p-6 md:p-8">
         {/* Header */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-4 bg-muted/30 px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-5">
           <div className="flex items-start gap-4">
             <Avatar className="size-14 text-base">
               <AvatarFallback>{initials(profile)}</AvatarFallback>
@@ -196,8 +196,8 @@ export default function Profile() {
         <Separator className="mt-6 mb-8" />
 
         {/* Content */}
-        <div className="grid grid-cols-1 gap-x-12 gap-y-8 lg:grid-cols-3">
-        <div className="space-y-8 lg:col-span-2">
+        <div className="grid grid-cols-1 gap-x-12 gap-y-10 lg:grid-cols-3">
+        <div className="space-y-10 lg:col-span-2">
           <section>
             <SectionHeading>Account Information</SectionHeading>
             <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
