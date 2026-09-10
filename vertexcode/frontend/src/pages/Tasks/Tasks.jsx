@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Pencil, Trash2, Eye, RotateCcw, Upload, FileText, FileSpreadsheet, ListChecks, Clock, AlertTriangle, UserX } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye, RotateCcw, Upload, Download, ListChecks, Clock, AlertTriangle, UserX } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -316,18 +316,18 @@ export default function Tasks() {
         </select>
       ),
     },
-    ...(isManager ? [{
+    {
       key: 'actions', header: 'Actions',
       render: (r) => (
         <TableActions
           actions={[
             { key: 'view', icon: Eye, label: 'View', onClick: () => setViewing(r) },
-            { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openEdit(r) },
+            isManager && { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openEdit(r) },
             isSuperAdmin && { key: 'trash', icon: Trash2, label: 'Delete (move to Trash)', danger: true, onClick: () => handleDelete(r) },
           ]}
         />
       ),
-    }] : []),
+    },
   ];
 
   const trashColumns = [
@@ -366,13 +366,13 @@ export default function Tasks() {
                   onChange={handleImportFile}
                 />
                 <button className="btn btn-secondary" onClick={handleImportClick} disabled={importing}>
-                  <Upload size={14} /> {importing ? 'Importing...' : 'Import'}
+                  <Upload size={16} strokeWidth={2.5} /> {importing ? 'Importing...' : 'Import'}
                 </button>
-                <button className="btn btn-secondary" onClick={() => downloadReport(`/reports/tasks?${new URLSearchParams(statusFilter ? { status: statusFilter } : {})}`, 'tasks.csv')}><FileText size={14} /> Export CSV</button>
-                <button className="btn btn-secondary" onClick={() => downloadReport(`/reports/tasks?${new URLSearchParams({ ...(statusFilter && { status: statusFilter }), format: 'xlsx' })}`, 'tasks.xlsx')}><FileSpreadsheet size={14} /> Export Excel</button>
+                <button className="btn btn-secondary" onClick={() => downloadReport(`/reports/tasks?${new URLSearchParams(statusFilter ? { status: statusFilter } : {})}`, 'tasks.csv')}><Download size={16} strokeWidth={2.5} /> Export CSV</button>
+                <button className="btn btn-secondary" onClick={() => downloadReport(`/reports/tasks?${new URLSearchParams({ ...(statusFilter && { status: statusFilter }), format: 'xlsx' })}`, 'tasks.xlsx')}><Download size={16} strokeWidth={2.5} /> Export Excel</button>
               </>
             )}
-            {isManager && <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> New Task</button>}
+            {isManager && <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={16} strokeWidth={2.5} /> New Task</button>}
           </>
         )}
       />

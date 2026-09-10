@@ -113,6 +113,7 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
   const [submitting, setSubmitting] = useState(false);
   const [positions, setPositions] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [editingRowKey, setEditingRowKey] = useState(null);
   // Editing an already-APPROVED week is a distinct, explicit mode the owner
   // opts into via the Edit button — never a side effect of the row/status
   // being editable in the DB sense. It never touches the persisted status by
@@ -140,6 +141,7 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
         setSummary(data.data);
         setRows(buildRowsFromEntries(data.data.entries));
         setEditingApproved(false); // a fresh fetch always reflects the true persisted state
+        setEditingRowKey(null);
       })
       .finally(() => setLoading(false));
   };
@@ -162,7 +164,7 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
   // Editing an approved week is scoped to correcting existing rows' hours/
   // position/project — adding or removing whole rows stays unavailable in
   // that mode, so the Actions column (and its colSpan) hides along with it.
-  const showActionsColumn = !locked && !editingApproved;
+  const showActionsColumn = !readOnly && (!locked || (canEditApproved && !editingApproved));
 
   const liveDayTotals = useMemo(() => {
     const totals = {};
@@ -255,6 +257,16 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
       return;
     }
     setRows((prev) => [...prev, { key: genRowKey(), position: defaultPosition, projectId: null, projectName: '', description: '', cells: {} }]);
+  };
+
+  const editRow = (row) => {
+    if (locked && canEditApproved) setEditingApproved(true);
+    setEditingRowKey(row.key);
+  };
+
+  const rowEditable = (row) => {
+    const hasSavedEntries = Object.values(row.cells).some((cell) => cell.id);
+    return !readOnly && !locked && (!hasSavedEntries || editingApproved || editingRowKey === row.key);
   };
 
   const buildEntries = () => {
@@ -401,6 +413,14 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
         );
       })()}
 
+      {!locked && !editingApproved && (
+        <div style={{ marginBottom: 12 }}>
+          <button className="btn btn-secondary" onClick={addRow}>
+            <Plus size={14} /> Add New Row
+          </button>
+        </div>
+      )}
+
       <div className="table-wrap sticky-header timesheet-grid">
         <table className="data-table">
           <thead>
@@ -441,7 +461,7 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
                 <tr key={row.key}>
                   <td className="col-sticky col-group-end">
                     <select
-                      disabled={locked}
+                      disabled={!rowEditable(row)}
                       aria-label="Role / Position"
                       title={row.position || ''}
                       value={row.position || ''}
@@ -456,7 +476,7 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
                   </td>
                   <td className="col-group-end">
                     <select
-                      disabled={locked}
+                      disabled={!rowEditable(row)}
                       aria-label="Project"
                       title={row.projectName || ''}
                       value={row.projectId || ''}
@@ -477,7 +497,7 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
                         min="0"
                         step="0.5"
                         className="hour-input"
-                        disabled={locked}
+                        disabled={!rowEditable(row)}
                         value={row.cells[iso]?.hoursLogged ?? ''}
                         placeholder={locked ? '—' : '0.00'}
                         onChange={(e) => setCell(rIdx, iso, e.target.value)}
@@ -489,9 +509,16 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
                   <td className="col-num col-total-cell">{rowTotal.toFixed(2)}</td>
                   {showActionsColumn && (
                     <td className="col-actions">
-                      <button className="btn btn-ghost btn-sm btn-icon" onClick={() => removeRow(rIdx)} aria-label="Remove row">
-                        <Trash2 size={14} />
-                      </button>
+                      {Object.values(row.cells).some((cell) => cell.id) && !editingApproved && (
+                        <button className="btn btn-ghost btn-sm btn-icon" onClick={() => editRow(row)} aria-label="Edit row" title="Edit row">
+                          <Pencil size={14} />
+                        </button>
+                      )}
+                      {!locked && !editingApproved && (
+                        <button className="btn btn-ghost btn-sm btn-icon" onClick={() => removeRow(rIdx)} aria-label="Remove row" title="Remove row">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </td>
                   )}
                 </tr>
@@ -512,12 +539,6 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
           )}
         </table>
       </div>
-
-      {!locked && !editingApproved && (
-        <button className="btn-add-row-subtle" onClick={addRow}>
-          <Plus size={13} /> Add another row
-        </button>
-      )}
 
       {!readOnly && (
         <div className="form-actions" style={{ marginTop: 20 }}>

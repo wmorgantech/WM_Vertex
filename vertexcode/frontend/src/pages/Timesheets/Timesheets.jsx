@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Download } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
 import { downloadReport } from '../../lib/download';
@@ -34,8 +35,8 @@ export default function Timesheets() {
             )}
             {user.role === 'SUPER_ADMIN' && (
               <>
-                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/timesheets', 'timesheets.csv')}>Export CSV</button>
-                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/timesheets?format=xlsx', 'timesheets.xlsx')}>Export Excel</button>
+                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/timesheets', 'timesheets.csv')}><Download size={16} strokeWidth={2.5} /> Export CSV</button>
+                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/timesheets?format=xlsx', 'timesheets.xlsx')}><Download size={16} strokeWidth={2.5} /> Export Excel</button>
               </>
             )}
           </>
