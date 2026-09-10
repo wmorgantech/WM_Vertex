@@ -57,19 +57,33 @@ async function clockOut(req, res) {
   return sendSuccess(res, 200, attendance);
 }
 
+// Pagination is opt-in (same convention as trainee/intern listEnrollments) —
+// a request with no page/limit keeps returning the full, unbounded result
+// set exactly as before, so any other existing caller is unaffected.
+function paginationArgs(query) {
+  const { page, limit } = query;
+  const paginate = page !== undefined || limit !== undefined;
+  if (!paginate) return { paginate: false };
+  const take = Math.min(parseInt(limit, 10) || 10, 100);
+  const currentPage = Math.max(parseInt(page, 10) || 1, 1);
+  return { paginate: true, take, skip: (currentPage - 1) * take, currentPage };
+}
+
 // GET /api/attendance/me
 async function myAttendance(req, res) {
   const { from, to } = req.query;
-  const attendance = await prisma.attendance.findMany({
-    where: {
-      userId: req.user.id,
-      ...((from || to) && {
-        date: { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) },
-      }),
-    },
-    orderBy: { date: 'desc' },
-  });
-  return sendSuccess(res, 200, attendance);
+  const { paginate, take, skip, currentPage } = paginationArgs(req.query);
+  const where = {
+    userId: req.user.id,
+    ...((from || to) && {
+      date: { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) },
+    }),
+  };
+  const [attendance, total] = await Promise.all([
+    prisma.attendance.findMany({ where, orderBy: { date: 'desc' }, ...(paginate && { take, skip }) }),
+    paginate ? prisma.attendance.count({ where }) : Promise.resolve(undefined),
+  ]);
+  return sendSuccess(res, 200, attendance, paginate ? { total, page: currentPage, limit: take } : undefined);
 }
 
 // GET /api/attendance — team/org view (managers)
@@ -78,19 +92,25 @@ async function listAttendance(req, res) {
   if (status && !ATTENDANCE_STATUSES.includes(status)) {
     throw new ApiError(400, `status must be one of: ${ATTENDANCE_STATUSES.join(', ')}`);
   }
-  const attendance = await prisma.attendance.findMany({
-    where: {
-      ...(userId && { userId }),
-      ...(status && { status }),
-      ...((from || to) && {
-        date: { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) },
-      }),
-      ...(departmentId && { user: { departmentId } }),
-    },
-    include: { user: { select: { id: true, firstName: true, lastName: true, departmentId: true } } },
-    orderBy: { date: 'desc' },
-  });
-  return sendSuccess(res, 200, attendance);
+  const { paginate, take, skip, currentPage } = paginationArgs(req.query);
+  const where = {
+    ...(userId && { userId }),
+    ...(status && { status }),
+    ...((from || to) && {
+      date: { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) },
+    }),
+    ...(departmentId && { user: { departmentId } }),
+  };
+  const [attendance, total] = await Promise.all([
+    prisma.attendance.findMany({
+      where,
+      include: { user: { select: { id: true, firstName: true, lastName: true, departmentId: true } } },
+      orderBy: { date: 'desc' },
+      ...(paginate && { take, skip }),
+    }),
+    paginate ? prisma.attendance.count({ where }) : Promise.resolve(undefined),
+  ]);
+  return sendSuccess(res, 200, attendance, paginate ? { total, page: currentPage, limit: take } : undefined);
 }
 
 // POST /api/attendance/mark — manual entry/correction (managers), also handles ON_LEAVE/ABSENT/HOLIDAY

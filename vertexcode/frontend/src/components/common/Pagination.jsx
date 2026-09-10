@@ -2,7 +2,10 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 // Shared server-side pagination control — expects `meta` in the shape
 // returned by sendSuccess(res, status, data, { total, page, limit }).
-export default function Pagination({ meta, onPageChange }) {
+// `onPageSizeChange` is optional — pass it (with `pageSizeOptions`) to also
+// render a page-size selector inline; every existing caller that doesn't
+// pass it renders exactly as before.
+export default function Pagination({ meta, onPageChange, onPageSizeChange, pageSizeOptions }) {
   if (!meta || !meta.total) return null;
 
   const { total, page, limit } = meta;
@@ -15,6 +18,14 @@ export default function Pagination({ meta, onPageChange }) {
       <span className="pagination-summary">
         Showing {from}–{to} of {total}
       </span>
+      {onPageSizeChange && (
+        <label className="pagination-page-size">
+          Rows per page
+          <select value={limit} onChange={(e) => onPageSizeChange(Number(e.target.value))} aria-label="Rows per page">
+            {(pageSizeOptions || [10, 25, 50]).map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
+      )}
       <div className="pagination-controls">
         <button
           type="button"
