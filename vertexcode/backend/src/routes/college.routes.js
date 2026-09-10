@@ -36,6 +36,22 @@ router.use(authenticate);
 router.get('/', ctrl.listColleges);
 /**
  * @swagger
+ * /colleges/summary:
+ *   get:
+ *     tags: [Colleges]
+ *     summary: College counts for the summary cards (Total/Trash)
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ */
+router.get('/summary', ctrl.collegeSummary);
+/**
+ * @swagger
  * /colleges:
  *   post:
  *     tags: [Colleges]
@@ -201,6 +217,80 @@ router.put('/:id', can('college', 'manage'), ctrl.updateCollege);
  *             schema: { $ref: '#/components/schemas/ApiError' }
  */
 router.delete('/:id', isSuperAdmin, ctrl.deleteCollege);
+
+/**
+ * @swagger
+ * /colleges/{id}/restore:
+ *   post:
+ *     tags: [Colleges]
+ *     summary: Restore a soft-deleted (Trash) college
+ *     description: SUPER_ADMIN only.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       400:
+ *         description: Not in Trash
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden (SUPER_ADMIN only)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: Not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.post('/:id/restore', isSuperAdmin, ctrl.restoreCollege);
+/**
+ * @swagger
+ * /colleges/{id}/permanent:
+ *   delete:
+ *     tags: [Colleges]
+ *     summary: Permanently delete a college (irreversible)
+ *     description: SUPER_ADMIN only. Requires the college to already be in Trash.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       400:
+ *         description: Not in Trash
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden (SUPER_ADMIN only)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: Not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       409:
+ *         description: Still referenced by Workshops/MOUs
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.delete('/:id/permanent', isSuperAdmin, ctrl.permanentlyDeleteCollege);
 
 /**
  * @swagger

@@ -16,9 +16,18 @@ function scopeWhere(scope) {
 }
 
 async function listDepartments(req, res) {
-  const { scope } = req.query;
+  const { scope, search } = req.query;
+  const where = {
+    ...scopeWhere(scope),
+    ...(search && {
+      OR: [
+        { name: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+      ],
+    }),
+  };
   const departments = await prisma.department.findMany({
-    where: scopeWhere(scope),
+    where,
     include: {
       head: { select: { id: true, firstName: true, lastName: true } },
       _count: { select: { users: true } },
@@ -100,4 +109,24 @@ async function restoreDepartment(req, res) {
   return sendSuccess(res, 200, dept);
 }
 
-module.exports = { listDepartments, summary, getDepartment, createDepartment, updateDepartment, deleteDepartment, restoreDepartment };
+// DELETE /api/departments/:id/permanent — Super Admin only, irreversible.
+// Requires the department to already be in Trash (mirrors the same
+// two-step safety pattern used by Employees/Interns/Trainees/Documents'
+// permanent-delete endpoints) — never a direct hard-delete of an active
+// department.
+async function permanentlyDeleteDepartment(req, res) {
+  const before = await prisma.department.findUnique({
+    where: { id: req.params.id },
+    include: { _count: { select: { users: true } } },
+  });
+  if (!before) throw new ApiError(404, 'Department not found');
+  if (!before.deletedAt) throw new ApiError(400, 'This department is not in Trash — move it to Trash first');
+  if (before._count.users > 0) {
+    throw new ApiError(400, `Cannot permanently delete: ${before._count.users} user(s) still belong to this department.`);
+  }
+  await prisma.department.delete({ where: { id: req.params.id } });
+  await recordAudit({ actorId: req.user.id, action: 'PERMANENTLY_DELETED', module: 'DEPARTMENT', entityId: before.id, entityLabel: before.name, before });
+  return sendSuccess(res, 200, { message: 'Department permanently deleted' });
+}
+
+module.exports = { listDepartments, summary, getDepartment, createDepartment, updateDepartment, deleteDepartment, restoreDepartment, permanentlyDeleteDepartment };

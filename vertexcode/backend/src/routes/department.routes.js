@@ -226,4 +226,39 @@ router.delete('/:id', isSuperAdmin, ctrl.deleteDepartment);
  */
 router.post('/:id/restore', isSuperAdmin, ctrl.restoreDepartment);
 
+/**
+ * @swagger
+ * /departments/{id}/permanent:
+ *   delete:
+ *     tags: [Departments]
+ *     summary: Permanently delete a department (irreversible)
+ *     description: SUPER_ADMIN only. Requires the department to already be in Trash.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       400:
+ *         description: Not in Trash, or still has members
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden (SUPER_ADMIN only)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: Not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.delete('/:id/permanent', isSuperAdmin, ctrl.permanentlyDeleteDepartment);
+
 module.exports = router;

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Eye } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye, Search, RotateCcw, Building2 } from 'lucide-react';
+import StatCard from '../../components/common/StatCard';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -24,6 +25,10 @@ export default function Colleges() {
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [viewTab, setViewTab] = useState('active');
+  const [summary, setSummary] = useState({ total: 0, trash: 0 });
 
   const [expandedId, setExpandedId] = useState(null);
   const [deptForm, setDeptForm] = useState(emptyDeptForm);
@@ -33,14 +38,25 @@ export default function Colleges() {
 
   const load = () => {
     setLoading(true);
-    Promise.all([api.get('/colleges'), api.get('/masters/college-types')])
-      .then(([c, t]) => {
-        setColleges(c.data.data);
-        setTypes(t.data.data.filter((x) => x.active));
+    Promise.allSettled([
+      api.get('/colleges', { params: { scope: viewTab, search: debouncedSearch || undefined } }),
+      api.get('/colleges/summary'),
+      api.get('/masters/college-types'),
+    ])
+      .then(([c, s, t]) => {
+        if (c.status === 'fulfilled') { setColleges(c.value.data.data); setExpandedId(null); }
+        if (s.status === 'fulfilled') setSummary(s.value.data.data);
+        if (t.status === 'fulfilled') setTypes(t.value.data.data.filter((x) => x.active));
+        const failed = [c, s, t].find((r) => r.status === 'rejected');
+        if (failed) toast.error(failed.reason?.response?.data?.message || 'Some college data failed to load');
       })
       .finally(() => setLoading(false));
   };
-  useEffect(load, []);
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 400);
+    return () => clearTimeout(id);
+  }, [search]);
+  useEffect(load, [viewTab, debouncedSearch]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -83,18 +99,38 @@ export default function Colleges() {
   };
 
   const handleDelete = async (c) => {
-    const impacts = [];
-    if (c.departments?.length) impacts.push(`${c.departments.length} department(s) will also be deleted`);
-    if (c._count?.workshops) impacts.push(`${c._count.workshops} workshop(s) reference this college`);
-    if (c._count?.mous) impacts.push(`${c._count.mous} MOU(s) reference this college`);
-    const impactText = impacts.length ? `\n\nImpact:\n- ${impacts.join('\n- ')}` : '';
-    if (!window.confirm(`Delete "${c.name}"? This cannot be undone.${impactText}`)) return;
+    if (!window.confirm(`Remove "${c.name}"? It will move to Trash — this can be undone with Restore.`)) return;
     try {
       await api.delete(`/colleges/${c.id}`);
-      toast.success('College removed');
+      toast.success('College moved to Trash');
       load();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to delete college');
+      toast.error(err.response?.data?.message || 'Failed to remove college');
+    }
+  };
+
+  const handleRestore = async (c) => {
+    try {
+      await api.post(`/colleges/${c.id}/restore`);
+      toast.success('College restored');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to restore college');
+    }
+  };
+
+  // Irreversible — DELETE /colleges/:id/permanent (Super Admin only,
+  // requires the college already be in Trash). Departments cascade; if
+  // Workshops/MOUs still reference this college, the backend's FK
+  // constraint rejects the delete with a clear error.
+  const handlePermanentlyDelete = async (c) => {
+    if (!window.confirm(`Permanently delete "${c.name}"? This will also remove its departments. This cannot be undone.`)) return;
+    try {
+      await api.delete(`/colleges/${c.id}/permanent`);
+      toast.success('College permanently deleted');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to permanently delete college');
     }
   };
 
@@ -141,7 +177,29 @@ export default function Colleges() {
     },
   ];
 
-  const expanded = colleges.find((c) => c.id === expandedId);
+  // Trash gets its own, narrower column set — no Edit/Manage depts on an
+  // already-removed record, just enough to identify it, restore it, or
+  // (Super Admin only) permanently delete it — same convention as
+  // Departments/Projects' trashColumns.
+  const trashColumns = [
+    { key: 'name', header: 'College' },
+    { key: 'type', header: 'Type', render: (r) => r.type?.label || '—' },
+    { key: 'city', header: 'City', render: (r) => r.city || '—' },
+    { key: 'deletedAt', header: 'Removed Date', render: (r) => r.deletedAt ? new Date(r.deletedAt).toLocaleDateString() : '—' },
+    {
+      key: 'actions', header: 'Actions', render: (r) => (
+        <TableActions
+          actions={[
+            { key: 'view', icon: Eye, label: 'View', onClick: () => setViewing(r) },
+            isSuperAdmin && { key: 'restore', icon: RotateCcw, label: 'Restore', onClick: () => handleRestore(r) },
+            isSuperAdmin && { key: 'delete-permanent', icon: Trash2, label: 'Delete Permanently', danger: true, onClick: () => handlePermanentlyDelete(r) },
+          ]}
+        />
+      ),
+    },
+  ];
+
+  const expanded = viewTab === 'trash' ? null : colleges.find((c) => c.id === expandedId);
 
   return (
     <div>
@@ -151,21 +209,55 @@ export default function Colleges() {
         actions={<button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> Add College</button>}
       />
 
-      {loading ? <div className="page-loading">Loading...</div> : <DataTable columns={columns} rows={colleges} emptyMessage="No colleges added yet." />}
+      <div className="stat-grid">
+        <StatCard label="Total Colleges" value={summary.total} accent="blue" icon={Building2} />
+        <StatCard label="Trash" value={summary.trash} accent="red" icon={Trash2} />
+      </div>
+
+      <div className="toolbar">
+        <span className="search-input-wrap">
+          <Search size={16} strokeWidth={2.5} />
+          <input className="search-input" placeholder="Search by name, city or contact..." value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search colleges" />
+        </span>
+        <div className="toolbar-actions">
+          <button type="button" className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab(viewTab === 'trash' ? 'active' : 'trash')}>
+            🗑️ Trash{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}
+          </button>
+        </div>
+      </div>
+
+      {loading ? <div className="page-loading">Loading...</div> : (
+        <DataTable
+          columns={viewTab === 'trash' ? trashColumns : columns}
+          rows={colleges}
+          emptyMessage={viewTab === 'trash' ? 'Trash is empty.' : 'No colleges added yet.'}
+        />
+      )}
 
       {expanded && (
         <div className="card" style={{ marginTop: 16 }}>
           <h3>{expanded.name} — Departments</h3>
+          {/* Newest first (departments come back from the API already
+              sorted by createdAt desc), rendered as cards instead of a
+              plain bullet list, so a just-added department is always the
+              first card here — immediately visible with no scrolling. */}
           {expanded.departments.length === 0 ? (
             <div className="empty-state">No departments recorded yet.</div>
           ) : (
-            <ul className="simple-list">
+            <div className="card-grid" style={{ marginBottom: 0 }}>
               {expanded.departments.map((d) => (
-                <li key={d.id}>{d.name}{d.contactPerson ? ` — ${d.contactPerson}` : ''}{d.contactEmail ? ` (${d.contactEmail})` : ''}</li>
+                <div key={d.id} className="card" style={{ padding: 12 }}>
+                  <p style={{ margin: 0, fontWeight: 600, fontSize: 14 }}>{d.name}</p>
+                  {(d.contactPerson || d.contactEmail) && (
+                    <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
+                      {[d.contactPerson, d.contactEmail].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
+                </div>
               ))}
-            </ul>
+            </div>
           )}
-          <form className="form-grid" style={{ marginTop: 12 }} onSubmit={(e) => handleAddDept(e, expanded.id)}>
+          <form className="form-grid" style={{ marginTop: 16 }} onSubmit={(e) => handleAddDept(e, expanded.id)}>
             <label>Department Name<input required value={deptForm.name} onChange={(e) => setDeptForm({ ...deptForm, name: e.target.value })} /></label>
             <label>Contact Person<input value={deptForm.contactPerson} onChange={(e) => setDeptForm({ ...deptForm, contactPerson: e.target.value })} /></label>
             <label>Contact Email<input value={deptForm.contactEmail} onChange={(e) => setDeptForm({ ...deptForm, contactEmail: e.target.value })} /></label>

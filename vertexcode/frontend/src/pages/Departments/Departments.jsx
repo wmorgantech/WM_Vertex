@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Eye, RotateCcw, Building2, CheckCircle2, Archive } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye, RotateCcw, Building2, CheckCircle2, Search } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -11,10 +11,15 @@ import Badge from '../../components/common/Badge';
 import StatCard from '../../components/common/StatCard';
 import toast from 'react-hot-toast';
 
-const VIEW_TABS = [
+// Active/All only — Department has no active/status field to reuse (see
+// department.controller.js's scopeWhere: only `deletedAt` exists), so there
+// is no real "Inactive" state to filter on; adding one would be a fake
+// filter with nothing behind it. Trash is a separate axis (soft-delete),
+// pinned to the toolbar's far right like every other module, not a third
+// value of this same dropdown.
+const STATUS_OPTIONS = [
   { value: 'active', label: 'Active' },
   { value: 'all', label: 'All' },
-  { value: 'trash', label: '🗑️ Trash' },
 ];
 
 export default function Departments() {
@@ -23,6 +28,8 @@ export default function Departments() {
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewTab, setViewTab] = useState('active');
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [summary, setSummary] = useState({ total: 0, active: 0, trash: 0 });
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showModal, setShowModal] = useState(false);
@@ -36,7 +43,7 @@ export default function Departments() {
   const load = () => {
     setLoading(true);
     Promise.allSettled([
-      api.get('/departments', { params: { scope: viewTab } }),
+      api.get('/departments', { params: { scope: viewTab, search: debouncedSearch || undefined } }),
       api.get('/departments/summary'),
     ])
       .then(([d, s]) => {
@@ -50,7 +57,11 @@ export default function Departments() {
       })
       .finally(() => setLoading(false));
   };
-  useEffect(load, [viewTab]);
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 400);
+    return () => clearTimeout(id);
+  }, [search]);
+  useEffect(load, [viewTab, debouncedSearch]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -115,6 +126,20 @@ export default function Departments() {
       load();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to restore department');
+    }
+  };
+
+  // Irreversible — DELETE /departments/:id/permanent (Super Admin only,
+  // requires the department already be in Trash) — same pattern as
+  // Employees/Interns/Trainees' permanent delete.
+  const handlePermanentlyDelete = async (d) => {
+    if (!window.confirm(`Permanently delete department "${d.name}"? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/departments/${d.id}/permanent`);
+      toast.success('Department permanently deleted');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to permanently delete department');
     }
   };
 
@@ -210,6 +235,7 @@ export default function Departments() {
           actions={[
             { key: 'view', icon: Eye, label: 'View', onClick: () => openView(r) },
             isSuperAdmin && { key: 'restore', icon: RotateCcw, label: 'Restore', onClick: () => handleRestore(r) },
+            isSuperAdmin && { key: 'delete-permanent', icon: Trash2, label: 'Delete Permanently', danger: true, onClick: () => handlePermanentlyDelete(r) },
           ]}
         />
       ),
@@ -221,21 +247,32 @@ export default function Departments() {
       <PageHeader
         title="Departments"
         subtitle="Organizational units and structure"
-        actions={<button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> Add Department</button>}
+        actions={<button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={16} strokeWidth={2.5} /> Add Department</button>}
       />
 
       <div className="stat-grid">
         <StatCard label="Total Departments" value={summary.total} accent="blue" icon={Building2} />
         <StatCard label="Active" value={summary.active} accent="green" icon={CheckCircle2} />
-        <StatCard label="Trash" value={summary.trash} accent="red" icon={Archive} />
+        <StatCard label="Trash" value={summary.trash} accent="red" icon={Trash2} />
       </div>
 
-      <div className="tabs">
-        {VIEW_TABS.map((t) => (
-          <button key={t.value} className={`tab ${viewTab === t.value ? 'active' : ''}`} onClick={() => setViewTab(t.value)}>
-            {t.value === 'trash' ? (<>{t.label}{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}</>) : t.label}
+      {/* Single compact toolbar row, same shared pattern as Employees/
+          Interns/Trainees: the Active/All status filter on the left, Trash
+          pinned to the far right via .toolbar-actions so it's always the
+          last action in the row, never competing with the filter. */}
+      <div className="toolbar">
+        <span className="search-input-wrap">
+          <Search size={16} strokeWidth={2.5} />
+          <input className="search-input" placeholder="Search by name or description..." value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search departments" />
+        </span>
+        <select value={viewTab === 'trash' ? 'active' : viewTab} onChange={(e) => setViewTab(e.target.value)} aria-label="Filter by status">
+          {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        <div className="toolbar-actions">
+          <button type="button" className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab('trash')}>
+            🗑️ Trash{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}
           </button>
-        ))}
+        </div>
       </div>
 
       {isSuperAdmin && viewTab !== 'trash' && selectedIds.size > 0 && (
@@ -243,7 +280,7 @@ export default function Departments() {
           <span>{selectedIds.size} selected</span>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Clear selection</button>
           <button type="button" className="btn btn-danger btn-sm" onClick={handleBulkDelete}>
-            <Trash2 size={14} /> Delete Selected ({selectedIds.size})
+            <Trash2 size={16} strokeWidth={2.5} /> Delete Selected ({selectedIds.size})
           </button>
         </div>
       )}
@@ -272,25 +309,43 @@ export default function Departments() {
       {viewing && (
         <Modal size="wide" title={viewing.name} onClose={() => setViewing(null)}>
           <div className="detail-card">
-            <div className="detail-grid">
-              <DetailField label="ID" value={viewing.id} />
-              <DetailField full label="Description" value={viewing.description} />
-              <DetailField label="Head" value={viewing.head ? `${viewing.head.firstName} ${viewing.head.lastName}` : null} />
-              <DetailField label="Members" value={viewing.users ? viewing.users.length : viewing._count?.users ?? 0} />
-              {viewing.deletedAt && <DetailField label="Removed" value={new Date(viewing.deletedAt).toLocaleString()} />}
-            </div>
-            {viewLoading ? (
-              <p className="empty-state" style={{ padding: 0, textAlign: 'left' }}>Loading members...</p>
-            ) : viewing.users && viewing.users.length > 0 && (
-              <div>
-                <p className="detail-field-label" style={{ marginBottom: 8 }}>Team</p>
-                <div className="detail-grid">
-                  {viewing.users.map((u) => (
-                    <DetailField key={u.id} label={u.designation || u.role} value={`${u.firstName} ${u.lastName}`} />
-                  ))}
-                </div>
+            {viewing.deletedAt && (
+              <div className="detail-card-header">
+                <Badge value="TERMINATED" label="Removed" />
               </div>
             )}
+
+            {/* Grouped into named sections (same pattern as Employees/
+                Interns/Trainees' View modal) instead of one flat grid —
+                keeps ID/Description/Head/Members aligned and readable
+                instead of an ungrouped list, and the auto-fit .detail-grid
+                already collapses columns responsively with no wasted space. */}
+            <div className="detail-section">
+              <p className="detail-section-title">Department Information</p>
+              <div className="detail-grid">
+                <DetailField label="ID" value={viewing.id} />
+                <DetailField label="Head" value={viewing.head ? `${viewing.head.firstName} ${viewing.head.lastName}` : null} />
+                <DetailField label="Members" value={viewing.users ? viewing.users.length : viewing._count?.users ?? 0} />
+                {viewing.deletedAt && <DetailField label="Removed Date" value={new Date(viewing.deletedAt).toLocaleString()} />}
+                <DetailField full label="Description" value={viewing.description} />
+              </div>
+            </div>
+
+            {(viewLoading || (viewing.users && viewing.users.length > 0)) && (
+              <div className="detail-section">
+                <p className="detail-section-title">Team</p>
+                {viewLoading ? (
+                  <p className="empty-state" style={{ padding: 0, textAlign: 'left' }}>Loading members...</p>
+                ) : (
+                  <div className="detail-grid">
+                    {viewing.users.map((u) => (
+                      <DetailField key={u.id} label={u.designation || u.role} value={`${u.firstName} ${u.lastName}`} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="form-actions">
               <button type="button" className="btn btn-ghost" onClick={() => setViewing(null)}>Close</button>
             </div>
