@@ -631,6 +631,7 @@ model College {
   email         String?
   coordinator   String?
   active        Boolean             @default(true)
+  deletedAt     DateTime?
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
   type          CollegeType?        @relation(fields: [typeCode], references: [code])
@@ -676,6 +677,7 @@ model Workshop {
   discussionNotes      String?
   nextAction           String?
   remarks              String?
+  deletedAt            DateTime?
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   assignedEmployee     User?              @relation("WorkshopAssignee", fields: [assignedEmployeeId], references: [id])
@@ -703,6 +705,7 @@ model MOU {
   documentPath        String?
   documentName        String?
   remarks             String?
+  deletedAt           DateTime?
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
   assignedEmployee    User?              @relation("MouAssignee", fields: [assignedEmployeeId], references: [id])
@@ -866,7 +869,6 @@ model DailyWorkUpdate {
   reviewedBy      User?            @relation("WorkUpdateReviewer", fields: [reviewedById], references: [id])
   user            User             @relation("WorkUpdateOwner", fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, date])
   @@index([date])
 }
 
