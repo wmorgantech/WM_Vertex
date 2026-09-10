@@ -14,6 +14,7 @@ const ROLES = [
   { value: 'ADMIN', label: 'Admin' },
   { value: 'EMPLOYEE', label: 'Employee' },
   { value: 'INTERN', label: 'Intern' },
+  { value: 'TRAINEE', label: 'Trainee' },
 ];
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
