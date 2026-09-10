@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Trash2, Eye, Pencil, FileSignature, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
+import { Plus, Trash2, Eye, Pencil, FileSignature, CheckCircle2, AlertTriangle, XCircle, Search, RotateCcw } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -13,6 +13,16 @@ import toast from 'react-hot-toast';
 import { downloadReport } from '../../lib/download';
 
 const STATUSES = ['DISCUSSION', 'DRAFT', 'SENT', 'UNDER_REVIEW', 'APPROVED', 'SIGNED', 'ACTIVE', 'EXPIRED', 'RENEWED', 'CANCELLED'];
+// Active/All/Trash — same convention as Projects/Workshops (deletedAt-based;
+// MOU has no separate Active/Inactive axis beyond this real 10-value status
+// workflow, so the list filter below narrows by status, independent of
+// Trash).
+const VIEW_TABS = [
+  { value: 'active', label: 'Active' },
+  { value: 'all', label: 'All' },
+  { value: 'trash', label: '🗑️ Trash' },
+];
+const STATUS_FILTER_OPTIONS = [{ value: '', label: 'All Statuses' }, ...STATUSES.map((s) => ({ value: s, label: s.replace(/_/g, ' ') }))];
 
 const emptyForm = {
   collegeId: '', contactPerson: '', mouType: '', purpose: '', startDate: '', endDate: '',
@@ -33,18 +43,49 @@ export default function MOUs() {
   const [editForm, setEditForm] = useState({});
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const docInputRef = useRef(null);
+  const [viewTab, setViewTab] = useState('active');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [summary, setSummary] = useState({ total: 0, trash: 0 });
+  // Unfiltered "active" snapshot, fetched independently of the table's
+  // current status filter/search/Trash tab, purely to compute the
+  // Active/Expiring Soon/Expired stat cards — so switching a list filter
+  // never shifts those numbers (same fix already applied to Workshops).
+  const [statsMous, setStatsMous] = useState([]);
 
   const load = () => {
     setLoading(true);
-    Promise.all([api.get('/mous'), api.get('/colleges'), api.get('/users')])
-      .then(([m, c, u]) => {
-        setMous(m.data.data);
-        setColleges(c.data.data);
-        setStaffUsers(u.data.data.filter((x) => ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'].includes(x.role)));
+    Promise.allSettled([
+      api.get('/mous', {
+        params: {
+          scope: viewTab,
+          status: viewTab === 'trash' ? undefined : (statusFilter || undefined),
+          search: debouncedSearch || undefined,
+        },
+      }),
+      api.get('/mous/summary'),
+      api.get('/mous', { params: { scope: 'active' } }),
+      api.get('/colleges'),
+      api.get('/users'),
+    ])
+      .then(([m, s, statsM, c, u]) => {
+        if (m.status === 'fulfilled') { setMous(m.value.data.data); setSelectedIds(new Set()); }
+        if (s.status === 'fulfilled') setSummary(s.value.data.data);
+        if (statsM.status === 'fulfilled') setStatsMous(statsM.value.data.data);
+        if (c.status === 'fulfilled') setColleges(c.value.data.data);
+        if (u.status === 'fulfilled') setStaffUsers(u.value.data.data.filter((x) => ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'].includes(x.role)));
+        const failed = [m, s, statsM, c, u].find((r) => r.status === 'rejected');
+        if (failed) toast.error(failed.reason?.response?.data?.message || 'Some MOU data failed to load');
       })
       .finally(() => setLoading(false));
   };
-  useEffect(load, []);
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 400);
+    return () => clearTimeout(id);
+  }, [search]);
+  useEffect(load, [viewTab, statusFilter, debouncedSearch]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -89,14 +130,72 @@ export default function MOUs() {
   };
 
   const handleDelete = async (m) => {
-    if (!window.confirm(`Delete this MOU${m.mouType ? ` (${m.mouType})` : ''}? This cannot be undone.`)) return;
+    if (!window.confirm(`Remove this MOU${m.mouType ? ` (${m.mouType})` : ''}? It will move to Trash — this can be undone with Restore.`)) return;
     try {
       await api.delete(`/mous/${m.id}`);
-      toast.success('MOU removed');
+      toast.success('MOU moved to Trash');
       load();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to delete MOU');
+      toast.error(err.response?.data?.message || 'Failed to remove MOU');
     }
+  };
+
+  const handleRestore = async (m) => {
+    try {
+      await api.post(`/mous/${m.id}/restore`);
+      toast.success('MOU restored');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to restore MOU');
+    }
+  };
+
+  // Irreversible — DELETE /mous/:id/permanent (Super Admin only, requires
+  // the MOU already be in Trash) — same pattern used everywhere else in
+  // this app.
+  const handlePermanentlyDelete = async (m) => {
+    if (!window.confirm(`Permanently delete this MOU${m.mouType ? ` (${m.mouType})` : ''}? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/mous/${m.id}/permanent`);
+      toast.success('MOU permanently deleted');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to permanently delete MOU');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Remove ${ids.length} selected MOU(s)? They will move to Trash — this can be undone with Restore.`)) return;
+    try {
+      await Promise.all(ids.map((id) => api.delete(`/mous/${id}`)));
+      toast.success(`${ids.length} MOU(s) moved to Trash`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to remove some of the selected MOUs');
+    } finally {
+      setSelectedIds(new Set());
+      load();
+    }
+  };
+
+  const toggleSelectOne = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const visibleIds = mous.map((m) => m.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+  const someVisibleSelected = visibleIds.some((id) => selectedIds.has(id));
+  const toggleSelectAllVisible = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) visibleIds.forEach((id) => next.delete(id));
+      else visibleIds.forEach((id) => next.add(id));
+      return next;
+    });
   };
 
   const handleDocumentSelected = async (e) => {
@@ -126,19 +225,42 @@ export default function MOUs() {
     }
   };
 
-  // Computed client-side from the already-fully-loaded `mous` list — no new
-  // backend call. Mirrors analytics.controller.js's exact definitions
-  // (active = status ACTIVE; expiring soon = the same `expiringSoon`/`expired`
-  // flags college.controller.js already attaches per row) so this never
-  // drifts from what the dashboard used to show before those two cards moved here.
+  // Total/Trash come from the summary endpoint (scope-independent); the
+  // other two are computed from the separate unfiltered `statsMous`
+  // snapshot — mirrors analytics.controller.js's exact definitions (active =
+  // status ACTIVE; expiring soon = the same `expiringSoon`/`expired` flags
+  // college.controller.js already attaches per row).
   const mouStats = {
-    total: mous.length,
-    active: mous.filter((m) => m.status === 'ACTIVE').length,
-    expiringSoon: mous.filter((m) => m.expiringSoon).length,
-    expired: mous.filter((m) => m.expired).length,
+    total: summary.total,
+    active: statsMous.filter((m) => m.status === 'ACTIVE').length,
+    expiringSoon: statsMous.filter((m) => m.expiringSoon).length,
+    expired: statsMous.filter((m) => m.expired).length,
+    trash: summary.trash,
+  };
+
+  const selectColumn = {
+    key: 'select',
+    header: (
+      <input
+        type="checkbox"
+        aria-label="Select all visible MOUs"
+        checked={allVisibleSelected}
+        ref={(el) => { if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected; }}
+        onChange={toggleSelectAllVisible}
+      />
+    ),
+    render: (r) => (
+      <input
+        type="checkbox"
+        aria-label={`Select ${r.mouType || 'MOU'}`}
+        checked={selectedIds.has(r.id)}
+        onChange={() => toggleSelectOne(r.id)}
+      />
+    ),
   };
 
   const columns = [
+    ...(user.role === 'SUPER_ADMIN' ? [selectColumn] : []),
     { key: 'mouType', header: 'Type', render: (r) => r.mouType || '—' },
     { key: 'college', header: 'College', render: (r) => r.college.name },
     { key: 'assignee', header: 'Assigned To', render: (r) => r.assignedEmployee ? `${r.assignedEmployee.firstName} ${r.assignedEmployee.lastName}` : '—' },
@@ -157,7 +279,29 @@ export default function MOUs() {
           actions={[
             { key: 'view', icon: Eye, label: 'View', onClick: () => setViewing(r) },
             { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openEdit(r) },
-            user.role === 'SUPER_ADMIN' && { key: 'trash', icon: Trash2, label: 'Delete', danger: true, onClick: () => handleDelete(r) },
+            user.role === 'SUPER_ADMIN' && { key: 'trash', icon: Trash2, label: 'Delete (move to Trash)', danger: true, onClick: () => handleDelete(r) },
+          ]}
+        />
+      ),
+    },
+  ];
+
+  // Trash gets its own, narrower column set — no Edit on an already-removed
+  // record, just enough to identify it, restore it, or (Super Admin only)
+  // permanently delete it — same convention as Departments/Projects/
+  // Colleges/Workshops' trashColumns.
+  const trashColumns = [
+    { key: 'mouType', header: 'Type', render: (r) => r.mouType || '—' },
+    { key: 'college', header: 'College', render: (r) => r.college.name },
+    { key: 'status', header: 'Status', render: (r) => <Badge value={r.status} /> },
+    { key: 'deletedAt', header: 'Removed Date', render: (r) => r.deletedAt ? new Date(r.deletedAt).toLocaleDateString() : '—' },
+    {
+      key: 'actions', header: 'Actions', render: (r) => (
+        <TableActions
+          actions={[
+            { key: 'view', icon: Eye, label: 'View', onClick: () => setViewing(r) },
+            user.role === 'SUPER_ADMIN' && { key: 'restore', icon: RotateCcw, label: 'Restore', onClick: () => handleRestore(r) },
+            user.role === 'SUPER_ADMIN' && { key: 'delete-permanent', icon: Trash2, label: 'Delete Permanently', danger: true, onClick: () => handlePermanentlyDelete(r) },
           ]}
         />
       ),
@@ -177,9 +321,50 @@ export default function MOUs() {
         <StatCard label="Active" value={mouStats.active} accent="green" icon={CheckCircle2} />
         <StatCard label="Expiring Soon" value={mouStats.expiringSoon} accent={mouStats.expiringSoon > 0 ? 'amber' : 'green'} icon={AlertTriangle} />
         <StatCard label="Expired" value={mouStats.expired} accent={mouStats.expired > 0 ? 'red' : 'green'} icon={XCircle} />
+        <StatCard label="Trash" value={mouStats.trash} accent="red" icon={Trash2} />
       </div>
 
-      {loading ? <div className="page-loading">Loading...</div> : <DataTable columns={columns} rows={mous} emptyMessage="No MOUs recorded yet." />}
+      <div className="tabs">
+        {VIEW_TABS.map((t) => (
+          <button key={t.value} className={`tab ${viewTab === t.value ? 'active' : ''}`} onClick={() => setViewTab(t.value)}>
+            {t.value === 'trash' ? (<>{t.label}{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}</>) : t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="toolbar">
+        <span className="search-input-wrap">
+          <Search size={16} strokeWidth={2.5} />
+          <input className="search-input" placeholder="Search by type, contact or purpose..." value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search MOUs" />
+        </span>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          disabled={viewTab === 'trash'}
+          title={viewTab === 'trash' ? 'Status filter does not apply to Trash' : undefined}
+          aria-label="Filter by status"
+        >
+          {STATUS_FILTER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </div>
+
+      {user.role === 'SUPER_ADMIN' && viewTab !== 'trash' && selectedIds.size > 0 && (
+        <div className="toolbar" style={{ marginBottom: 12 }}>
+          <span>{selectedIds.size} selected</span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Clear selection</button>
+          <button type="button" className="btn btn-danger btn-sm" onClick={handleBulkDelete}>
+            <Trash2 size={16} strokeWidth={2.5} /> Delete Selected ({selectedIds.size})
+          </button>
+        </div>
+      )}
+
+      {loading ? <div className="page-loading">Loading...</div> : (
+        <DataTable
+          columns={viewTab === 'trash' ? trashColumns : columns}
+          rows={mous}
+          emptyMessage={viewTab === 'trash' ? 'Trash is empty.' : 'No MOUs recorded yet.'}
+        />
+      )}
 
       {showModal && (
         <Modal title="New MOU" onClose={() => setShowModal(false)}>

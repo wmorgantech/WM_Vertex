@@ -47,6 +47,22 @@ router.use(authenticate);
 router.get('/', ctrl.listWorkshops);
 /**
  * @swagger
+ * /workshops/summary:
+ *   get:
+ *     tags: [Workshops]
+ *     summary: Workshop counts for the summary cards (Total/Trash)
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ */
+router.get('/summary', ctrl.workshopSummary);
+/**
+ * @swagger
  * /workshops:
  *   post:
  *     tags: [Workshops]
@@ -225,5 +241,74 @@ router.put('/:id', ctrl.updateWorkshop);
  *             schema: { $ref: '#/components/schemas/ApiError' }
  */
 router.delete('/:id', isSuperAdmin, ctrl.deleteWorkshop);
+
+/**
+ * @swagger
+ * /workshops/{id}/restore:
+ *   post:
+ *     tags: [Workshops]
+ *     summary: Restore a soft-deleted (Trash) workshop
+ *     description: SUPER_ADMIN only.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       400:
+ *         description: Not in Trash
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden (SUPER_ADMIN only)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: Not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.post('/:id/restore', isSuperAdmin, ctrl.restoreWorkshop);
+/**
+ * @swagger
+ * /workshops/{id}/permanent:
+ *   delete:
+ *     tags: [Workshops]
+ *     summary: Permanently delete a workshop (irreversible)
+ *     description: SUPER_ADMIN only. Requires the workshop to already be in Trash.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       400:
+ *         description: Not in Trash
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden (SUPER_ADMIN only)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: Not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.delete('/:id/permanent', isSuperAdmin, ctrl.permanentlyDeleteWorkshop);
 
 module.exports = router;

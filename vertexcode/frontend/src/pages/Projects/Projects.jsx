@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Eye, Pencil, Trash2, RotateCcw, FolderKanban, Activity, CheckCircle2, Archive } from 'lucide-react';
+import { Plus, Eye, Pencil, Trash2, RotateCcw, FolderKanban, Activity, CheckCircle2, Search } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
@@ -17,6 +17,17 @@ const VIEW_TABS = [
   { value: 'trash', label: '🗑️ Trash' },
 ];
 const STATUS_OPTIONS = ['PLANNED', 'ACTIVE', 'ON_HOLD', 'COMPLETED', 'CANCELLED'];
+// List-view status filter — deliberately only the four statuses called out
+// as useful for browsing (CANCELLED is a real, settable status via
+// Edit/STATUS_OPTIONS above, just not one of the requested list filters;
+// it still shows up under "All Statuses", nothing is hidden entirely).
+const STATUS_FILTER_OPTIONS = [
+  { value: '', label: 'All Statuses' },
+  { value: 'ACTIVE', label: 'Active' },
+  { value: 'PLANNED', label: 'Planned' },
+  { value: 'ON_HOLD', label: 'On Hold' },
+  { value: 'COMPLETED', label: 'Completed' },
+];
 
 export default function Projects() {
   const { user } = useAuth();
@@ -26,6 +37,9 @@ export default function Projects() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewTab, setViewTab] = useState('active');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [summary, setSummary] = useState({ total: 0, active: 0, completed: 0, trash: 0 });
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showModal, setShowModal] = useState(false);
@@ -37,7 +51,15 @@ export default function Projects() {
   const load = () => {
     setLoading(true);
     Promise.allSettled([
-      api.get('/projects', { params: { scope: viewTab } }),
+      api.get('/projects', {
+        params: {
+          scope: viewTab,
+          // Status filtering is completely separate from Trash — never sent
+          // while browsing Trash, so it can't narrow/hide trashed rows.
+          status: viewTab === 'trash' ? undefined : (statusFilter || undefined),
+          search: debouncedSearch || undefined,
+        },
+      }),
       api.get('/projects/summary'),
     ])
       .then(([p, s]) => {
@@ -51,7 +73,11 @@ export default function Projects() {
       })
       .finally(() => setLoading(false));
   };
-  useEffect(load, [viewTab]);
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 400);
+    return () => clearTimeout(id);
+  }, [search]);
+  useEffect(load, [viewTab, statusFilter, debouncedSearch]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -109,6 +135,20 @@ export default function Projects() {
       load();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to restore project');
+    }
+  };
+
+  // Irreversible — DELETE /projects/:id/permanent (Super Admin only,
+  // requires the project already be in Trash) — same pattern as
+  // Employees/Interns/Trainees/Departments' permanent delete.
+  const handlePermanentlyDelete = async (p) => {
+    if (!window.confirm(`Permanently delete project "${p.name}"? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/projects/${p.id}/permanent`);
+      toast.success('Project permanently deleted');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to permanently delete project');
     }
   };
 
@@ -202,6 +242,7 @@ export default function Projects() {
           actions={[
             { key: 'view', icon: Eye, label: 'View', onClick: () => navigate(`/projects/${r.id}`) },
             isSuperAdmin && { key: 'restore', icon: RotateCcw, label: 'Restore', onClick: () => handleRestore(r) },
+            isSuperAdmin && { key: 'delete-permanent', icon: Trash2, label: 'Delete Permanently', danger: true, onClick: () => handlePermanentlyDelete(r) },
           ]}
         />
       ),
@@ -220,7 +261,7 @@ export default function Projects() {
         <StatCard label="Total Projects" value={summary.total} accent="blue" icon={FolderKanban} />
         <StatCard label="Active" value={summary.active} accent="green" icon={Activity} />
         <StatCard label="Completed" value={summary.completed} accent="purple" icon={CheckCircle2} />
-        <StatCard label="Trash" value={summary.trash} accent="red" icon={Archive} />
+        <StatCard label="Trash" value={summary.trash} accent="red" icon={Trash2} />
       </div>
 
       <div className="tabs">
@@ -229,6 +270,22 @@ export default function Projects() {
             {t.value === 'trash' ? (<>{t.label}{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}</>) : t.label}
           </button>
         ))}
+      </div>
+
+      <div className="toolbar">
+        <span className="search-input-wrap">
+          <Search size={16} strokeWidth={2.5} />
+          <input className="search-input" placeholder="Search by name or description..." value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search projects" />
+        </span>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          disabled={viewTab === 'trash'}
+          title={viewTab === 'trash' ? 'Status filter does not apply to Trash' : undefined}
+          aria-label="Filter by status"
+        >
+          {STATUS_FILTER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
       </div>
 
       {isSuperAdmin && viewTab !== 'trash' && selectedIds.size > 0 && (

@@ -248,6 +248,46 @@ router.post('/:id/restore', isSuperAdmin, ctrl.restoreProject);
 
 /**
  * @swagger
+ * /projects/{id}/permanent:
+ *   delete:
+ *     tags: [Projects]
+ *     summary: Permanently delete a project (irreversible)
+ *     description: SUPER_ADMIN only. Requires the project to already be in Trash.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       400:
+ *         description: Not in Trash
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden (SUPER_ADMIN only)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: Not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       409:
+ *         description: Still referenced by Tasks/Timesheets
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.delete('/:id/permanent', isSuperAdmin, ctrl.permanentlyDeleteProject);
+
+/**
+ * @swagger
  * /projects/{id}/members:
  *   post:
  *     tags: [Projects]

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Eye, Pencil, Presentation, CalendarClock, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Plus, Trash2, Eye, Pencil, Presentation, CalendarClock, AlertTriangle, CheckCircle2, Search, RotateCcw } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -13,6 +13,16 @@ import StatCard from '../../components/common/StatCard';
 import toast from 'react-hot-toast';
 
 const STATUSES = ['LEAD', 'CONTACTED', 'DISCUSSION', 'PROPOSED', 'SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'FOLLOW_UP_REQUIRED'];
+// Active/All/Trash — same convention as Projects (deletedAt-based; Workshop
+// has no separate Active/Inactive axis, just this real 9-value status
+// workflow, so the list filter below narrows by status, independent of
+// Trash — never a third "status" injected into this tab row).
+const VIEW_TABS = [
+  { value: 'active', label: 'Active' },
+  { value: 'all', label: 'All' },
+  { value: 'trash', label: '🗑️ Trash' },
+];
+const STATUS_FILTER_OPTIONS = [{ value: '', label: 'All Statuses' }, ...STATUSES.map((s) => ({ value: s, label: s.replace(/_/g, ' ') }))];
 
 const emptyForm = {
   collegeId: '', collegeDepartmentId: '', contactPerson: '', contactNumber: '', topic: '', technology: '',
@@ -32,20 +42,51 @@ export default function Workshops() {
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(null);
   const [editForm, setEditForm] = useState({});
+  const [viewTab, setViewTab] = useState('active');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [summary, setSummary] = useState({ total: 0, trash: 0 });
+  // Unfiltered "active" snapshot, fetched independently of the table's
+  // current status filter/search/Trash tab, purely to compute the
+  // Upcoming/Follow-ups Overdue/Completed stat cards — so switching a list
+  // filter never shifts those numbers (same fix already applied to the
+  // Employees/Interns/Trainees summary cards this session).
+  const [statsWorkshops, setStatsWorkshops] = useState([]);
 
   const load = () => {
     setLoading(true);
-    const calls = [api.get('/workshops'), api.get('/colleges')];
+    const calls = [
+      api.get('/workshops', {
+        params: {
+          scope: viewTab,
+          status: viewTab === 'trash' ? undefined : (statusFilter || undefined),
+          search: debouncedSearch || undefined,
+        },
+      }),
+      api.get('/workshops/summary'),
+      api.get('/workshops', { params: { scope: 'active' } }),
+      api.get('/colleges'),
+    ];
     if (isManager) calls.push(api.get('/users'));
-    Promise.all(calls)
-      .then(([w, c, u]) => {
-        setWorkshops(w.data.data);
-        setColleges(c.data.data);
-        if (u) setStaffUsers(u.data.data.filter((x) => ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'].includes(x.role)));
+    Promise.allSettled(calls)
+      .then(([w, s, statsW, c, u]) => {
+        if (w.status === 'fulfilled') { setWorkshops(w.value.data.data); setSelectedIds(new Set()); }
+        if (s.status === 'fulfilled') setSummary(s.value.data.data);
+        if (statsW.status === 'fulfilled') setStatsWorkshops(statsW.value.data.data);
+        if (c.status === 'fulfilled') setColleges(c.value.data.data);
+        if (u && u.status === 'fulfilled') setStaffUsers(u.value.data.data.filter((x) => ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'].includes(x.role)));
+        const failed = [w, s, statsW, c, u].filter(Boolean).find((r) => r.status === 'rejected');
+        if (failed) toast.error(failed.reason?.response?.data?.message || 'Some workshop data failed to load');
       })
       .finally(() => setLoading(false));
   };
-  useEffect(load, []);
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 400);
+    return () => clearTimeout(id);
+  }, [search]);
+  useEffect(load, [viewTab, statusFilter, debouncedSearch]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -97,32 +138,112 @@ export default function Workshops() {
   };
 
   const handleDelete = async (w) => {
-    if (!window.confirm(`Delete workshop "${w.topic}"? This cannot be undone.`)) return;
+    if (!window.confirm(`Remove workshop "${w.topic}"? It will move to Trash — this can be undone with Restore.`)) return;
     try {
       await api.delete(`/workshops/${w.id}`);
-      toast.success('Workshop removed');
+      toast.success('Workshop moved to Trash');
       load();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to delete workshop');
+      toast.error(err.response?.data?.message || 'Failed to remove workshop');
     }
+  };
+
+  const handleRestore = async (w) => {
+    try {
+      await api.post(`/workshops/${w.id}/restore`);
+      toast.success('Workshop restored');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to restore workshop');
+    }
+  };
+
+  // Irreversible — DELETE /workshops/:id/permanent (Super Admin only,
+  // requires the workshop already be in Trash) — same pattern used
+  // everywhere else in this app.
+  const handlePermanentlyDelete = async (w) => {
+    if (!window.confirm(`Permanently delete workshop "${w.topic}"? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/workshops/${w.id}/permanent`);
+      toast.success('Workshop permanently deleted');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to permanently delete workshop');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Remove ${ids.length} selected workshop(s)? They will move to Trash — this can be undone with Restore.`)) return;
+    try {
+      await Promise.all(ids.map((id) => api.delete(`/workshops/${id}`)));
+      toast.success(`${ids.length} workshop(s) moved to Trash`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to remove some of the selected workshops');
+    } finally {
+      setSelectedIds(new Set());
+      load();
+    }
+  };
+
+  const toggleSelectOne = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const visibleIds = workshops.map((w) => w.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+  const someVisibleSelected = visibleIds.some((id) => selectedIds.has(id));
+  const toggleSelectAllVisible = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) visibleIds.forEach((id) => next.delete(id));
+      else visibleIds.forEach((id) => next.add(id));
+      return next;
+    });
   };
 
   const selectedCollege = colleges.find((c) => c.id === form.collegeId);
 
-  // Computed client-side from the already-fully-loaded `workshops` list —
-  // no new backend call. Mirrors analytics.controller.js's exact definitions
+  // Total/Trash come from the summary endpoint (scope-independent); the
+  // other three are computed from the separate unfiltered `statsWorkshops`
+  // snapshot — mirrors analytics.controller.js's exact definitions
   // (upcoming = SCHEDULED/CONFIRMED; follow-up overdue = the same
-  // `followUpOverdue` flag college.controller.js already attaches per row)
-  // so this never drifts from what the dashboard used to show before those
-  // two cards moved here.
+  // `followUpOverdue` flag college.controller.js already attaches per row).
   const workshopStats = {
-    total: workshops.length,
-    upcoming: workshops.filter((w) => ['SCHEDULED', 'CONFIRMED'].includes(w.status)).length,
-    followUpsOverdue: workshops.filter((w) => w.followUpOverdue).length,
-    completed: workshops.filter((w) => w.status === 'COMPLETED').length,
+    total: summary.total,
+    upcoming: statsWorkshops.filter((w) => ['SCHEDULED', 'CONFIRMED'].includes(w.status)).length,
+    followUpsOverdue: statsWorkshops.filter((w) => w.followUpOverdue).length,
+    completed: statsWorkshops.filter((w) => w.status === 'COMPLETED').length,
+    trash: summary.trash,
+  };
+
+  const selectColumn = {
+    key: 'select',
+    header: (
+      <input
+        type="checkbox"
+        aria-label="Select all visible workshops"
+        checked={allVisibleSelected}
+        ref={(el) => { if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected; }}
+        onChange={toggleSelectAllVisible}
+      />
+    ),
+    render: (r) => (
+      <input
+        type="checkbox"
+        aria-label={`Select ${r.topic}`}
+        checked={selectedIds.has(r.id)}
+        onChange={() => toggleSelectOne(r.id)}
+      />
+    ),
   };
 
   const columns = [
+    ...(user.role === 'SUPER_ADMIN' ? [selectColumn] : []),
     { key: 'topic', header: 'Topic' },
     { key: 'college', header: 'College', render: (r) => r.college.name },
     { key: 'department', header: 'Department', render: (r) => r.collegeDepartment?.name || '—' },
@@ -139,7 +260,29 @@ export default function Workshops() {
           actions={[
             { key: 'view', icon: Eye, label: 'View', onClick: () => setViewing(r) },
             (isManager || r.assignedEmployee?.id === user.id) && { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openEdit(r) },
-            user.role === 'SUPER_ADMIN' && { key: 'trash', icon: Trash2, label: 'Delete', danger: true, onClick: () => handleDelete(r) },
+            user.role === 'SUPER_ADMIN' && { key: 'trash', icon: Trash2, label: 'Delete (move to Trash)', danger: true, onClick: () => handleDelete(r) },
+          ]}
+        />
+      ),
+    },
+  ];
+
+  // Trash gets its own, narrower column set — no Edit on an already-removed
+  // record, just enough to identify it, restore it, or (Super Admin only)
+  // permanently delete it — same convention as Departments/Projects/
+  // Colleges' trashColumns.
+  const trashColumns = [
+    { key: 'topic', header: 'Topic' },
+    { key: 'college', header: 'College', render: (r) => r.college.name },
+    { key: 'status', header: 'Status', render: (r) => <Badge value={r.status} /> },
+    { key: 'deletedAt', header: 'Removed Date', render: (r) => r.deletedAt ? new Date(r.deletedAt).toLocaleDateString() : '—' },
+    {
+      key: 'actions', header: 'Actions', render: (r) => (
+        <TableActions
+          actions={[
+            { key: 'view', icon: Eye, label: 'View', onClick: () => setViewing(r) },
+            user.role === 'SUPER_ADMIN' && { key: 'restore', icon: RotateCcw, label: 'Restore', onClick: () => handleRestore(r) },
+            user.role === 'SUPER_ADMIN' && { key: 'delete-permanent', icon: Trash2, label: 'Delete Permanently', danger: true, onClick: () => handlePermanentlyDelete(r) },
           ]}
         />
       ),
@@ -159,9 +302,50 @@ export default function Workshops() {
         <StatCard label="Upcoming" value={workshopStats.upcoming} accent="purple" icon={CalendarClock} />
         <StatCard label="Follow-ups Overdue" value={workshopStats.followUpsOverdue} accent={workshopStats.followUpsOverdue > 0 ? 'red' : 'green'} icon={AlertTriangle} />
         <StatCard label="Completed" value={workshopStats.completed} accent="green" icon={CheckCircle2} />
+        <StatCard label="Trash" value={workshopStats.trash} accent="red" icon={Trash2} />
       </div>
 
-      {loading ? <div className="page-loading">Loading...</div> : <DataTable columns={columns} rows={workshops} emptyMessage="No workshops recorded yet." />}
+      <div className="tabs">
+        {VIEW_TABS.map((t) => (
+          <button key={t.value} className={`tab ${viewTab === t.value ? 'active' : ''}`} onClick={() => setViewTab(t.value)}>
+            {t.value === 'trash' ? (<>{t.label}{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}</>) : t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="toolbar">
+        <span className="search-input-wrap">
+          <Search size={16} strokeWidth={2.5} />
+          <input className="search-input" placeholder="Search by topic, contact or technology..." value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search workshops" />
+        </span>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          disabled={viewTab === 'trash'}
+          title={viewTab === 'trash' ? 'Status filter does not apply to Trash' : undefined}
+          aria-label="Filter by status"
+        >
+          {STATUS_FILTER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </div>
+
+      {user.role === 'SUPER_ADMIN' && viewTab !== 'trash' && selectedIds.size > 0 && (
+        <div className="toolbar" style={{ marginBottom: 12 }}>
+          <span>{selectedIds.size} selected</span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Clear selection</button>
+          <button type="button" className="btn btn-danger btn-sm" onClick={handleBulkDelete}>
+            <Trash2 size={16} strokeWidth={2.5} /> Delete Selected ({selectedIds.size})
+          </button>
+        </div>
+      )}
+
+      {loading ? <div className="page-loading">Loading...</div> : (
+        <DataTable
+          columns={viewTab === 'trash' ? trashColumns : columns}
+          rows={workshops}
+          emptyMessage={viewTab === 'trash' ? 'Trash is empty.' : 'No workshops recorded yet.'}
+        />
+      )}
 
       {showModal && (
         <Modal title="New Workshop" onClose={() => setShowModal(false)}>

@@ -15,16 +15,23 @@ function scopeWhere(scope) {
 }
 
 async function listProjects(req, res) {
-  const { status, managerId, scope } = req.query;
+  const { status, managerId, scope, search } = req.query;
   const isManagerRole = ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role);
 
+  // `search` and the non-manager owner-scoping both use OR — they must stay
+  // in separate AND entries so a matching search term alone can't bypass
+  // ownership scoping (same guard already used by Interns' listEnrollments).
   const where = {
     ...scopeWhere(scope),
     ...(status && { status }),
     ...(managerId && { managerId }),
-    ...(!isManagerRole && {
-      OR: [{ managerId: req.user.id }, { members: { some: { userId: req.user.id } } }],
-    }),
+    AND: [
+      ...(!isManagerRole ? [{ OR: [{ managerId: req.user.id }, { members: { some: { userId: req.user.id } } }] }] : []),
+      ...(search ? [{ OR: [
+        { name: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+      ] }] : []),
+    ],
   };
 
   const projects = await prisma.project.findMany({
@@ -157,6 +164,22 @@ async function restoreProject(req, res) {
   return sendSuccess(res, 200, project);
 }
 
+// DELETE /api/projects/:id/permanent — Super Admin only, irreversible.
+// Requires the project already be in Trash (same two-step safety pattern as
+// Employees/Interns/Trainees/Documents/Departments). If Tasks/Timesheets
+// still reference this project, the DB's FK constraint rejects the delete
+// and the shared error handler surfaces that as a clear 409 — no manual
+// reference check needed here.
+async function permanentlyDeleteProject(req, res) {
+  const before = await prisma.project.findUnique({ where: { id: req.params.id } });
+  if (!before) throw new ApiError(404, 'Project not found');
+  if (!before.deletedAt) throw new ApiError(400, 'This project is not in Trash — move it to Trash first');
+
+  await prisma.project.delete({ where: { id: req.params.id } });
+  await recordAudit({ actorId: req.user.id, action: 'PERMANENTLY_DELETED', module: 'PROJECT', entityId: before.id, entityLabel: before.name, before });
+  return sendSuccess(res, 200, { message: 'Project permanently deleted' });
+}
+
 module.exports = {
-  listProjects, summary, getProject, createProject, updateProject, deleteProject, restoreProject, addMember, removeMember,
+  listProjects, summary, getProject, createProject, updateProject, deleteProject, restoreProject, permanentlyDeleteProject, addMember, removeMember,
 };
