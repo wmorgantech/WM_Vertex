@@ -409,4 +409,58 @@ router.put('/:id', updateUserValidators, validate, ctrl.updateUser);
  */
 router.delete('/:id', isSuperAdmin, ctrl.deactivateUser);
 
+/**
+ * @swagger
+ * /users/{id}/permanent:
+ *   delete:
+ *     tags: [Users]
+ *     summary: Permanently delete a user already in Trash
+ *     description: >
+ *       SUPER_ADMIN only. Irreversible — permanently deletes the account,
+ *       cascading every row that owns a foreign key to it (leave requests,
+ *       attendance, notifications, enrollments, project memberships,
+ *       timesheets, work updates). A user still referenced elsewhere as a
+ *       task creator, timesheet approver, another user's manager, a
+ *       department head, etc. cannot be permanently deleted until those
+ *       references are reassigned or removed — the request fails with 409
+ *       instead of silently discarding them. The account must already be in
+ *       Trash (soft-deleted via DELETE /users/{id}) — this is always a
+ *       second, explicit step after Move to Trash, never a direct
+ *       hard-delete of an active account.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       400:
+ *         description: Not in Trash — must be moved to Trash before it can be permanently deleted
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden (SUPER_ADMIN only)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       409:
+ *         description: Still referenced by other records (foreign key constraint) — reassign/remove those first
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.delete('/:id/permanent', isSuperAdmin, ctrl.permanentlyDeleteUser);
+
 module.exports = router;

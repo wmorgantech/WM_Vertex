@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Eye, Pencil, KeyRound, Trash2, RotateCcw, Mail, Phone, Upload, FileText, FileSpreadsheet, Users, UserCheck, UserX } from 'lucide-react';
+import {
+  UserPlus, Eye, Pencil, KeyRound, Trash2, RotateCcw, Mail, Phone, Upload, Download,
+  Users, UserCheck, UserX, ChevronDown, ListChecks, X,
+} from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
@@ -9,10 +12,11 @@ import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import Pagination from '../../components/common/Pagination';
 import TableActions from '../../components/common/TableActions';
+import DropdownMenu from '../../components/common/DropdownMenu';
 import DetailField from '../../components/common/DetailField';
 import StatCard from '../../components/common/StatCard';
 import toast from 'react-hot-toast';
-import { downloadReport } from '../../lib/download';
+import { downloadReport, downloadCsv } from '../../lib/download';
 
 const emptyForm = {
   email: '', password: '', firstName: '', lastName: '', role: 'EMPLOYEE',
@@ -52,10 +56,12 @@ const ROLE_FILTER_OPTIONS = [
 ];
 
 // The backend keeps the real EmploymentStatus value TERMINATED (unchanged —
-// see schema.prisma); this page must never show that word to a user, so
-// every place a status renders goes through this label override.
-const STATUS_DISPLAY_LABELS = { TERMINATED: 'INACTIVE' };
-const displayStatus = (status) => STATUS_DISPLAY_LABELS[status] || status;
+// see schema.prisma) for a moved-to-Trash employee; this module's UI must
+// never show that word, so every place a status renders goes through this
+// display-only override. It's deliberately narrow — only TERMINATED is
+// remapped, so the genuine ON_LEAVE/SUSPENDED/ALUMNI statuses still show
+// their own real names, unaffected.
+const displayStatus = (status) => (status === 'TERMINATED' ? 'INACTIVE' : status);
 
 export default function EmployeeList() {
   const { user: currentUser } = useAuth();
@@ -72,18 +78,28 @@ export default function EmployeeList() {
   const [roleFilter, setRoleFilter] = useState('EMPLOYEE');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [designationFilter, setDesignationFilter] = useState('');
-  // Single source of truth for the status scope, driven by TWO synchronized
-  // controls: the Active/All/Trash tabs, and the Status filter dropdown
-  // (Active/Inactive/All) placed alongside the other filters. They both set
-  // this same value, so picking one always keeps the other in sync — e.g.
-  // choosing "Inactive" in the Status filter is the same state as clicking
-  // the Trash tab, just reached a different way.
-  // "All" is explicitly ACTIVE,TERMINATED (backend now supports a
-  // comma-separated status list, mirroring the existing role filter) — never
-  // an unfiltered request, so ON_LEAVE/SUSPENDED/ALUMNI records can never
-  // leak into this module regardless of what other statuses exist.
-  const [viewTab, setViewTab] = useState('active');
-  const statusFilter = viewTab === 'active' ? 'ACTIVE' : viewTab === 'trash' ? 'TERMINATED' : 'ACTIVE,TERMINATED';
+  // Status scope (Active/Inactive/All) and Trash are two independent axes,
+  // kept as separate state so Trash can never be entangled with — or lie
+  // about — whatever status filter was last selected. "Inactive" is
+  // ON_LEAVE/SUSPENDED/ALUMNI — a real, distinct EmploymentStatus bucket,
+  // not the same thing as Trash (TERMINATED). "All" is explicitly every
+  // non-terminated status (ACTIVE,ON_LEAVE,SUSPENDED,ALUMNI) — active +
+  // inactive together, but deliberately never includes TERMINATED, so Trash
+  // records can never leak into the normal All list.
+  const [statusScope, setStatusScope] = useState('active');
+  const [trashMode, setTrashMode] = useState(false);
+  // `viewTab` is the single value the rest of the page reads to decide what
+  // to fetch/render — trashMode always wins, and switching it on/off never
+  // touches (or forces) statusScope, so the dropdown keeps showing the
+  // user's real last choice instead of a faked one.
+  const viewTab = trashMode ? 'trash' : statusScope;
+  const STATUS_FILTER_MAP = {
+    active: 'ACTIVE',
+    inactive: 'ON_LEAVE,SUSPENDED,ALUMNI',
+    all: 'ACTIVE,ON_LEAVE,SUSPENDED,ALUMNI',
+    trash: 'TERMINATED',
+  };
+  const statusFilter = STATUS_FILTER_MAP[viewTab];
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState(null);
   const [showModal, setShowModal] = useState(false);
@@ -181,15 +197,16 @@ export default function EmployeeList() {
 
   // Any change to search/filters returns to page 1; page changes alone
   // (via Pagination's onPageChange -> setPage) leave the filters untouched.
-  useEffect(() => { setPage(1); }, [search, roleFilter, departmentFilter, designationFilter, viewTab]);
-  useEffect(load, [search, roleFilter, departmentFilter, designationFilter, viewTab, page]);
+  useEffect(() => { setPage(1); }, [search, roleFilter, departmentFilter, designationFilter, statusScope, trashMode]);
+  useEffect(load, [search, roleFilter, departmentFilter, designationFilter, statusScope, trashMode, page]);
 
   const clearFilters = () => {
     setSearch('');
     setRoleFilter('EMPLOYEE');
     setDepartmentFilter('');
     setDesignationFilter('');
-    setViewTab('active');
+    setStatusScope('active');
+    setTrashMode(false);
   };
 
   const handleCreate = async (e) => {
@@ -225,6 +242,13 @@ export default function EmployeeList() {
     try {
       await api.put(`/users/${editingUser.id}`, {
         ...editForm,
+        // Only send `role` when it actually changed from the target's
+        // current value. The backend's "Admins cannot assign the Admin
+        // role" guard (user.controller.js updateUser) fires on data.role
+        // === 'ADMIN' alone, with no comparison to the existing role — so
+        // resending an unchanged role: 'ADMIN' on every save would 403 an
+        // Admin out of editing any OTHER field on an Admin peer's profile.
+        role: editForm.role === editingUser.role ? undefined : editForm.role,
         designation: editForm.designation || null,
         departmentId: editForm.departmentId || null,
         locationId: editForm.locationId || null,
@@ -297,6 +321,25 @@ export default function EmployeeList() {
     }
   };
 
+  // Irreversible — DELETE /users/:id/permanent (Super Admin only, requires
+  // the account already be in Trash) permanently deletes the entire
+  // account, not a re-run of Move to Trash. Only ever reachable from the
+  // Trash view, so it can never affect an active employee. If this employee
+  // is still referenced elsewhere (a task they created, a timesheet they
+  // approved, someone they manage, a department they head, etc.) the
+  // backend rejects the delete with a clear error instead of silently
+  // discarding those references — same pattern as Interns' permanent delete.
+  const handlePermanentlyDeleteUser = async (target) => {
+    if (!window.confirm(`Permanently delete ${target.firstName} ${target.lastName}? This will remove their entire account and history. This cannot be undone.`)) return;
+    try {
+      await api.delete(`/users/${target.id}/permanent`);
+      toast.success('Employee permanently deleted');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to permanently delete employee');
+    }
+  };
+
   // Bulk action built on the same single-record DELETE endpoint the row-level
   // Delete action uses — there is no separate bulk-delete API, so this just
   // fires it once per selected row (no new backend surface).
@@ -313,6 +356,26 @@ export default function EmployeeList() {
       setSelectedIds(new Set());
       load();
     }
+  };
+
+  // Client-side CSV of the rows already loaded on screen — the server's
+  // /reports/employees endpoint exports the whole module with no id
+  // filtering (see report.controller.js's exportEmployees), so scoping an
+  // export to just the current selection would need a backend change;
+  // building the CSV from data the page already has avoids that entirely.
+  const handleExportSelected = () => {
+    const rows = users.filter((u) => selectedIds.has(u.id));
+    downloadCsv('employees-selected.csv', rows, [
+      { key: 'employeeCode', header: 'ID' },
+      { key: 'firstName', header: 'First Name' },
+      { key: 'lastName', header: 'Last Name' },
+      { key: 'email', header: 'Email' },
+      { key: 'role', header: 'Role' },
+      { key: 'designation', header: 'Designation' },
+      { key: 'department.name', header: 'Department' },
+      { key: 'status', header: 'Status' },
+    ]);
+    toast.success(`Exported ${rows.length} employee(s)`);
   };
 
   const toggleSelectOne = (id) => {
@@ -369,11 +432,12 @@ export default function EmployeeList() {
   };
 
   const columns = [
-    ...(isSuperAdmin ? [{
+    {
       key: 'select',
       header: (
         <input
           type="checkbox"
+          className="vx-checkbox"
           aria-label="Select all visible employees"
           checked={allVisibleSelected}
           ref={(el) => { if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected; }}
@@ -386,6 +450,7 @@ export default function EmployeeList() {
         return (
           <input
             type="checkbox"
+            className="vx-checkbox"
             aria-label={`Select ${r.firstName} ${r.lastName}`}
             checked={selectedIds.has(r.id)}
             disabled={!selectable}
@@ -393,7 +458,7 @@ export default function EmployeeList() {
           />
         );
       },
-    }] : []),
+    },
     { key: 'id', header: 'ID', render: (r) => r.employeeCode || '—' },
     { key: 'name', header: 'Name', render: (r) => <Link className="name-cell" to={`/employees/${r.id}`}>{r.firstName} {r.lastName}</Link> },
     { key: 'designation', header: 'Designation' },
@@ -407,29 +472,43 @@ export default function EmployeeList() {
         const blocked = r.id === currentUser.id || (r.role === 'SUPER_ADMIN' && currentUser.role !== 'SUPER_ADMIN');
         const isTerminated = r.status === 'TERMINATED';
         return (
-          <TableActions
-            actions={[
-              { key: 'view', icon: Eye, label: 'View', onClick: () => setViewingUser(r) },
-              !blocked && { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openEdit(r) },
-              !blocked && { key: 'account', icon: KeyRound, label: 'Manage Account', onClick: () => openManageAccount(r) },
-              isSuperAdmin && !blocked && isTerminated && { key: 'restore', icon: RotateCcw, label: 'Restore', onClick: () => restoreUser(r) },
-              isSuperAdmin && !blocked && !isTerminated && { key: 'trash', icon: Trash2, label: 'Delete (soft-delete)', danger: true, onClick: () => softDeleteUser(r) },
-            ]}
-          />
+          <div className="row-actions-cell">
+            <TableActions
+              actions={[
+                { key: 'view', icon: Eye, label: 'View', onClick: () => setViewingUser(r) },
+                !blocked && { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openEdit(r) },
+              ]}
+            />
+            <DropdownMenu
+              label={`More actions for ${r.firstName} ${r.lastName}`}
+              items={[
+                !blocked && { key: 'account', icon: KeyRound, label: 'Reset Password', onClick: () => openManageAccount(r) },
+                // Restore (status -> ACTIVE) is allowed for Admin too — see
+                // user.controller.js updateUser: "an Admin may still set
+                // other status values (e.g. ON_LEAVE, or ACTIVE to restore)
+                // on accounts they manage." Only the actual deactivate/
+                // terminate path is Super-Admin-only (DELETE /users/:id,
+                // hard-gated at the route level) — Move to Trash stays
+                // isSuperAdmin-only below to match that.
+                !blocked && isTerminated && { key: 'restore', icon: RotateCcw, label: 'Restore', onClick: () => restoreUser(r) },
+                isSuperAdmin && !blocked && !isTerminated && { key: 'trash', icon: Trash2, label: 'Move to Trash', danger: true, onClick: () => softDeleteUser(r) },
+              ]}
+            />
+          </div>
         );
       },
     },
   ];
 
   // Trash gets its own, deliberately narrower column set — no Edit/Manage
-  // Account/Delete on an already-terminated record, just enough to identify
-  // who it is and restore them.
+  // Account on an already-terminated record, just enough to identify who it
+  // is, restore them, or (Super Admin only) permanently delete them.
   const trashColumns = [
     { key: 'name', header: 'Name', render: (r) => <Link className="name-cell" to={`/employees/${r.id}`}>{r.firstName} {r.lastName}</Link> },
     { key: 'id', header: 'Employee ID', render: (r) => r.employeeCode || '—' },
     { key: 'designation', header: 'Designation' },
     { key: 'status', header: 'Status', render: (r) => <Badge value={r.status} label={displayStatus(r.status)} /> },
-    { key: 'exitDate', header: 'Terminated Date', render: (r) => r.exitDate ? new Date(r.exitDate).toLocaleDateString() : '—' },
+    { key: 'exitDate', header: 'Inactive Date', render: (r) => r.exitDate ? new Date(r.exitDate).toLocaleDateString() : '—' },
     {
       key: 'actions', header: '',
       render: (r) => {
@@ -437,7 +516,11 @@ export default function EmployeeList() {
         return (
           <TableActions
             actions={[
-              isSuperAdmin && !blocked && { key: 'restore', icon: RotateCcw, label: 'Restore', onClick: () => restoreUser(r) },
+              !blocked && { key: 'restore', icon: RotateCcw, label: 'Restore', onClick: () => restoreUser(r) },
+              // Super-Admin-only, matching the backend route's gate exactly
+              // — same Trash2 icon and confirm-then-delete style as
+              // Interns → Trash's Delete Permanently.
+              isSuperAdmin && !blocked && { key: 'delete-permanent', icon: Trash2, label: 'Delete Permanently', danger: true, onClick: () => handlePermanentlyDeleteUser(r) },
             ]}
           />
         );
@@ -452,23 +535,35 @@ export default function EmployeeList() {
         subtitle="Manage profiles, roles and organizational hierarchy"
         actions={(
           <>
+            {/* Import is gated server-side by the configurable can('user','create')
+                permission (same as Add Employee below) — not hardcoded to Super
+                Admin, so it's shown to Admin too; the backend still rejects an
+                Admin importing Admin-role rows regardless (see
+                user.controller.js importEmployees). If the permission isn't
+                granted for this Admin, the request 403s and the existing
+                error toast in handleImportFile surfaces that. */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              style={{ display: 'none' }}
+              onChange={handleImportFile}
+            />
+            <button className="btn btn-soft-blue" onClick={handleImportClick} disabled={importing}>
+              <Upload size={16} strokeWidth={2.5} /> {importing ? 'Importing...' : 'Import'}
+            </button>
+            {/* Export is a deliberate, hard Super-Admin-only rule at the
+                backend (report.routes.js: "not routed through the
+                configurable Admin permission matrix... Admins cannot be
+                granted this even by toggling a permission") — kept
+                Super-Admin-only here to match, unlike Import above. */}
             {currentUser.role === 'SUPER_ADMIN' && (
               <>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".csv,text/csv"
-                  style={{ display: 'none' }}
-                  onChange={handleImportFile}
-                />
-                <button className="btn btn-secondary" onClick={handleImportClick} disabled={importing}>
-                  <Upload size={14} /> {importing ? 'Importing...' : 'Import'}
-                </button>
-                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/employees', 'employees.csv')}><FileText size={14} /> Export CSV</button>
-                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/employees?format=xlsx', 'employees.xlsx')}><FileSpreadsheet size={14} /> Export Excel</button>
+                <button className="btn btn-soft-green" onClick={() => downloadReport('/reports/employees', 'employees.csv')}><Download size={16} strokeWidth={2.5} /> Export CSV</button>
+                <button className="btn btn-soft-green" onClick={() => downloadReport('/reports/employees?format=xlsx', 'employees.xlsx')}><Download size={16} strokeWidth={2.5} /> Export Excel</button>
               </>
             )}
-            <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> Add Employee</button>
+            <button className="btn btn-primary" onClick={() => setShowModal(true)}><UserPlus size={16} strokeWidth={2.5} /> Add Employee</button>
           </>
         )}
       />
@@ -498,36 +593,57 @@ export default function EmployeeList() {
           {designations.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
         </select>
         <select
-          value={viewTab === 'trash' ? 'active' : viewTab}
-          onChange={(e) => setViewTab(e.target.value)}
+          value={statusScope}
+          onChange={(e) => setStatusScope(e.target.value)}
+          disabled={trashMode}
+          title={trashMode ? 'Status filter does not apply to Trash' : undefined}
           aria-label="Filter by status"
         >
           <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
           <option value="all">All</option>
         </select>
         {hasActiveFilters && (
-          <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>Clear Filters</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}><X size={16} strokeWidth={2.5} /> Clear Filters</button>
         )}
         <div className="toolbar-actions">
-          <button type="button" className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab('trash')}>
+          <button type="button" className={`tab ${trashMode ? 'active' : ''}`} onClick={() => setTrashMode((t) => !t)}>
             🗑️ Trash{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}
           </button>
         </div>
       </div>
 
-      {isSuperAdmin && viewTab !== 'trash' && selectedIds.size > 0 && (
+      {/* Compact bulk-action bar — appears only once something is selected,
+          leaving the filter toolbar above completely unchanged otherwise.
+          Count + Bulk Actions on the left, Clear pinned far right via the
+          same .toolbar-actions pattern used for Trash elsewhere on this page. */}
+      {viewTab !== 'trash' && selectedIds.size > 0 && (
         <div className="toolbar" style={{ marginBottom: 12 }}>
-          <span>{selectedIds.size} selected</span>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Clear selection</button>
-          <button type="button" className="btn btn-danger btn-sm" onClick={handleBulkDelete}>
-            <Trash2 size={14} /> Delete Selected ({selectedIds.size})
-          </button>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+            ✓ {selectedIds.size} selected
+          </span>
+          <DropdownMenu
+            label="Bulk Actions"
+            align="start"
+            triggerClassName="btn btn-secondary btn-sm"
+            triggerContent={<><ListChecks size={16} strokeWidth={2.5} /> Bulk Actions <ChevronDown size={16} strokeWidth={2.5} /></>}
+            items={[
+              { key: 'export', icon: Download, label: 'Export Selected', onClick: handleExportSelected },
+              // Bulk delete loops the same DELETE /users/:id endpoint the
+              // row-level action uses, which is hard Super-Admin-only at
+              // the route level (see user.routes.js) — kept gated here too.
+              isSuperAdmin && { key: 'trash', icon: Trash2, label: 'Move to Trash', danger: true, onClick: handleBulkDelete },
+            ]}
+          />
+          <div className="toolbar-actions">
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}><X size={16} strokeWidth={2.5} /> Clear</button>
+          </div>
         </div>
       )}
 
       {loading ? <div className="page-loading">Loading...</div> : (
         <>
-          <DataTable columns={viewTab === 'trash' ? trashColumns : columns} rows={users} emptyMessage={viewTab === 'trash' ? 'No inactive employees.' : undefined} />
+          <DataTable columns={viewTab === 'trash' ? trashColumns : columns} rows={users} emptyMessage={viewTab === 'trash' ? 'No employees in Trash.' : undefined} />
           <Pagination meta={meta} onPageChange={setPage} />
         </>
       )}
@@ -639,7 +755,12 @@ export default function EmployeeList() {
                 disabled={!isSuperAdmin && (editingUser.role === 'SUPER_ADMIN' || editForm.role === 'SUPER_ADMIN')}
               >
                 <option value="EMPLOYEE">Employee</option>
-                <option value="ADMIN">Admin</option>
+                {/* Always rendered so the select shows correctly when this
+                    is already the target's role; disabled as a *new*
+                    choice for non-Super-Admins — matches the backend's
+                    "Admins cannot assign the Admin role" rule (and the Add
+                    Employee form's already-correct, stricter treatment). */}
+                <option value="ADMIN" disabled={!isSuperAdmin && editingUser.role !== 'ADMIN'}>Admin</option>
                 {isSuperAdmin && <option value="SUPER_ADMIN">Super Admin</option>}
               </select>
             </label>

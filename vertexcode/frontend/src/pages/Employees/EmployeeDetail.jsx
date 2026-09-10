@@ -19,9 +19,16 @@ const STATUS_OPTIONS = [
   { value: 'ACTIVE', label: 'Active' },
   { value: 'ON_LEAVE', label: 'On Leave' },
   { value: 'SUSPENDED', label: 'Suspended' },
-  { value: 'TERMINATED', label: 'Terminated' },
+  // The backend keeps the real EmploymentStatus value TERMINATED (unchanged)
+  // — only the displayed label is "Inactive", matching the rest of this
+  // module's UI, which never shows the word "Terminated".
+  { value: 'TERMINATED', label: 'Inactive' },
   { value: 'ALUMNI', label: 'Alumni' },
 ];
+
+// Same display-only override as EmployeeList.jsx — used for the status
+// Badge in the header below, kept narrow to TERMINATED only.
+const displayStatus = (status) => (status === 'TERMINATED' ? 'INACTIVE' : status);
 
 function initials(person) {
   return `${person?.firstName?.[0] || ''}${person?.lastName?.[0] || ''}`.toUpperCase();
@@ -235,7 +242,7 @@ export default function EmployeeDetail() {
               <h1 className="text-2xl font-semibold tracking-tight text-foreground">
                 {user.firstName} {user.lastName}
               </h1>
-              <Badge value={user.status} />
+              <Badge value={user.status} label={displayStatus(user.status)} />
             </div>
             <p className="text-sm text-muted-foreground">{user.designation || '—'}</p>
             <p className="text-xs text-muted-foreground">

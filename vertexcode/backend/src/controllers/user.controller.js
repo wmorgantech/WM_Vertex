@@ -377,6 +377,37 @@ async function deactivateUser(req, res) {
   return sendSuccess(res, 200, publicUser(user));
 }
 
+// DELETE /api/users/:id/permanent — Super Admin only. Irreversible:
+// permanently deletes the entire User account. Cascades every row that owns
+// a foreign key to this user (LeaveRequest, Attendance, Notification,
+// InternEnrollment, ProjectMember, Timesheet, DailyWorkUpdate,
+// TraineeEnrollment — all onDelete: Cascade, see schema.prisma). Any
+// non-cascade reference elsewhere (e.g. this user as a Task's creator, a
+// Timesheet's approver, another user's manager, a Department's head) blocks
+// the delete with a foreign-key constraint error instead of silently
+// discarding it — the existing global error handler (errorHandler.js)
+// already converts that into a clean 409 "Related record constraint
+// violation" response, so no extra handling is needed here. Requires the
+// account already be in Trash — same two-step safety as every other
+// permanent-delete in this app (documents, interns): Move to Trash first,
+// this is always a separate, explicit second action.
+async function permanentlyDeleteUser(req, res) {
+  const target = await prisma.user.findUnique({ where: { id: req.params.id } });
+  if (!target) throw new ApiError(404, 'User not found');
+  if (target.status !== 'TERMINATED') {
+    throw new ApiError(400, 'Only accounts already in Trash can be permanently deleted');
+  }
+
+  await prisma.user.delete({ where: { id: target.id } });
+
+  await recordAudit({
+    actorId: req.user.id, action: 'PERMANENTLY_DELETED', module: 'USER', entityId: target.id,
+    entityLabel: `${target.firstName} ${target.lastName}`, before: publicUser(target),
+  });
+
+  return sendSuccess(res, 200, { message: 'User permanently deleted' });
+}
+
 // GET /api/users/:id/org-chart — hierarchy under a user
 async function orgChart(req, res) {
   async function buildTree(userId) {
@@ -398,4 +429,4 @@ async function orgChart(req, res) {
   return sendSuccess(res, 200, tree);
 }
 
-module.exports = { listUsers, getUser, createUser, importEmployees, updateUser, deactivateUser, orgChart };
+module.exports = { listUsers, getUser, createUser, importEmployees, updateUser, deactivateUser, permanentlyDeleteUser, orgChart };
