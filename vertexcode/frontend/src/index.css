@@ -208,6 +208,20 @@ input, select, textarea { font-family: inherit; }
 .btn-success:hover { background: #dcfce7; color: #166534; }
 .btn-success-solid { background: var(--green); color: white; }
 .btn-success-solid:hover { background: #15803d; }
+/* Subtle tint-filled variants (rest state already colored, not just on
+   hover) — distinct from .btn-success/.btn-danger above, which are ghost
+   buttons elsewhere in the app (Leave.jsx/WeeklyGrid.jsx Approve actions)
+   and must keep that behavior unchanged. Same blue/green tokens as
+   .badge-blue/.badge-green so these read as the same "info"/"success"
+   color language already used for badges. Icons inside inherit the color
+   via currentColor automatically (see .btn svg above), no icon-specific
+   color prop needed. */
+.btn-soft-blue { background: #dbeafe; color: #1e40af; }
+.btn-soft-blue:hover { background: #bfdbfe; color: #1e3a8a; }
+.btn-soft-green { background: #dcfce7; color: #166534; }
+.btn-soft-green:hover { background: #bbf7d0; color: #14532d; }
+.btn-soft-purple { background: #ede9fe; color: #5b21b6; }
+.btn-soft-purple:hover { background: #ddd6fe; color: #4c1d95; }
 .btn-block { width: 100%; margin-top: 8px; padding: 11px; }
 .btn-sm { padding: 5px 10px; font-size: 12px; gap: 4px; }
 .btn-icon { padding: 8px; }
@@ -472,6 +486,62 @@ input, select, textarea { font-family: inherit; }
 .searchable-select-sublabel { font-size: 12px; color: var(--text-muted); }
 .searchable-select-empty { padding: 10px; font-size: 13px; color: var(--text-muted); text-align: center; }
 
+/* --- Row "More" action menu (DropdownMenu.jsx) — portal + position:fixed,
+   see the component's own comment for why (avoids .table-wrap's
+   overflow-x:auto also clipping vertical overflow). Visual treatment
+   matches .searchable-select-menu (same radius/shadow/border) so it reads
+   as the same design language as the rest of the app's popovers. */
+.row-actions-cell { display: flex; align-items: center; gap: 6px; }
+.dropdown-menu {
+  position: fixed;
+  z-index: 40;
+  min-width: 200px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 24px rgba(16, 24, 40, 0.12), 0 2px 6px rgba(16, 24, 40, 0.08);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  animation: vx-fade-in 0.1s ease-out;
+}
+.dropdown-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.dropdown-menu-item svg { flex-shrink: 0; color: var(--text-muted); }
+.dropdown-menu-item:hover:not(:disabled) { background: #f3f4f6; }
+.dropdown-menu-item:disabled { color: #c1c5cc; cursor: not-allowed; }
+.dropdown-menu-item:disabled svg { color: #c1c5cc; }
+.dropdown-menu-item--danger { color: var(--red); }
+.dropdown-menu-item--danger svg { color: var(--red); }
+.dropdown-menu-item--danger:hover:not(:disabled) { background: #fee2e2; color: #991b1b; }
+.dropdown-menu-item--danger:hover:not(:disabled) svg { color: #991b1b; }
+.dropdown-menu-divider { height: 1px; background: var(--border); margin: 4px 2px; }
+
+/* --- Modern checkbox — bulk-selection tables. Default OS checkboxes have no
+   brand accent and read as an afterthought; accent-color is enough to fix
+   that everywhere without a custom SVG control, matching the size other
+   accent-color checkboxes in this file already use (.permission-row,
+   .filter-chip). Applied only where a page opts in via this class — existing
+   plain <input type="checkbox"> elsewhere are untouched. */
+.vx-checkbox { width: 16px; height: 16px; accent-color: var(--brand); cursor: pointer; }
+.vx-checkbox:disabled { cursor: not-allowed; opacity: 0.5; }
+.vx-checkbox:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
 .btn:focus-visible,
 .search-input:focus-visible,
 .toolbar select:focus-visible,
@@ -480,7 +550,8 @@ input, select, textarea { font-family: inherit; }
 .form-grid textarea:focus-visible,
 .tab:focus-visible,
 .sidebar-link:focus-visible,
-.table-action-btn:focus-visible {
+.table-action-btn:focus-visible,
+.dropdown-menu-item:focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
 }
@@ -1001,6 +1072,13 @@ input, select, textarea { font-family: inherit; }
   transition: border-color 0.15s;
 }
 .search-input:hover, .toolbar select:hover { border-color: #c7cbd4; }
+/* Left-icon variant of .search-input (e.g. Trainees) — a relative wrapper
+   plus one absolutely-positioned Lucide icon, reusing the same input
+   styling/sizing as the plain .search-input everywhere else so it stays
+   visually consistent, just with room carved out on the left for the icon. */
+.search-input-wrap { position: relative; display: inline-flex; align-items: center; }
+.search-input-wrap .search-input { padding-left: 34px; }
+.search-input-wrap svg { position: absolute; left: 10px; pointer-events: none; color: var(--text-muted, #8a8f98); }
 
 /* Checkbox-backed filter chip — sits inline with search/select filters
    (e.g. "Not Allocated Only") instead of reading as stray standalone text. */
@@ -1037,6 +1115,22 @@ input, select, textarea { font-family: inherit; }
 .pagination-summary { font-size: 13px; color: var(--text-muted); }
 .pagination-controls { display: flex; align-items: center; gap: 8px; }
 .pagination-page { font-size: 13px; color: var(--text); white-space: nowrap; }
+.pagination-page-size {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.pagination-page-size select {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--surface);
+  color: var(--text);
+}
 
 .tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
 .tab {

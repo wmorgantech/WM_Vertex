@@ -31,6 +31,10 @@ import Leave from './pages/Leave/Leave';
 import Expenses from './pages/Expenses/Expenses';
 import Trainees from './pages/Trainees/Trainees';
 import TraineeDetail from './pages/Trainees/TraineeDetail';
+import MyProgram from './pages/Trainees/MyProgram';
+import MyCurriculum from './pages/Trainees/MyCurriculum';
+import MySessions from './pages/Trainees/MySessions';
+import MyPayments from './pages/Trainees/MyPayments';
 import Colleges from './pages/Colleges/Colleges';
 import Workshops from './pages/Workshops/Workshops';
 import MOUs from './pages/MOUs/MOUs';
@@ -40,6 +44,7 @@ import Profile from './pages/Profile/Profile';
 const MANAGER_ROLES = ['SUPER_ADMIN', 'ADMIN'];
 const DOCUMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'INTERN'];
 const SUPER_ADMIN_ROLES = ['SUPER_ADMIN'];
+const EXPENSE_ROLES = ['SUPER_ADMIN', 'EMPLOYEE'];
 // Interns page also opens to Employees — the backend additionally restricts
 // who can actually add an intern to the "Senior Full Stack Developer"
 // designation (see intern.routes.js canAddIntern); this just lets that
@@ -87,6 +92,15 @@ export default function App() {
                 <Route path="/work-updates" element={<WorkUpdates />} />
                 <Route path="/workshops" element={<Workshops />} />
                 <Route path="/leave" element={<Leave />} />
+                {/* Self-service Trainee pages — open to any authenticated
+                    role, matching /tasks, /attendance, /leave above; the
+                    backend already self-scopes (GET /trainees/enrollments
+                    returns only the caller's own enrollment), and a
+                    non-trainee simply sees the "no enrollment" empty state. */}
+                <Route path="/my-program" element={<MyProgram />} />
+                <Route path="/my-curriculum" element={<MyCurriculum />} />
+                <Route path="/my-sessions" element={<MySessions />} />
+                <Route path="/my-payments" element={<MyPayments />} />
 
                 <Route element={<RoleRoute roles={DOCUMENT_ROLES} />}>
                   <Route path="/documents" element={<Documents />} />
@@ -113,8 +127,11 @@ export default function App() {
                   <Route path="/analytics" element={<Analytics />} />
                 </Route>
 
-                <Route element={<RoleRoute roles={SUPER_ADMIN_ROLES} />}>
+                <Route element={<RoleRoute roles={EXPENSE_ROLES} />}>
                   <Route path="/expenses" element={<Expenses />} />
+                </Route>
+
+                <Route element={<RoleRoute roles={SUPER_ADMIN_ROLES} />}>
                   <Route path="/configuration/masters" element={<Masters />} />
                   <Route path="/configuration/permissions" element={<Permissions />} />
                   <Route path="/configuration/audit-log" element={<AuditLog />} />
