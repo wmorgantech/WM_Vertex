@@ -788,6 +788,51 @@ router.post('/enrollments/:id/restore', isSuperAdmin, ctrl.restoreEnrollment);
 
 /**
  * @swagger
+ * /trainees/enrollments/{id}/permanent:
+ *   delete:
+ *     tags: [Trainees]
+ *     summary: Permanently delete a trainee already in Trash
+ *     description: >
+ *       SUPER_ADMIN only. Irreversible — permanently deletes the trainee's
+ *       entire user account (not just the enrollment record), cascading the
+ *       enrollment, topic progress, payment history, attendance, leave
+ *       requests and notifications. The trainee must already be in Trash
+ *       (soft-deleted via DELETE /enrollments/{id}) — this is always a
+ *       second, explicit step after Move to Trash, never a direct
+ *       hard-delete of an active trainee.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       400:
+ *         description: Not in Trash — must be moved to Trash before it can be permanently deleted
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden (SUPER_ADMIN only)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: Enrollment not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.delete('/enrollments/:id/permanent', isSuperAdmin, ctrl.permanentlyDeleteEnrollment);
+
+/**
+ * @swagger
  * /trainees/enrollments/{id}/topics/{topicId}:
  *   patch:
  *     tags: [Trainees]

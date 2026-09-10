@@ -158,12 +158,27 @@ function toList(value) {
 // below, which keep completionStatus and User.status in sync, so this is
 // never ambiguous with a program-progress status like COMPLETED/EXTENDED.
 async function listEnrollments(req, res) {
-  const { programId, mentorId, completionStatus, accountStatus, page, limit } = req.query;
+  const { programId, mentorId, completionStatus, accountStatus, search, page, limit } = req.query;
   const completionStatuses = toList(completionStatus);
   const accountStatuses = toList(accountStatus);
-  const accountStatusClause = accountStatuses && accountStatuses.length
-    ? { user: { status: accountStatuses.length === 1 ? accountStatuses[0] : { in: accountStatuses } } }
-    : null;
+
+  // Search and accountStatus both filter on the related user, so they must
+  // be merged into ONE `user: {...}` clause — two separate `user: {...}`
+  // entries spread into the same where-object would collide under object
+  // spread (only the last `user` key survives), silently dropping one of
+  // the two conditions. Mirrors the same fix already applied to Interns'
+  // listEnrollments.
+  const userClause = { role: 'TRAINEE' };
+  if (search) {
+    userClause.OR = [
+      { firstName: { contains: search, mode: 'insensitive' } },
+      { lastName: { contains: search, mode: 'insensitive' } },
+      { email: { contains: search, mode: 'insensitive' } },
+    ];
+  }
+  if (accountStatuses && accountStatuses.length) {
+    userClause.status = accountStatuses.length === 1 ? accountStatuses[0] : { in: accountStatuses };
+  }
   const completionStatusClause = completionStatuses && completionStatuses.length
     ? { completionStatus: completionStatuses.length === 1 ? completionStatuses[0] : { in: completionStatuses } }
     : null;
@@ -175,14 +190,14 @@ async function listEnrollments(req, res) {
       ...(programId && { programId }),
       ...(mentorId && { mentorId }),
       ...(completionStatusClause && completionStatusClause),
-      ...(accountStatusClause && accountStatusClause),
+      user: userClause,
     };
   } else if (req.user.role === 'ADMIN') {
     where = {
       mentorId: req.user.id,
       ...(programId && { programId }),
       ...(completionStatusClause && completionStatusClause),
-      ...(accountStatusClause && accountStatusClause),
+      user: userClause,
     };
   } else {
     where = { userId: req.user.id };
@@ -389,6 +404,37 @@ async function restoreEnrollment(req, res) {
   return sendSuccess(res, 200, { message: 'Trainee restored' });
 }
 
+// DELETE /api/trainees/enrollments/:id/permanent — Super Admin only.
+// Irreversible: permanently deletes the trainee's entire User account, not
+// just the enrollment — cascades TraineeEnrollment and everything under it
+// (TraineeTopicProgress, TraineePayment), plus the account's own
+// Attendance/LeaveRequest/Notification rows (all onDelete: Cascade on User,
+// see schema.prisma). Requires the enrollment already be in Trash — same
+// two-step safety as every other permanent-delete in this app (documents,
+// interns, employees): Move to Trash first, this is always a separate,
+// explicit second action. Mirrors intern.controller.js's
+// permanentlyDeleteEnrollment exactly, minus file cleanup — trainees have no
+// document/offer-letter/certificate equivalent to unlink from disk.
+async function permanentlyDeleteEnrollment(req, res) {
+  const enrollment = await prisma.traineeEnrollment.findUnique({
+    where: { id: req.params.id },
+    include: { user: { select: { id: true, firstName: true, lastName: true, status: true } } },
+  });
+  if (!enrollment) throw new ApiError(404, 'Enrollment not found');
+  if (enrollment.completionStatus !== 'TERMINATED' && enrollment.user.status !== 'TERMINATED') {
+    throw new ApiError(400, 'Only trainees already in Trash can be permanently deleted');
+  }
+
+  await prisma.user.delete({ where: { id: enrollment.user.id } });
+
+  await recordAudit({
+    actorId: req.user.id, action: 'PERMANENTLY_DELETED', module: 'TRAINEE_ENROLLMENT', entityId: enrollment.id,
+    entityLabel: `${enrollment.user.firstName} ${enrollment.user.lastName}`, before: enrollment,
+  });
+
+  return sendSuccess(res, 200, { message: 'Trainee permanently deleted' });
+}
+
 // PUT /api/trainees/enrollments/me — Trainee self-service profile update
 const SELF_FIELDS = ['education', 'qualification', 'experienceYears'];
 async function updateMyEnrollment(req, res) {
@@ -509,7 +555,7 @@ async function addPayment(req, res) {
 module.exports = {
   listPrograms, getProgram, createProgram, updateProgram, deleteProgram,
   listTopics, createTopic, updateTopic, deleteTopic,
-  listEnrollments, listEnrollableUsers, getEnrollment, enrollTrainee, updateEnrollment, deleteEnrollment, restoreEnrollment, updateMyEnrollment, updateTopicProgress,
+  listEnrollments, listEnrollableUsers, getEnrollment, enrollTrainee, updateEnrollment, deleteEnrollment, restoreEnrollment, permanentlyDeleteEnrollment, updateMyEnrollment, updateTopicProgress,
   listSessions, createSession,
   listPayments, addPayment,
 };

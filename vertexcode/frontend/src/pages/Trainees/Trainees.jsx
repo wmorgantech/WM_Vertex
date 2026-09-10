@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Pencil, Trash2, Eye, Mail, RotateCcw, Upload, FileText, FileSpreadsheet, Users, UserCheck, GraduationCap } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye, Mail, RotateCcw, Upload, Download, UserPlus, Users, UserCheck, UserX, Search } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../api/axios';
 import PageHeader from '../../components/common/PageHeader';
@@ -22,15 +22,34 @@ const numOrNull = (v) => (v === '' || v === null || v === undefined ? null : Num
 const EDITABLE_COMPLETION_STATUSES = ['IN_PROGRESS', 'COMPLETED', 'EXTENDED', 'CONVERTED_TO_EMPLOYEE'];
 const PAGE_SIZE = 25;
 
-// Active/All/Trash — same pattern as Employees/Interns. "Active" here means
-// currently in progress (completionStatus=IN_PROGRESS); Trash means
-// soft-deleted (User.status=TERMINATED, which deleteEnrollment/
+// Active/Inactive/All/Trash — same pattern as Interns (mirrors
+// Interns.jsx's VIEW_TABS exactly; TraineeEnrollment.completionStatus uses
+// the same InternCompletionStatus enum, see schema.prisma). "Active" is
+// completionStatus=IN_PROGRESS; "Inactive" is a finished/extended/converted
+// program whose account is still on record, not deleted; Trash is
+// account-level (User.status=TERMINATED, which deleteEnrollment/
 // restoreEnrollment always keep in sync with completionStatus=TERMINATED).
+// "All" previously sent accountStatus: undefined, which — like the same bug
+// already found and fixed on Interns — meant no status filter at all on the
+// backend, silently including TERMINATED (Trash) rows. Fixed to
+// accountStatus: 'ACTIVE' with completionStatus left unfiltered.
 const VIEW_TABS = [
   { value: 'active', label: 'Active', scope: { accountStatus: 'ACTIVE', completionStatus: 'IN_PROGRESS' } },
-  { value: 'all', label: 'All', scope: { accountStatus: undefined, completionStatus: undefined } },
+  { value: 'inactive', label: 'Inactive', scope: { accountStatus: 'ACTIVE', completionStatus: 'COMPLETED,EXTENDED,CONVERTED_TO_EMPLOYEE' } },
+  { value: 'all', label: 'All', scope: { accountStatus: 'ACTIVE', completionStatus: undefined } },
   { value: 'trash', label: '🗑️ Trash', scope: { accountStatus: 'TERMINATED', completionStatus: undefined } },
 ];
+
+// The backend keeps the real status value TERMINATED (unchanged — both
+// User.status and TraineeEnrollment.completionStatus use it for Trash) so
+// existing filtering/restore/permanent-delete logic is untouched; this
+// module's UI must never show that word, so every place a status renders
+// goes through this display-only override. Deliberately narrow — only
+// TERMINATED is remapped, so the genuine Inactive bucket
+// (COMPLETED/EXTENDED/CONVERTED_TO_EMPLOYEE) still shows its own real name,
+// unaffected. Same convention as EmployeeList.jsx/Interns.jsx, so
+// "Inactive" reads identically across all three modules.
+const displayStatus = (status) => (status === 'TERMINATED' ? 'INACTIVE' : status);
 
 export default function Trainees() {
   const { user } = useAuth();
@@ -42,6 +61,8 @@ export default function Trainees() {
   const [savingTraineeEdit, setSavingTraineeEdit] = useState(false);
   const [tab, setTab] = useState('enrollments');
   const [viewTab, setViewTab] = useState('active');
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [enrollments, setEnrollments] = useState([]);
   const [programs, setPrograms] = useState([]);
   const [topics, setTopics] = useState([]);
@@ -51,7 +72,7 @@ export default function Trainees() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState(null);
-  const [summary, setSummary] = useState({ total: 0, active: 0, completed: 0, trash: 0 });
+  const [summary, setSummary] = useState({ total: 0, active: 0, inactive: 0, trash: 0 });
   const [selectedIds, setSelectedIds] = useState(new Set());
 
   const [showProgramModal, setShowProgramModal] = useState(false);
@@ -85,6 +106,7 @@ export default function Trainees() {
         params: {
           accountStatus: scope.accountStatus,
           completionStatus: scope.completionStatus,
+          search: debouncedSearch || undefined,
           page,
           limit: PAGE_SIZE,
         },
@@ -92,12 +114,12 @@ export default function Trainees() {
       api.get('/trainees/programs'),
       api.get('/users'),
       api.get('/trainees/enrollable-users'),
-      countCall(undefined), // grand total, no completionStatus filter
+      countCall(undefined), // grand total, no completionStatus filter — includes Trash, same convention as Employees/Interns' Total card
       countCall('IN_PROGRESS'),
-      countCall('COMPLETED'),
+      countCall('COMPLETED,EXTENDED,CONVERTED_TO_EMPLOYEE'),
       countCall('TERMINATED'),
     ])
-      .then(([e, p, u, en, totalCount, activeCount, completedCount, trashCount]) => {
+      .then(([e, p, u, en, totalCount, activeCount, inactiveCount, trashCount]) => {
         if (e.status === 'fulfilled') {
           setEnrollments(e.value.data.data);
           setMeta(e.value.data.meta || null);
@@ -109,20 +131,19 @@ export default function Trainees() {
         }
         if (u.status === 'fulfilled') setUsers(u.value.data.data);
         if (en.status === 'fulfilled') setEnrollableTrainees(en.value.data.data);
-        // Total counts every enrollment regardless of status (IN_PROGRESS/
-        // COMPLETED/EXTENDED/CONVERTED_TO_EMPLOYEE/TERMINATED) — it isn't
-        // simply active+completed+trash, since EXTENDED/CONVERTED_TO_EMPLOYEE
-        // fall outside those three specific buckets. Each card updates
+        // Total counts every enrollment regardless of status — Active +
+        // Inactive (COMPLETED/EXTENDED/CONVERTED_TO_EMPLOYEE) + Trash, same
+        // bucket definitions Interns' summary cards use. Each card updates
         // independently from whichever count call succeeded, so one
         // transient failure doesn't zero out the others.
         setSummary((prev) => ({
           total: totalCount.status === 'fulfilled' ? (totalCount.value.data.meta?.total ?? 0) : prev.total,
           active: activeCount.status === 'fulfilled' ? (activeCount.value.data.meta?.total ?? 0) : prev.active,
-          completed: completedCount.status === 'fulfilled' ? (completedCount.value.data.meta?.total ?? 0) : prev.completed,
+          inactive: inactiveCount.status === 'fulfilled' ? (inactiveCount.value.data.meta?.total ?? 0) : prev.inactive,
           trash: trashCount.status === 'fulfilled' ? (trashCount.value.data.meta?.total ?? 0) : prev.trash,
         }));
 
-        const failed = [e, p, u, en, totalCount, activeCount, completedCount, trashCount].find((r) => r.status === 'rejected');
+        const failed = [e, p, u, en, totalCount, activeCount, inactiveCount, trashCount].find((r) => r.status === 'rejected');
         if (failed) {
           const status = failed.reason?.response?.status;
           const message = status === 429
@@ -133,8 +154,16 @@ export default function Trainees() {
       })
       .finally(() => setLoading(false));
   };
-  useEffect(() => { setPage(1); }, [viewTab]);
-  useEffect(load, [viewTab, page]);
+  // Debounced so typing in the search box doesn't re-fire all 4 parallel
+  // calls below (including 3 that don't even depend on the search term) on
+  // every keystroke — same fix already applied to Interns.
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 400);
+    return () => clearTimeout(id);
+  }, [search]);
+
+  useEffect(() => { setPage(1); }, [viewTab, debouncedSearch]);
+  useEffect(load, [viewTab, debouncedSearch, page]);
 
   useEffect(() => {
     if (!selectedProgramId) return;
@@ -244,6 +273,22 @@ export default function Trainees() {
       load();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to restore trainee');
+    }
+  };
+
+  // Irreversible — DELETE /trainees/enrollments/:id/permanent (Super Admin
+  // only, requires the trainee already be in Trash) permanently deletes the
+  // entire account, not a re-run of Move to Trash. Only ever reachable from
+  // the Trash view, so it can never affect an active trainee. Mirrors
+  // Employees'/Interns' handlePermanentlyDelete exactly.
+  const handlePermanentlyDelete = async (enrollment) => {
+    if (!window.confirm(`Permanently delete ${enrollment.user.firstName} ${enrollment.user.lastName}? This will remove their entire account and history. This cannot be undone.`)) return;
+    try {
+      await api.delete(`/trainees/enrollments/${enrollment.id}/permanent`);
+      toast.success('Trainee permanently deleted');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to permanently delete trainee');
     }
   };
 
@@ -457,7 +502,7 @@ export default function Trainees() {
     { key: 'program', header: 'Program', render: (r) => r.program.name },
     { key: 'mentor', header: 'Mentor', render: (r) => r.mentor ? `${r.mentor.firstName} ${r.mentor.lastName}` : '—' },
     { key: 'progressPercent', header: 'Progress', render: (r) => `${r.progressPercent}%` },
-    { key: 'completionStatus', header: 'Status', render: (r) => <Badge value={r.completionStatus} /> },
+    { key: 'completionStatus', header: 'Status', render: (r) => <Badge value={r.completionStatus} label={displayStatus(r.completionStatus)} /> },
     {
       key: 'actions', header: 'Actions',
       render: (r) => (
@@ -475,13 +520,14 @@ export default function Trainees() {
     },
   ];
 
-  // Trash gets its own narrower column set — no Edit/Delete on an
-  // already-removed record, just enough to identify who it is and restore
-  // them (same convention as Employees/Interns' trashColumns).
+  // Trash gets its own narrower column set — no Edit on an already-removed
+  // record, just enough to identify who it is, restore them, or (Super
+  // Admin only) permanently delete them (same convention as
+  // Employees/Interns' trashColumns).
   const trashColumns = [
     { key: 'name', header: 'Trainee', render: (r) => <Link to={`/trainees/${r.id}`}>{r.user.firstName} {r.user.lastName}</Link> },
     { key: 'program', header: 'Program', render: (r) => r.program.name },
-    { key: 'status', header: 'Status', render: (r) => <Badge value={r.completionStatus} /> },
+    { key: 'status', header: 'Status', render: (r) => <Badge value={r.completionStatus} label={displayStatus(r.completionStatus)} /> },
     { key: 'exitDate', header: 'Removed Date', render: (r) => r.user.exitDate ? new Date(r.user.exitDate).toLocaleDateString() : '—' },
     {
       key: 'actions', header: 'Actions',
@@ -490,6 +536,10 @@ export default function Trainees() {
           actions={[
             { key: 'view', icon: Eye, label: 'View', onClick: () => setViewingTrainee(r) },
             isSuperAdmin && { key: 'restore', icon: RotateCcw, label: 'Restore', onClick: () => handleRestore(r) },
+            // Super-Admin-only, matching the backend route's gate exactly —
+            // same Trash2 icon and confirm-then-delete style as
+            // Employees/Interns → Trash's Delete Permanently.
+            isSuperAdmin && { key: 'delete-permanent', icon: Trash2, label: 'Delete Permanently', danger: true, onClick: () => handlePermanentlyDelete(r) },
           ]}
         />
       ),
@@ -544,25 +594,38 @@ export default function Trainees() {
         subtitle="Training programs, curriculum topics, and trainee lifecycle"
         actions={(
           <>
-            {isSuperAdmin && (
+            {/* Contextual per tab — mirrors the Interns page's pattern.
+                Trainees: full trainee-lifecycle action set. Programs: only
+                the program-creation action (Import/Export/New Trainee/Enroll
+                don't apply to a program list). Curriculum Topics: nothing
+                here at all — its own local toolbar below already has the
+                program selector + Add Topic, which are the only actions
+                that apply there. */}
+            {tab === 'enrollments' && (
               <>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".csv,text/csv"
-                  style={{ display: 'none' }}
-                  onChange={handleImportFile}
-                />
-                <button className="btn btn-secondary" onClick={handleImportClick} disabled={importing}>
-                  <Upload size={14} /> {importing ? 'Importing...' : 'Import'}
-                </button>
-                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/trainees', 'trainees.csv')}><FileText size={14} /> Export CSV</button>
-                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/trainees?format=xlsx', 'trainees.xlsx')}><FileSpreadsheet size={14} /> Export Excel</button>
+                {isSuperAdmin && (
+                  <>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".csv,text/csv"
+                      style={{ display: 'none' }}
+                      onChange={handleImportFile}
+                    />
+                    <button className="btn btn-soft-blue" onClick={handleImportClick} disabled={importing}>
+                      <Upload size={16} strokeWidth={2.5} /> {importing ? 'Importing...' : 'Import'}
+                    </button>
+                    <button className="btn btn-soft-blue" onClick={() => downloadReport('/reports/trainees', 'trainees.csv')}><Download size={16} strokeWidth={2.5} /> Export CSV</button>
+                    <button className="btn btn-soft-green" onClick={() => downloadReport('/reports/trainees?format=xlsx', 'trainees.xlsx')}><Download size={16} strokeWidth={2.5} /> Export Excel</button>
+                  </>
+                )}
+                <button className="btn btn-soft-purple" onClick={() => setShowCreateTraineeModal(true)}><UserPlus size={16} strokeWidth={2.5} /> New Trainee</button>
+                <button className="btn btn-primary" onClick={() => setShowEnrollModal(true)}><UserCheck size={16} strokeWidth={2.5} /> Enroll Trainee</button>
               </>
             )}
-            <button className="btn btn-secondary" onClick={() => setShowProgramModal(true)}><Plus size={14} /> New Program</button>
-            <button className="btn btn-secondary" onClick={() => setShowCreateTraineeModal(true)}><Plus size={14} /> New Trainee</button>
-            <button className="btn btn-primary" onClick={() => setShowEnrollModal(true)}><Plus size={14} /> Enroll Trainee</button>
+            {tab === 'programs' && (
+              <button className="btn btn-soft-purple" onClick={() => setShowProgramModal(true)}><Plus size={16} strokeWidth={2.5} /> New Program</button>
+            )}
           </>
         )}
       />
@@ -571,7 +634,7 @@ export default function Trainees() {
         <div className="stat-grid">
           <StatCard label="Total Trainees" value={summary.total} accent="blue" icon={Users} />
           <StatCard label="Active / In Progress" value={summary.active} accent="green" icon={UserCheck} />
-          <StatCard label="Completed" value={summary.completed} accent="purple" icon={GraduationCap} />
+          <StatCard label="Inactive" value={summary.inactive} accent="amber" icon={UserX} />
           <StatCard label="Trash" value={summary.trash} accent="red" icon={Trash2} />
         </div>
       )}
@@ -588,6 +651,10 @@ export default function Trainees() {
 
         {tab === 'enrollments' && (
           <>
+            <span className="search-input-wrap">
+              <Search size={16} strokeWidth={2.5} />
+              <input className="search-input" placeholder="Search by name or email..." value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search trainees" />
+            </span>
             <select value={viewTab === 'trash' ? 'active' : viewTab} onChange={(e) => setViewTab(e.target.value)} aria-label="Filter by status">
               {VIEW_TABS.filter((t) => t.value !== 'trash').map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
@@ -605,7 +672,7 @@ export default function Trainees() {
           <span>{selectedIds.size} selected</span>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Clear selection</button>
           <button type="button" className="btn btn-danger btn-sm" onClick={handleBulkDelete}>
-            <Trash2 size={14} /> Delete Selected ({selectedIds.size})
+            <Trash2 size={16} strokeWidth={2.5} /> Delete Selected ({selectedIds.size})
           </button>
         </div>
       )}
@@ -631,7 +698,7 @@ export default function Trainees() {
                             className="btn btn-secondary btn-sm"
                             onClick={() => { setEnrollForm({ userId: r.id, programId: '', mentorId: '', totalFee: '', discount: '', finalFee: '' }); setShowEnrollModal(true); }}
                           >
-                            Enroll
+                            <UserCheck size={14} strokeWidth={2.5} /> Enroll
                           </button>
                         ),
                       },
@@ -655,7 +722,7 @@ export default function Trainees() {
                 <select value={selectedProgramId} onChange={(e) => setSelectedProgramId(e.target.value)}>
                   {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
-                <button className="btn btn-primary" onClick={() => setShowTopicModal(true)} disabled={!selectedProgramId}><Plus size={14} /> Add Topic</button>
+                <button className="btn btn-primary" onClick={() => setShowTopicModal(true)} disabled={!selectedProgramId}><Plus size={16} strokeWidth={2.5} /> Add Topic</button>
               </div>
               <DataTable columns={topicColumns} rows={topics} emptyMessage="No topics defined for this program yet." />
             </div>
@@ -764,8 +831,8 @@ export default function Trainees() {
         <Modal size="wide" title={`${viewingTrainee.user.firstName} ${viewingTrainee.user.lastName}`} onClose={() => setViewingTrainee(null)}>
           <div className="detail-card">
             <div className="detail-card-header">
-              <Badge value={viewingTrainee.completionStatus} />
-              <Badge value={viewingTrainee.user.status} />
+              <Badge value={viewingTrainee.completionStatus} label={displayStatus(viewingTrainee.completionStatus)} />
+              <Badge value={viewingTrainee.user.status} label={displayStatus(viewingTrainee.user.status)} />
             </div>
             <div className="detail-grid">
               <DetailField icon={Mail} label="Email" value={viewingTrainee.user.email} />

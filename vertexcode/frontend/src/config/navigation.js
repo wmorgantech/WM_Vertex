@@ -23,6 +23,7 @@ import {
   FileCog,
   IndianRupee,
   MessageSquare,
+  CalendarClock,
 } from 'lucide-react';
 
 // Route access is unchanged from the original NAV_BY_ROLE map in DashboardLayout —
@@ -149,8 +150,29 @@ const EMPLOYEE_GROUPS = [
 const TRAINEE_GROUPS = [
   { label: 'Overview', items: [{ to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }] },
   {
+    label: 'My Program',
+    items: [
+      { to: '/my-program', label: 'My Program', icon: BookOpen },
+      { to: '/my-curriculum', label: 'Curriculum', icon: GraduationCap },
+      { to: '/my-sessions', label: 'Sessions', icon: CalendarClock },
+      { to: '/my-payments', label: 'Payments', icon: IndianRupee },
+    ],
+  },
+  {
+    // Timesheets and Work Updates deliberately omitted — both are
+    // Employee/Intern-specific corporate work-tracking concepts a Trainee
+    // has no real use for: Timesheets logs billable hours by Designation
+    // ("position") against a Project (WeeklyGrid.jsx — "Position dropdown
+    // is sourced from the existing Designation master"), and Work Updates
+    // is department-scoped (workupdate.controller.js's `departmentId`
+    // filter) — Trainees belong to a TrainingProgram/TraineeEnrollment, not
+    // a Department or a Project, so neither concept applies. The
+    // "what was covered / what's pending" reporting a Work Update would
+    // otherwise capture is already covered, trainee-side, by the
+    // trainer-authored Sessions log under My Program above.
     label: 'My Training',
     items: [
+      { to: '/tasks', label: 'My Tasks', icon: ListChecks },
       { to: '/attendance', label: 'Attendance', icon: Clock },
       { to: '/leave', label: 'Leave', icon: CalendarOff },
     ],
