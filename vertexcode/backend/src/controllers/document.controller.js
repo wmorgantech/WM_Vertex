@@ -7,6 +7,11 @@ const { sendMail, renderEmailTemplate } = require('../services/email.service');
 const { computeInternshipStage } = require('../utils/internshipStage');
 const { notify } = require('../utils/notify');
 const { evaluateRequiredDocs } = require('../utils/internDocumentRequirements');
+// Was previously missing entirely — recordAuditSafe (used by deleteDocument)
+// calls recordAudit but nothing in this file imported it, so every soft
+// delete has been throwing "recordAudit is not defined" and failing. Fixed
+// here as part of restoring correct document lifecycle behavior.
+const { recordAudit } = require('../utils/audit');
 
 const DOC_TYPE_LABELS = {
   BONAFIDE: 'Bonafide Certificate',
@@ -371,6 +376,36 @@ async function restoreDocument(req, res) {
   return sendSuccess(res, 200, updated);
 }
 
+// DELETE /api/documents/:id/permanent — Super Admin only. Irreversible:
+// removes the InternDocument row and its uploaded file. Requires the
+// document to already be in Trash — this is always a second, explicit step
+// after Move to Trash, never a direct hard-delete of an active document.
+async function permanentlyDeleteDocument(req, res) {
+  const document = await prisma.internDocument.findUnique({
+    where: { id: req.params.id },
+    include: { enrollment: { include: { user: { select: { firstName: true, lastName: true } } } } },
+  });
+  if (!document) throw new ApiError(404, 'Document not found');
+  if (!document.deletedAt) throw new ApiError(400, 'Only documents already in Trash can be permanently deleted');
+
+  await prisma.internDocument.delete({ where: { id: req.params.id } });
+
+  // InternDocumentAudit rows for this document cascade-delete along with it
+  // (documentId is a required FK) — recorded in the generic AuditLog instead
+  // (a separate table, entityId is a plain string, not an FK), so this is
+  // the durable record that survives the document's own deletion.
+  await recordAudit({
+    actorId: req.user.id, action: 'PERMANENTLY_DELETED', module: 'INTERN_DOCUMENT', entityId: document.id,
+    entityLabel: `${document.type} — ${document.enrollment.user.firstName} ${document.enrollment.user.lastName}`, before: document,
+  });
+
+  if (document.filePath) {
+    fs.unlink(document.filePath, () => {});
+  }
+
+  return sendSuccess(res, 200, { message: 'Document permanently deleted' });
+}
+
 // recordAudit (utils/audit.js) writes to the generic AuditLog table; kept as
 // a tiny local wrapper here purely so delete/restore's audit entries read
 // consistently with every other module's DELETED/RESTORED convention,
@@ -384,5 +419,5 @@ async function recordAuditSafe(req, before, after) {
 
 module.exports = {
   getMine, uploadDocument, submitForVerification, listAll, summary, listTrash, getEnrollmentDetail,
-  approve, reject, updateRemarks, deleteDocument, restoreDocument, download,
+  approve, reject, updateRemarks, deleteDocument, restoreDocument, permanentlyDeleteDocument, download,
 };

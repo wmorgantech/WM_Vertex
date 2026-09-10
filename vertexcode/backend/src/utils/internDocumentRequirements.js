@@ -1,12 +1,14 @@
 // A requirement "slot" is satisfied if ANY of its listed document types is
-// VERIFIED. Bonafide Certificate and Permission Letter are interchangeable —
-// an intern only needs one of the two, plus a College ID. Every place that
-// needs to know "has this intern cleared document review" (self-service
-// verification stats, submit-for-review validation, the Super Admin final
-// approval gate, and the org-wide analytics counts) calls this same module
-// so the rule can't drift out of sync between them.
+// VERIFIED. Bonafide Certificate and College ID Card are each independently
+// mandatory. Permission Letter and Resume are intentionally NOT listed here —
+// both remain valid, uploadable document types (see SINGLE_TYPES in
+// document.controller.js), just never required for final approval. Every
+// place that needs to know "has this intern cleared document review"
+// (self-service verification stats, submit-for-review validation, the Super
+// Admin final approval gate, and the org-wide analytics counts) calls this
+// same module so the rule can't drift out of sync between them.
 const REQUIRED_DOC_GROUPS = [
-  { key: 'identityProof', anyOf: ['BONAFIDE', 'PERMISSION_LETTER'], label: 'Bonafide Certificate or Permission Letter' },
+  { key: 'bonafide', anyOf: ['BONAFIDE'], label: 'Bonafide Certificate' },
   { key: 'collegeId', anyOf: ['COLLEGE_ID'], label: 'College ID Card' },
 ];
 

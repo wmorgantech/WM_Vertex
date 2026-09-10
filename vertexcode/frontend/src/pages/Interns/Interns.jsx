@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Pencil, Eye, Mail, RotateCcw, GraduationCap, UserCheck, UserX, Archive } from 'lucide-react';
+import { Plus, Trash2, Pencil, Eye, Mail, RotateCcw, GraduationCap, UserCheck, UserX, Download, UserPlus } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -34,12 +34,32 @@ const PAGE_SIZE = 25;
 // TERMINATED is never part of the Inactive bucket on either axis — it is
 // exclusively how Trash is defined. Kept in sync end-to-end with the
 // backend's listEnrollments/deleteEnrollment/restoreEnrollment.
+//
+// "All" previously sent accountStatus: undefined — the backend's
+// listEnrollments only filters on user.status when accountStatus is
+// present, so an unset value meant NO status filter at all, silently
+// including TERMINATED (Trash) rows in the normal All list. Fixed to
+// accountStatus: 'ACTIVE' (with completionStatus left unfiltered), which
+// correctly means "every non-deleted completion status" — active + inactive
+// together, Trash excluded.
 const VIEW_TABS = [
   { value: 'active', label: 'Active', scope: { accountStatus: 'ACTIVE', completionStatus: 'IN_PROGRESS' } },
   { value: 'inactive', label: 'Inactive', scope: { accountStatus: 'ACTIVE', completionStatus: 'COMPLETED,EXTENDED,CONVERTED_TO_EMPLOYEE' } },
-  { value: 'all', label: 'All', scope: { accountStatus: undefined, completionStatus: undefined } },
+  { value: 'all', label: 'All', scope: { accountStatus: 'ACTIVE', completionStatus: undefined } },
   { value: 'trash', label: '🗑️ Trash', scope: { accountStatus: 'TERMINATED', completionStatus: undefined } },
 ];
+
+// The backend keeps the real status value TERMINATED (unchanged — both
+// User.status and InternEnrollment.completionStatus use it for Trash) so
+// existing filtering/restore/permanent-delete logic is untouched; this
+// module's UI must never show that word, so every place a status renders
+// goes through this display-only override. Deliberately narrow — only
+// TERMINATED is remapped, so the genuine Inactive bucket
+// (COMPLETED/EXTENDED/CONVERTED_TO_EMPLOYEE, or Employees'
+// ON_LEAVE/SUSPENDED/ALUMNI) still shows its own real name, unaffected.
+// Same convention as EmployeeList.jsx, so "Inactive" reads identically
+// across both modules.
+const displayStatus = (status) => (status === 'TERMINATED' ? 'INACTIVE' : status);
 
 export default function Interns() {
   const { user } = useAuth();
@@ -236,6 +256,23 @@ export default function Interns() {
     }
   };
 
+  // Irreversible — DELETE /interns/enrollments/:id/permanent (Super Admin
+  // only, requires the intern already be in Trash) permanently deletes the
+  // entire account, not a re-run of Move to Trash. Only ever reachable from
+  // the Trash tab, so it can never affect an active intern. load() refreshes
+  // both the Trash table and the summary cards (Total/Active/Inactive/Trash)
+  // from the server afterward, the same as every other action on this page.
+  const handlePermanentlyDelete = async (enrollment) => {
+    if (!window.confirm(`Permanently delete ${enrollment.user.firstName} ${enrollment.user.lastName}? This will remove their entire account, documents, and history. This cannot be undone.`)) return;
+    try {
+      await api.delete(`/interns/enrollments/${enrollment.id}/permanent`);
+      toast.success('Intern permanently deleted');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to permanently delete intern');
+    }
+  };
+
   // Bulk action built on top of the same single-record DELETE endpoint used
   // by the row-level Delete action — there is no separate bulk-delete API,
   // so this simply fires it once per selected row (no new backend surface).
@@ -399,7 +436,7 @@ export default function Interns() {
     { key: 'mentor', header: 'Mentor', render: (r) => r.mentor ? `${r.mentor.firstName} ${r.mentor.lastName}` : '—' },
     { key: 'progressPercent', header: 'Progress', render: (r) => `${r.progressPercent}%` },
     { key: 'performanceRating', header: 'Rating', render: (r) => r.performanceRating ?? '—' },
-    { key: 'completionStatus', header: 'Status', render: (r) => <Badge value={r.completionStatus} /> },
+    { key: 'completionStatus', header: 'Status', render: (r) => <Badge value={r.completionStatus} label={displayStatus(r.completionStatus)} /> },
     {
       key: 'actions', header: 'Actions',
       render: (r) => (
@@ -420,14 +457,14 @@ export default function Interns() {
     },
   ];
 
-  // Trash gets its own, deliberately narrower column set — no Edit/Delete on
-  // an already-removed record, just enough to identify who it is and
-  // restore them (same convention as EmployeeList's trashColumns).
+  // Trash gets its own, deliberately narrower column set — no Edit on an
+  // already-removed record, just enough to identify who it is, restore
+  // them, or (Super Admin only) permanently delete them.
   const trashColumns = [
     { key: 'id', header: 'ID', render: (r) => r.user.employeeCode || '—' },
     { key: 'name', header: 'Intern', render: (r) => `${r.user.firstName} ${r.user.lastName}` },
     { key: 'batch', header: 'Batch', render: (r) => r.batch.name },
-    { key: 'status', header: 'Status', render: (r) => <Badge value={r.completionStatus} /> },
+    { key: 'status', header: 'Status', render: (r) => <Badge value={r.completionStatus} label={displayStatus(r.completionStatus)} /> },
     { key: 'exitDate', header: 'Removed Date', render: (r) => r.user.exitDate ? new Date(r.user.exitDate).toLocaleDateString() : '—' },
     {
       key: 'actions', header: 'Actions',
@@ -436,6 +473,10 @@ export default function Interns() {
           actions={[
             { key: 'view', icon: Eye, label: 'View', onClick: () => setViewingEnrollment(r) },
             isManager && { key: 'restore', icon: RotateCcw, label: 'Restore', onClick: () => handleRestore(r) },
+            // Super-Admin-only, matching the backend route's gate exactly
+            // (stricter than Restore's mentor-scoped isManager) — same
+            // Trash2 icon used for every destructive action across the app.
+            isSuperAdmin && { key: 'delete-permanent', icon: Trash2, label: 'Delete Permanently', danger: true, onClick: () => handlePermanentlyDelete(r) },
           ]}
         />
       ),
@@ -469,15 +510,21 @@ export default function Interns() {
         subtitle="Internship batches, mentor assignment and progress tracking"
         actions={(
           <>
-            {isSuperAdmin && (
+            {/* Contextual per tab: Intern List gets the full action set,
+                Enroll Batch only gets the two batch-related actions —
+                Export/New Intern don't apply to a screen with no enrollment
+                list on it. */}
+            {tab === 'enrollments' && isSuperAdmin && (
               <>
-                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/interns', 'interns.csv')}>Export CSV</button>
-                <button className="btn btn-secondary" onClick={() => downloadReport('/reports/interns?format=xlsx', 'interns.xlsx')}>Export Excel</button>
+                <button className="btn btn-soft-blue" onClick={() => downloadReport('/reports/interns', 'interns.csv')}><Download size={16} strokeWidth={2.5} /> Export CSV</button>
+                <button className="btn btn-soft-green" onClick={() => downloadReport('/reports/interns?format=xlsx', 'interns.xlsx')}><Download size={16} strokeWidth={2.5} /> Export Excel</button>
               </>
             )}
-            {isManager && <button className="btn btn-secondary" onClick={() => setShowBatchModal(true)}><Plus size={14} /> New Batch</button>}
-            <button className="btn btn-secondary" onClick={() => setShowEnrollModal(true)}><Plus size={14} /> Enroll to Batch</button>
-            <button className="btn btn-primary" onClick={() => setShowNewInternModal(true)}><Plus size={14} /> New Intern</button>
+            {isManager && <button className="btn btn-soft-purple" onClick={() => setShowBatchModal(true)}><Plus size={16} strokeWidth={2.5} /> New Batch</button>}
+            <button className="btn btn-soft-purple" onClick={() => setShowEnrollModal(true)}><UserCheck size={16} strokeWidth={2.5} /> Enroll to Batch</button>
+            {tab === 'enrollments' && (
+              <button className="btn btn-primary" onClick={() => setShowNewInternModal(true)}><UserPlus size={16} strokeWidth={2.5} /> New Intern</button>
+            )}
           </>
         )}
       />
@@ -487,7 +534,7 @@ export default function Interns() {
           <StatCard label="Total Interns" value={summary.total} accent="blue" icon={GraduationCap} />
           <StatCard label="Active" value={summary.active} accent="green" icon={UserCheck} />
           <StatCard label="Inactive" value={summary.inactive} accent="amber" icon={UserX} />
-          <StatCard label="Trash" value={summary.trash} accent="red" icon={Archive} />
+          <StatCard label="Trash" value={summary.trash} accent="red" icon={Trash2} />
         </div>
       )}
 
@@ -653,8 +700,8 @@ export default function Interns() {
           <div className="detail-card">
             <div className="detail-card-header">
               <span className="detail-field-value">{viewingEnrollment.user.employeeCode}</span>
-              <Badge value={viewingEnrollment.completionStatus} />
-              <Badge value={viewingEnrollment.user.status} />
+              <Badge value={viewingEnrollment.completionStatus} label={displayStatus(viewingEnrollment.completionStatus)} />
+              <Badge value={viewingEnrollment.user.status} label={displayStatus(viewingEnrollment.user.status)} />
               {viewingEnrollment.category && <Badge value={viewingEnrollment.category} label={CATEGORY_LABELS[viewingEnrollment.category]} />}
             </div>
             <div className="detail-grid">

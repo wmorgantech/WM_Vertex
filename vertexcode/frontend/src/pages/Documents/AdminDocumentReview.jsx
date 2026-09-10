@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, XCircle, ShieldCheck, FileText, FileSpreadsheet, Award, Download, Eye, Send, Trash2, RotateCcw, Pencil, ClipboardList, Clock, Archive, ClipboardCheck } from 'lucide-react';
+import { CheckCircle2, XCircle, ShieldCheck, FileText, Award, Download, Eye, Send, Trash2, RotateCcw, Pencil, Files, Clock, Archive, ClipboardCheck, CircleCheck, CircleX, Search, Users } from 'lucide-react';
 import api from '@/api/axios';
 import { useAuth } from '@/context/AuthContext';
 import PageHeader from '@/components/shared/PageHeader';
@@ -90,6 +90,7 @@ export default function AdminDocumentReview() {
   const [selectedDocIds, setSelectedDocIds] = useState(new Set());
   const [editingRemarksDoc, setEditingRemarksDoc] = useState(null);
   const [remarksDraft, setRemarksDraft] = useState('');
+  const [search, setSearch] = useState('');
 
   const load = () => {
     setLoading(true);
@@ -172,6 +173,32 @@ export default function AdminDocumentReview() {
     }
   };
 
+  // View — previews the uploaded file in-page. The backend
+  // (GET /documents/:id/download) already exists and already supports this
+  // exact access pattern (Super Admin unrestricted, Admin mentor-scoped) —
+  // no backend/workflow change, just how the already-fetched blob is shown.
+  // The browser reads the Blob's own Content-Type, so the original
+  // response's Content-Disposition: attachment header from res.download()
+  // doesn't force a save-as here.
+  const [viewingDoc, setViewingDoc] = useState(null);
+  const [viewingDocUrl, setViewingDocUrl] = useState(null);
+
+  const handleViewDoc = async (doc) => {
+    try {
+      const res = await api.get(`/documents/${doc.id}/download`, { responseType: 'blob' });
+      setViewingDoc(doc);
+      setViewingDocUrl(URL.createObjectURL(res.data));
+    } catch {
+      toast.error('Failed to open document');
+    }
+  };
+
+  const closeViewDoc = () => {
+    if (viewingDocUrl) URL.revokeObjectURL(viewingDocUrl);
+    setViewingDoc(null);
+    setViewingDocUrl(null);
+  };
+
   const openEditRemarks = (doc) => {
     setEditingRemarksDoc(doc);
     setRemarksDraft(doc.adminRemarks || '');
@@ -227,6 +254,24 @@ export default function AdminDocumentReview() {
       load();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to restore document');
+    }
+  };
+
+  // Irreversible — DELETE /documents/:id/permanent (Super Admin only,
+  // requires the document already be in Trash) actually removes the row and
+  // its file, not a re-run of Move to Trash. Confirmation is required before
+  // the request is even sent.
+  const handlePermanentlyDeleteDoc = async (doc) => {
+    if (!window.confirm(`Permanently delete "${DOC_LABELS[doc.type]}" for ${doc.enrollment.user.firstName} ${doc.enrollment.user.lastName}? This cannot be undone.`)) return;
+    setActing(doc.id);
+    try {
+      await api.delete(`/documents/${doc.id}/permanent`);
+      toast.success('Document permanently deleted');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to permanently delete document');
+    } finally {
+      setActing(null);
     }
   };
 
@@ -309,6 +354,26 @@ export default function AdminDocumentReview() {
     }
   };
 
+  // Client-side only — both lists are already fully loaded (listAll/listTrash
+  // have no server-side search param), so this filters the already-fetched
+  // arrays rather than adding a new backend query. Matches intern name/email
+  // (Review Queue and Trash) or the document type/file name already shown in
+  // each row's own data (listTrash's user select has no email, hence the
+  // `|| ''` guard there).
+  const searchTerm = search.trim().toLowerCase();
+  const matches = (text) => (text || '').toLowerCase().includes(searchTerm);
+  const filteredEnrollments = !searchTerm ? enrollments : enrollments.filter((r) =>
+    matches(`${r.user.firstName} ${r.user.lastName}`) ||
+    matches(r.user.email) ||
+    r.documents.some((d) => matches(DOC_LABELS[d.type]) || matches(d.fileName))
+  );
+  const filteredTrashDocs = !searchTerm ? trashDocs : trashDocs.filter((d) =>
+    matches(`${d.enrollment.user.firstName} ${d.enrollment.user.lastName}`) ||
+    matches(d.enrollment.user.email) ||
+    matches(DOC_LABELS[d.type]) ||
+    matches(d.fileName)
+  );
+
   const toggleSelectEnrollment = (id) => {
     setSelectedEnrollmentIds((prev) => {
       const next = new Set(prev);
@@ -316,7 +381,7 @@ export default function AdminDocumentReview() {
       return next;
     });
   };
-  const visibleEnrollmentIds = enrollments.map((r) => r.id);
+  const visibleEnrollmentIds = filteredEnrollments.map((r) => r.id);
   const allEnrollmentsSelected = visibleEnrollmentIds.length > 0 && visibleEnrollmentIds.every((id) => selectedEnrollmentIds.has(id));
   const someEnrollmentsSelected = visibleEnrollmentIds.some((id) => selectedEnrollmentIds.has(id));
   const toggleSelectAllEnrollments = () => {
@@ -390,7 +455,10 @@ export default function AdminDocumentReview() {
     {
       key: 'actions', header: 'Actions',
       render: (d) => isSuperAdmin ? (
-        <Button size="sm" variant="secondary" onClick={() => handleRestoreDoc(d.id)}><RotateCcw />Restore</Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="secondary" disabled={acting === d.id} onClick={() => handleRestoreDoc(d.id)}><RotateCcw />Restore</Button>
+          <Button size="sm" variant="destructive" disabled={acting === d.id} onClick={() => handlePermanentlyDeleteDoc(d)}><Trash2 />Delete Permanently</Button>
+        </div>
       ) : '—',
     },
   ];
@@ -427,6 +495,9 @@ export default function AdminDocumentReview() {
       header: 'Actions',
       render: (d) => (
         <div className="flex items-center gap-2">
+          <Button size="sm" variant="ghost" onClick={() => handleViewDoc(d)}>
+            <Eye />
+          </Button>
           {d.status === 'PENDING_REVIEW' && (
             <>
               <Button size="sm" variant="success" disabled={acting === d.id} onClick={() => handleApprove(d.id)}>
@@ -459,30 +530,56 @@ export default function AdminDocumentReview() {
         subtitle="Review internship profiles and verify uploaded documents"
         actions={isSuperAdmin ? (
           <div className="flex items-center gap-2">
-            <Button variant="secondary" onClick={() => downloadReport('/reports/intern-documents', 'intern-documents.csv')}><FileText />Export CSV</Button>
-            <Button variant="secondary" onClick={() => downloadReport('/reports/intern-documents?format=xlsx', 'intern-documents.xlsx')}><FileSpreadsheet />Export Excel</Button>
+            <Button variant="secondary" onClick={() => downloadReport('/reports/intern-documents', 'intern-documents.csv')}><Download />Export CSV</Button>
+            <Button variant="secondary" onClick={() => downloadReport('/reports/intern-documents?format=xlsx', 'intern-documents.xlsx')}><Download />Export Excel</Button>
           </div>
         ) : undefined}
       />
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
-        <KpiCard label="Total Documents" value={summary.totalDocuments} accent="primary" icon={ClipboardList} />
-        <KpiCard label="Pending Review" value={summary.pendingReview} accent="warning" icon={Clock} />
-        <KpiCard label="Verified" value={summary.verified} accent="success" icon={CheckCircle2} />
-        <KpiCard label="Rejected" value={summary.rejected} accent="destructive" icon={XCircle} />
-        <KpiCard label="Approved (Interns)" value={summary.approved} accent="purple" icon={ShieldCheck} />
-        {lifecycleStats && (
-          <>
-            <KpiCard label="Pending Final Approval" value={lifecycleStats.documents.pendingApplications} accent="warning" icon={ClipboardCheck} />
-            {lifecycleStats.offerLetters && (
-              <KpiCard label="Offer Letters" value={lifecycleStats.offerLetters.generated} hint={`${lifecycleStats.offerLetters.pending} pending`} accent="info" icon={FileText} />
-            )}
-            {lifecycleStats.certificates && (
-              <KpiCard label="Certificates" value={lifecycleStats.certificates.generated} hint={`${lifecycleStats.certificates.eligiblePending} ready to issue`} accent="success" icon={Award} />
-            )}
-          </>
-        )}
-      </div>
+      {/* Cards are tab-specific — Review Queue shows document-review +
+          lifecycle counts, Trash shows only Trash-relevant counts. Previously
+          this grid was unconditional and never changed when switching to the
+          Trash tab; both blocks below are now gated on pageTab so cards
+          actually update when the tab changes. */}
+      {pageTab === 'review' && (
+        // Clean 4-column grid — row 1 is document-review counts, row 2 is
+        // internship-lifecycle counts. KpiCard's Card is a flex column with
+        // no fixed height, so it already stretches to match the tallest
+        // card in its row (CSS grid's default align-items: stretch) —
+        // Offer Letters/Certificates' extra hint line doesn't unbalance the
+        // row. Row 2 only fully populates for Super Admin — offerLetters/
+        // certificates are absent from /analytics/overview for Admin by
+        // design (see analytics.controller.js), not a bug here.
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <KpiCard label="Total Documents" value={summary.totalDocuments} accent="primary" icon={Files} />
+          <KpiCard label="Pending Review" value={summary.pendingReview} accent="warning" icon={Clock} />
+          <KpiCard label="Verified" value={summary.verified} accent="success" icon={CircleCheck} />
+          <KpiCard label="Rejected" value={summary.rejected} accent="destructive" icon={CircleX} />
+          <KpiCard label="Approved (Interns)" value={summary.approved} accent="purple" icon={ShieldCheck} />
+          {lifecycleStats && (
+            <>
+              <KpiCard label="Pending Final Approval" value={lifecycleStats.documents.pendingApplications} accent="warning" icon={ClipboardCheck} />
+              {lifecycleStats.offerLetters && (
+                <KpiCard label="Offer Letters" value={lifecycleStats.offerLetters.generated} hint={`${lifecycleStats.offerLetters.pending} pending`} accent="info" icon={FileText} />
+              )}
+              {lifecycleStats.certificates && (
+                <KpiCard label="Certificates" value={lifecycleStats.certificates.generated} hint={`${lifecycleStats.certificates.eligiblePending} ready to issue`} accent="success" icon={Award} />
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {pageTab === 'trash' && (
+        // Only what's genuinely available for Trash: summary.trash is the
+        // same authoritative server-side count already used for the tab's
+        // badge; "Interns Affected" is a real distinct-enrollment count
+        // derived from the already-loaded trashDocs, not a fabricated stat.
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <KpiCard label="Documents in Trash" value={summary.trash} accent="destructive" icon={Archive} />
+          <KpiCard label="Interns Affected" value={new Set(trashDocs.map((d) => d.enrollment.user.id)).size} accent="primary" icon={Users} />
+        </div>
+      )}
 
       <div className="flex items-center gap-2 border-b border-border">
         <button
@@ -499,29 +596,43 @@ export default function AdminDocumentReview() {
         </button>
       </div>
 
+      {/* Same left-icon search pattern already used by GlobalSearch.jsx in
+          the top bar — filters the already-loaded list client-side (see
+          filteredEnrollments/filteredTrashDocs above), no new API call. */}
+      <div className="relative max-w-sm">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by intern name, email, or document..."
+          className="h-9 w-full rounded-md border border-border bg-background pl-8 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+        />
+      </div>
+
       {isSuperAdmin && pageTab === 'review' && selectedEnrollmentIds.size > 0 && (
         <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 p-3 text-sm">
           <span>{selectedEnrollmentIds.size} selected</span>
           <Button size="sm" variant="ghost" onClick={() => setSelectedEnrollmentIds(new Set())}>Clear selection</Button>
           <Button size="sm" variant="secondary" onClick={() => exportSelectedToCsv(enrollments.filter((r) => selectedEnrollmentIds.has(r.id)))}>
-            <FileText /> Export Selected
+            <Download /> Export Selected
           </Button>
         </div>
       )}
 
       {loading ? <Skeleton className="h-80" /> : (
         pageTab === 'trash'
-          ? <Table columns={trashColumns} rows={trashDocs} emptyMessage="Trash is empty." />
-          : <Table columns={columns} rows={enrollments} emptyMessage="No intern enrollments found." />
+          ? <Table columns={trashColumns} rows={filteredTrashDocs} emptyMessage={searchTerm ? 'No matching documents in Trash.' : 'Trash is empty.'} />
+          : <Table columns={columns} rows={filteredEnrollments} emptyMessage={searchTerm ? 'No matching interns.' : 'No intern enrollments found.'} />
       )}
 
       {selected && (
         <Dialog
           title={`${selected.user.firstName} ${selected.user.lastName} — Documents`}
           onClose={() => setSelected(null)}
-          className="sm:max-w-3xl"
+          className="flex max-h-[85vh] flex-col sm:max-w-[960px]"
+          bodyClassName="min-h-0 flex-1 overflow-y-auto"
         >
-          <div className="max-h-[70vh] space-y-6 overflow-y-auto">
+          <div className="space-y-6">
             <div className="flex items-center gap-2">
               {selected.category && <Badge value={selected.category} />}
               {selected.finalApprovedAt && <Badge value="INTERNSHIP_CONFIRMED" />}
@@ -548,7 +659,14 @@ export default function AdminDocumentReview() {
               const requiredVerified = selected.requirement?.satisfied ?? false;
               const canApprove = requiredVerified && !selected.finalApprovedAt;
               const canEnableOfferLetter = !!selected.finalApprovedAt && !selected.offerLetter;
-              const canGenerateCertificate = !!selected.offerLetter && !selected.certificate
+              // Matches the backend's actual prerequisites exactly (see
+              // intern.controller.js generateCertificate): final approval +
+              // the internship end date having passed. An offer letter is
+              // NOT required by the backend — the UI previously demanded
+              // one anyway, disabling this button in cases the backend
+              // would happily allow (e.g. approved, end date passed, but
+              // the offer letter was never enabled).
+              const canGenerateCertificate = !!selected.finalApprovedAt && !selected.certificate
                 && selected.internshipEndDate && new Date() >= new Date(selected.internshipEndDate);
               return (
                 <div className="space-y-3 rounded-lg border border-border p-4">
@@ -605,12 +723,36 @@ export default function AdminDocumentReview() {
                       Required before final approval: {(selected.requirement?.groups || []).filter((g) => g.status !== 'VERIFIED').map((g) => g.label).join(', ')}
                     </p>
                   )}
-                  {canGenerateCertificate === false && selected.offerLetter && !selected.certificate && (
-                    <p className="text-xs text-muted-foreground">The completion certificate unlocks after the internship end date.</p>
+                  {isSuperAdmin && !selected.certificate && !canGenerateCertificate && (
+                    <p className="text-xs text-muted-foreground">
+                      {!selected.finalApprovedAt
+                        ? 'The completion certificate unlocks after final approval.'
+                        : 'The completion certificate unlocks after the internship end date.'}
+                    </p>
                   )}
                 </div>
               );
             })()}
+          </div>
+        </Dialog>
+      )}
+
+      {viewingDoc && (
+        <Dialog
+          title={`${DOC_LABELS[viewingDoc.type] || 'Document'} — ${viewingDoc.fileName}`}
+          onClose={closeViewDoc}
+          className="flex max-h-[85vh] flex-col sm:max-w-3xl"
+          bodyClassName="min-h-0 flex-1"
+        >
+          <div className="flex h-full min-h-0 flex-col gap-4">
+            <iframe
+              src={viewingDocUrl}
+              title={viewingDoc.fileName}
+              className="h-[65vh] w-full rounded-md border border-border bg-muted/20"
+            />
+            <div className="flex justify-end">
+              <Button variant="ghost" onClick={closeViewDoc}>Cancel</Button>
+            </div>
           </div>
         </Dialog>
       )}

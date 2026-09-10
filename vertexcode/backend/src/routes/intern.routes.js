@@ -683,6 +683,52 @@ router.post('/enrollments/:id/restore', can('intern', 'manage'), ctrl.restoreEnr
 
 /**
  * @swagger
+ * /interns/enrollments/{id}/permanent:
+ *   delete:
+ *     tags: [Interns]
+ *     summary: Permanently delete an intern already in Trash
+ *     description: >
+ *       SUPER_ADMIN only. Irreversible — permanently deletes the intern's
+ *       entire user account (not just the enrollment record), cascading
+ *       every related row: the enrollment, uploaded documents, offer
+ *       letter, completion certificate, internship audit trail, attendance,
+ *       timesheets, leave requests, notifications and project memberships.
+ *       The intern must already be in Trash (soft-deleted via DELETE
+ *       /enrollments/{id}) — this is always a second, explicit step after
+ *       Move to Trash, never a direct hard-delete of an active intern.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       400:
+ *         description: Not in Trash — must be moved to Trash before it can be permanently deleted
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden (SUPER_ADMIN only)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: Enrollment not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.delete('/enrollments/:id/permanent', isSuperAdmin, ctrl.permanentlyDeleteEnrollment);
+
+/**
+ * @swagger
  * /interns/enrollments/{id}/approve:
  *   post:
  *     tags: [Interns]

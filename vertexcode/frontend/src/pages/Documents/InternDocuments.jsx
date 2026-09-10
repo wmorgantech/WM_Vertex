@@ -28,8 +28,8 @@ const PROFILE_FIELDS = [
 ];
 
 const DOC_TYPES = [
-  { type: 'BONAFIDE', label: 'Bonafide Certificate', note: 'Upload this OR a Permission Letter' },
-  { type: 'PERMISSION_LETTER', label: 'Permission Letter', note: 'Upload this OR a Bonafide Certificate' },
+  { type: 'BONAFIDE', label: 'Bonafide Certificate', note: 'Required' },
+  { type: 'PERMISSION_LETTER', label: 'Permission Letter', note: 'Optional' },
   { type: 'COLLEGE_ID', label: 'College ID Card', note: 'Required' },
   { type: 'RESUME', label: 'Resume', note: 'Optional' },
 ];
@@ -362,7 +362,7 @@ export default function InternDocuments() {
           {renderDocGrid(internshipDocRows)}
           {!canSubmit && (
             <p className="mt-3 text-xs text-muted-foreground">
-              Upload a Bonafide Certificate or Permission Letter, plus your College ID Card, before submitting for verification.
+              Upload a Bonafide Certificate and your College ID Card before submitting for verification.
             </p>
           )}
         </CardContent>

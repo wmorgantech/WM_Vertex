@@ -246,6 +246,7 @@ async function listEnrollments(req, res) {
       { email: { contains: search, mode: 'insensitive' } },
     ];
   }
+  userClause.role = 'INTERN';
   if (accountStatuses && accountStatuses.length) {
     userClause.status = accountStatuses.length === 1 ? accountStatuses[0] : { in: accountStatuses };
   }
@@ -284,7 +285,8 @@ async function listEnrollments(req, res) {
   // request with no page/limit keeps returning exactly what it does today.
   const paginate = page !== undefined || limit !== undefined;
   const take = paginate ? Math.min(parseInt(limit, 10) || 25, 100) : undefined;
-  const skip = paginate ? (Math.max(parseInt(page, 10), 1) - 1) * take : undefined;
+  const currentPage = paginate ? Math.max(parseInt(page, 10) || 1, 1) : undefined;
+  const skip = paginate ? (currentPage - 1) * take : undefined;
 
   const [enrollments, total] = await Promise.all([
     prisma.internEnrollment.findMany({
@@ -305,7 +307,7 @@ async function listEnrollments(req, res) {
   // Intern list's new ID column shows the same kind of identifier.
   const withCode = enrollments.map((e) => ({ ...e, user: { ...e.user, employeeCode: computeEmployeeCode(e.user.joinDate) } }));
 
-  return sendSuccess(res, 200, withCode, paginate ? { total, page: Math.max(parseInt(page, 10), 1) || 1, limit: take } : undefined);
+  return sendSuccess(res, 200, withCode, paginate ? { total, page: currentPage, limit: take } : undefined);
 }
 
 // POST /api/interns/enrollments — enroll an EXISTING intern profile into a
@@ -471,6 +473,53 @@ async function restoreEnrollment(req, res) {
   });
 
   return sendSuccess(res, 200, { message: 'Intern restored' });
+}
+
+// DELETE /api/interns/enrollments/:id/permanent — Super Admin only.
+// Irreversible: permanently deletes the intern's entire User account, not
+// just the enrollment — cascades InternEnrollment and everything under it
+// (InternDocument, OfferLetter, CompletionCertificate, InternshipAudit),
+// plus the account's own Attendance/Timesheet/LeaveRequest/Notification/
+// ProjectMember rows (all onDelete: Cascade on User in schema.prisma, the
+// same mechanism already verified/used for the earlier Paintamil account
+// cleanup). Requires the enrollment already be in Trash — same two-step
+// safety as document permanent-delete (document.controller.js): Move to
+// Trash first, this is always a separate, explicit second action.
+async function permanentlyDeleteEnrollment(req, res) {
+  const enrollment = await prisma.internEnrollment.findUnique({
+    where: { id: req.params.id },
+    include: {
+      user: { select: { id: true, firstName: true, lastName: true, status: true } },
+      documents: { select: { filePath: true } },
+      offerLetter: { select: { filePath: true } },
+      certificate: { select: { filePath: true } },
+    },
+  });
+  if (!enrollment) throw new ApiError(404, 'Enrollment not found');
+  if (enrollment.completionStatus !== 'TERMINATED' && enrollment.user.status !== 'TERMINATED') {
+    throw new ApiError(400, 'Only interns already in Trash can be permanently deleted');
+  }
+
+  const filesToRemove = [
+    ...enrollment.documents.map((d) => d.filePath),
+    ...(enrollment.offerLetter ? [enrollment.offerLetter.filePath] : []),
+    ...(enrollment.certificate ? [enrollment.certificate.filePath] : []),
+  ];
+
+  await prisma.user.delete({ where: { id: enrollment.user.id } });
+
+  // Every document/intern-specific audit trail (InternshipAudit,
+  // InternDocumentAudit) cascade-deletes with the account — recorded here in
+  // the generic AuditLog instead (a separate table, entityId is a plain
+  // string, not an FK), so this is the durable record that survives it.
+  await recordAudit({
+    actorId: req.user.id, action: 'PERMANENTLY_DELETED', module: 'INTERN_ENROLLMENT', entityId: enrollment.id,
+    entityLabel: `${enrollment.user.firstName} ${enrollment.user.lastName}`, before: enrollment,
+  });
+
+  filesToRemove.forEach((p) => { if (p) fs.unlink(p, () => {}); });
+
+  return sendSuccess(res, 200, { message: 'Intern permanently deleted' });
 }
 
 // PUT /api/interns/enrollments/me — Intern self-service academic profile update
@@ -819,6 +868,6 @@ async function downloadCertificate(req, res) {
 module.exports = {
   createIntern,
   listBatches, getBatch, createBatch, updateBatch, deleteBatch,
-  listEnrollments, listEnrollableUsers, enrollIntern, updateEnrollment, deleteEnrollment, restoreEnrollment, updateMyEnrollment,
+  listEnrollments, listEnrollableUsers, enrollIntern, updateEnrollment, deleteEnrollment, restoreEnrollment, permanentlyDeleteEnrollment, updateMyEnrollment,
   finalApprove, enableOfferLetter, resendOfferLetterEmail, downloadOfferLetter, generateCertificate, downloadCertificate,
 };

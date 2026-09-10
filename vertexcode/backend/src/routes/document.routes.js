@@ -407,6 +407,45 @@ router.post('/:id/restore', isSuperAdmin, ctrl.restoreDocument);
 
 /**
  * @swagger
+ * /documents/{id}/permanent:
+ *   delete:
+ *     tags: [Documents]
+ *     summary: Permanently delete a document already in Trash
+ *     description: >
+ *       SUPER_ADMIN only. Irreversible — removes the database record and the
+ *       uploaded file. The document must already be in Trash (soft-deleted);
+ *       this is always a second, explicit step after Move to Trash, never a
+ *       direct hard-delete of an active document.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       400:
+ *         description: Not in Trash — must be moved to Trash before it can be permanently deleted
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden (SUPER_ADMIN only)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: Not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.delete('/:id/permanent', isSuperAdmin, ctrl.permanentlyDeleteDocument);
+
+/**
+ * @swagger
  * /documents/{id}/download:
  *   get:
  *     tags: [Documents]
