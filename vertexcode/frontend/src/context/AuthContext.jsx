@@ -5,6 +5,7 @@ const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
+    if (!localStorage.getItem('vertexwm_access_token')) return null;
     const stored = localStorage.getItem('vertexwm_user');
     return stored ? JSON.parse(stored) : null;
   });
@@ -13,6 +14,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const token = localStorage.getItem('vertexwm_access_token');
     if (!token) {
+      localStorage.removeItem('vertexwm_user');
       setLoading(false);
       return;
     }
@@ -23,6 +25,9 @@ export function AuthProvider({ children }) {
         localStorage.setItem('vertexwm_user', JSON.stringify(data.data.user));
       })
       .catch(() => {
+        localStorage.removeItem('vertexwm_access_token');
+        localStorage.removeItem('vertexwm_refresh_token');
+        localStorage.removeItem('vertexwm_user');
         setUser(null);
       })
       .finally(() => setLoading(false));

@@ -28,6 +28,8 @@ export default function Colleges() {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [viewTab, setViewTab] = useState('active');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [locationFilter, setLocationFilter] = useState('');
   const [summary, setSummary] = useState({ total: 0, trash: 0 });
 
   const [expandedId, setExpandedId] = useState(null);
@@ -39,7 +41,12 @@ export default function Colleges() {
   const load = () => {
     setLoading(true);
     Promise.allSettled([
-      api.get('/colleges', { params: { scope: viewTab, search: debouncedSearch || undefined } }),
+      api.get('/colleges', { params: {
+        scope: viewTab,
+        search: debouncedSearch || undefined,
+        status: viewTab === 'trash' ? undefined : (statusFilter || undefined),
+        location: viewTab === 'trash' ? undefined : (locationFilter || undefined),
+      } }),
       api.get('/colleges/summary'),
       api.get('/masters/college-types'),
     ])
@@ -56,7 +63,9 @@ export default function Colleges() {
     const id = setTimeout(() => setDebouncedSearch(search), 400);
     return () => clearTimeout(id);
   }, [search]);
-  useEffect(load, [viewTab, debouncedSearch]);
+  useEffect(load, [viewTab, debouncedSearch, statusFilter, locationFilter]);
+
+  const locations = [...new Set(colleges.map((college) => college.city).filter(Boolean))].sort();
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -219,6 +228,15 @@ export default function Colleges() {
           <Search size={16} strokeWidth={2.5} />
           <input className="search-input" placeholder="Search by name, city or contact..." value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search colleges" />
         </span>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} disabled={viewTab === 'trash'} aria-label="Filter by status">
+          <option value="">All Statuses</option>
+          <option value="ACTIVE">Active</option>
+          <option value="INACTIVE">Inactive</option>
+        </select>
+        <select value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)} disabled={viewTab === 'trash'} aria-label="Filter by location">
+          <option value="">All Locations</option>
+          {locations.map((location) => <option key={location} value={location}>{location}</option>)}
+        </select>
         <div className="toolbar-actions">
           <button type="button" className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab(viewTab === 'trash' ? 'active' : 'trash')}>
             🗑️ Trash{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}
@@ -262,7 +280,7 @@ export default function Colleges() {
             <label>Contact Person<input value={deptForm.contactPerson} onChange={(e) => setDeptForm({ ...deptForm, contactPerson: e.target.value })} /></label>
             <label>Contact Email<input value={deptForm.contactEmail} onChange={(e) => setDeptForm({ ...deptForm, contactEmail: e.target.value })} /></label>
             <div className="form-actions">
-              <button type="submit" className="btn btn-primary btn-sm" disabled={savingDept}>{savingDept ? 'Saving...' : '+ Add Department'}</button>
+              <button type="submit" className="btn btn-primary btn-sm" disabled={savingDept}>{savingDept ? 'Saving...' : 'Add Department'}</button>
             </div>
           </form>
           <div style={{ marginTop: 16 }}>

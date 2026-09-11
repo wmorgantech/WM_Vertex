@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, XCircle, ShieldCheck, FileText, Award, Download, Eye, Send, Trash2, RotateCcw, Pencil, Files, Clock, Archive, ClipboardCheck, CircleCheck, CircleX, Search, Users } from 'lucide-react';
 import api from '@/api/axios';
 import { useAuth } from '@/context/AuthContext';
@@ -91,9 +91,23 @@ export default function AdminDocumentReview() {
   const [editingRemarksDoc, setEditingRemarksDoc] = useState(null);
   const [remarksDraft, setRemarksDraft] = useState('');
   const [search, setSearch] = useState('');
+  const loadRequestRef = useRef(0);
 
-  const load = () => {
+  const load = (resetView = false) => {
+    const requestId = ++loadRequestRef.current;
     setLoading(true);
+    if (resetView) {
+      setSelected(null);
+      setSelectedEnrollmentIds(new Set());
+      setSelectedDocIds(new Set());
+      setSummary({ totalDocuments: 0, pendingReview: 0, verified: 0, rejected: 0, approved: 0, trash: 0 });
+      if (pageTab === 'review') {
+        setTrashDocs([]);
+      } else {
+        setEnrollments([]);
+        setLifecycleStats(null);
+      }
+    }
     Promise.allSettled([
       api.get('/documents'),
       api.get('/documents/summary'),
@@ -107,9 +121,9 @@ export default function AdminDocumentReview() {
       api.get('/analytics/overview'),
     ])
       .then(([e, s, t, ov]) => {
+        if (requestId !== loadRequestRef.current) return;
         if (e.status === 'fulfilled') {
           setEnrollments(e.value.data.data);
-          setSelectedEnrollmentIds(new Set());
         }
         if (s.status === 'fulfilled') {
           setSummary(s.value.data?.data || {
@@ -128,12 +142,19 @@ export default function AdminDocumentReview() {
       })
       .finally(() => setLoading(false));
   };
-  useEffect(load, [pageTab]);
+  useEffect(() => load(true), [pageTab]);
 
   const openDetail = async (enrollment) => {
-    const { data } = await api.get(`/documents/enrollment/${enrollment.id}`);
-    setSelected(data.data);
-    setSelectedDocIds(new Set());
+    try {
+      const response = await api.get(`/documents/enrollment/${enrollment.id}`);
+      if (!response.data?.success || !response.data.data) {
+        throw new Error('The document detail response was invalid');
+      }
+      setSelected(response.data.data);
+      setSelectedDocIds(new Set());
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to load intern documents');
+    }
   };
 
   const refreshSelected = async () => {

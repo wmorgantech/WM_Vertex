@@ -46,7 +46,8 @@ async function listTasks(req, res) {
   // other existing callers rely on this).
   const paginate = page !== undefined || limit !== undefined;
   const take = paginate ? Math.min(parseInt(limit, 10) || 25, 100) : undefined;
-  const skip = paginate ? (Math.max(parseInt(page, 10), 1) - 1) * take : undefined;
+  const pageNumber = paginate ? Math.max(parseInt(page, 10) || 1, 1) : undefined;
+  const skip = paginate ? (pageNumber - 1) * take : undefined;
 
   const [tasks, total] = await Promise.all([
     prisma.task.findMany({
@@ -61,7 +62,7 @@ async function listTasks(req, res) {
     }),
     paginate ? prisma.task.count({ where }) : Promise.resolve(undefined),
   ]);
-  return sendSuccess(res, 200, tasks, paginate ? { total, page: Math.max(parseInt(page, 10), 1) || 1, limit: take, totalPages: Math.ceil(total / take) } : undefined);
+  return sendSuccess(res, 200, tasks, paginate ? { total, page: pageNumber, limit: take, totalPages: Math.ceil(total / take) } : undefined);
 }
 
 async function getTask(req, res) {

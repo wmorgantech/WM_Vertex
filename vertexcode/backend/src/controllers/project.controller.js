@@ -15,7 +15,7 @@ function scopeWhere(scope) {
 }
 
 async function listProjects(req, res) {
-  const { status, managerId, scope, search } = req.query;
+  const { status, priority, managerId, scope, search } = req.query;
   const isManagerRole = ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role);
 
   // `search` and the non-manager owner-scoping both use OR — they must stay
@@ -24,6 +24,7 @@ async function listProjects(req, res) {
   const where = {
     ...scopeWhere(scope),
     ...(status && { status }),
+    ...(priority && { tasks: { some: { priority } } }),
     ...(managerId && { managerId }),
     AND: [
       ...(!isManagerRole ? [{ OR: [{ managerId: req.user.id }, { members: { some: { userId: req.user.id } } }] }] : []),

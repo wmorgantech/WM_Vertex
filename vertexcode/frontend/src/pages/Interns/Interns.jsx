@@ -564,7 +564,7 @@ export default function Interns() {
               </select>
             )}
             <div className="toolbar-actions">
-              <button type="button" className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab('trash')}>🗑️ Trash</button>
+              <button type="button" className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab('trash')}>🗑️ Trash <Badge value="TERMINATED" label={String(summary.trash)} /></button>
             </div>
           </>
         )}

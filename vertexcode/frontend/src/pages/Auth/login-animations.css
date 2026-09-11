@@ -1,0 +1,83 @@
+/* WMorgan login logo reveal — plays once (~2s), then stays completely
+   static. Three synchronized pieces, all animation-fill-mode: forwards:
+   1) wm-mark-zoom   — the mark itself: tiny → rapid zoom-in → slight
+                        overshoot → settle at rest size.
+   2) wm-ring-*      — two concentric rings expanding outward from the
+                        mark's own radius as it lands, then fading —
+                        the "circular/radial expansion" moment.
+   3) wm-sweep       — a brief light pass across the mark right after it
+                        settles (secondary finishing touch, not the main
+                        effect).
+   4) wm-text-reveal — wordmark/tagline fade + slide up underneath. */
+
+.wm-mark-zoom {
+  opacity: 0;
+  transform: scale(0.15);
+  animation: wm-mark-zoom 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes wm-mark-zoom {
+  0% { opacity: 0; transform: scale(0.15); }
+  12% { opacity: 1; }
+  60% { opacity: 1; transform: scale(1.12); }
+  80% { transform: scale(0.97); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.wm-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  opacity: 0;
+  transform: scale(0.4);
+}
+
+.wm-ring-1 {
+  animation: wm-ring-expand 1s cubic-bezier(0.16, 1, 0.3, 1) 0.05s 1 forwards;
+}
+
+.wm-ring-2 {
+  border-color: rgba(255, 255, 255, 0.35);
+  animation: wm-ring-expand 1.1s cubic-bezier(0.16, 1, 0.3, 1) 0.2s 1 forwards;
+}
+
+@keyframes wm-ring-expand {
+  0% { opacity: 0.9; transform: scale(0.4); }
+  55% { opacity: 0.45; }
+  100% { opacity: 0; transform: scale(2.5); }
+}
+
+.wm-sweep {
+  background: linear-gradient(75deg, transparent 35%, rgba(255, 255, 255, 0.55) 50%, transparent 65%);
+  transform: translateX(-120%);
+  animation: wm-sweep 0.9s cubic-bezier(0.4, 0, 0.2, 1) 0.85s 1 forwards;
+}
+
+@keyframes wm-sweep {
+  to { transform: translateX(120%); }
+}
+
+.wm-text-reveal {
+  opacity: 0;
+  transform: translateY(10px);
+  animation: wm-text-reveal 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes wm-text-reveal {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Respect reduced-motion preferences — show the final, stable state
+   immediately instead of skipping/racing through the animation. */
+@media (prefers-reduced-motion: reduce) {
+  .wm-mark-zoom,
+  .wm-ring,
+  .wm-sweep,
+  .wm-text-reveal {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .wm-ring { display: none; }
+}

@@ -20,10 +20,12 @@ function scopeWhere(scope) {
 }
 
 async function listColleges(req, res) {
-  const { search, scope } = req.query;
+  const { search, scope, status, location } = req.query;
   const colleges = await prisma.college.findMany({
     where: {
       ...scopeWhere(scope),
+      ...(status && { active: status === 'ACTIVE' }),
+      ...(location && { city: location }),
       ...(search && {
         OR: [
           { name: { contains: search, mode: 'insensitive' } },

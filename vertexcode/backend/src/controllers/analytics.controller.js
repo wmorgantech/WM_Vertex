@@ -63,6 +63,21 @@ async function overview(req, res) {
     return acc;
   }, {});
 
+  // Day-by-day present count for the dashboard's attendance trend chart —
+  // reuses the same attendanceLast30 rows already fetched above (no extra
+  // query), just aggregated by date instead of by status. LATE counts as
+  // present-for-the-day (they still showed up), matching the same
+  // PRESENT+LATE convention already used for attendance-percent elsewhere.
+  const presentByDay = attendanceLast30.reduce((acc, r) => {
+    if (r.status !== 'PRESENT' && r.status !== 'LATE') return acc;
+    const key = r.date.toISOString().slice(0, 10);
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const attendanceDailyTrend = Object.entries(presentByDay)
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([date, present]) => ({ date, present }));
+
   const allDocs = enrollmentsWithDocs.flatMap((e) =>
     e.documents.map((d) => ({ ...d, internName: `${e.user.firstName} ${e.user.lastName}` }))
   );
@@ -85,7 +100,7 @@ async function overview(req, res) {
       unallocated: unallocatedTasks,
       byStatus: tasksByStatus.map((t) => ({ status: t.status, count: t._count._all })),
     },
-    attendance: { last30Days: attendanceByStatus },
+    attendance: { last30Days: attendanceByStatus, dailyTrend: attendanceDailyTrend },
     pendingApprovals: { timesheets: pendingTimesheets, workUpdates: pendingWorkUpdates },
     documents: { pendingVerifications, verifiedInterns, rejectedDocuments, pendingApplications, recentSubmissions },
     businessDevelopment: { upcomingWorkshops, workshopFollowUpsOverdue, activeMous, mousExpiringSoon },

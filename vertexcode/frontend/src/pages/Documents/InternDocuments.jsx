@@ -30,7 +30,7 @@ const PROFILE_FIELDS = [
 const DOC_TYPES = [
   { type: 'BONAFIDE', label: 'Bonafide Certificate', note: 'Required' },
   { type: 'PERMISSION_LETTER', label: 'Permission Letter', note: 'Optional' },
-  { type: 'COLLEGE_ID', label: 'College ID Card', note: 'Required' },
+  { type: 'COLLEGE_ID', label: 'College ID Card', note: 'Optional' },
   { type: 'RESUME', label: 'Resume', note: 'Optional' },
 ];
 

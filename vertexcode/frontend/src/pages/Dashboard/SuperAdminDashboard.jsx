@@ -1,25 +1,26 @@
 import { useEffect, useState } from 'react';
-import { Users, UserCheck, Building2, FolderKanban, ClipboardCheck, FolderOpen, Settings, IndianRupee } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Users, UserCheck, UserPlus, GraduationCap, BookOpen, Building2, FolderKanban, Plus } from 'lucide-react';
 import api from '@/api/axios';
 import PageHeader from '@/components/shared/PageHeader';
 import KpiCard from '@/components/shared/KpiCard';
-import ActivityList from '@/components/shared/ActivityList';
-import QuickActions from '@/components/shared/QuickActions';
-import InsightsPanel from '@/components/shared/InsightsPanel';
-import BarChart from '@/components/shared/charts/BarChart';
+import AreaChart from '@/components/shared/charts/AreaChart';
 import PieChart from '@/components/shared/charts/PieChart';
+import HorizontalBarChart from '@/components/shared/charts/HorizontalBarChart';
+import AuditLogTimeline from './AuditLogTimeline';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { superAdminInsights } from '@/lib/dashboardInsights';
 
+// "Add X" shortcuts, each icon matching the identical icon already used by
+// that module's own Add button (EmployeeList/Interns/Trainees all use
+// UserPlus for their own "Add"; Projects/Departments use Plus) — clicking
+// through lands on the real Add flow on that page, nothing fake here.
 const QUICK_ACTIONS = [
-  { to: '/employees', label: 'Manage Employees', icon: Users },
-  { to: '/documents', label: 'Review Internships', icon: FolderOpen },
-  { to: '/departments', label: 'Manage Departments', icon: Building2 },
-  { to: '/projects', label: 'View Projects', icon: FolderKanban },
-  { to: '/analytics', label: 'Open Analytics', icon: ClipboardCheck },
-  { to: '/expenses', label: 'View Expenses', icon: IndianRupee },
-  { to: '/configuration/permissions', label: 'Configure Permissions', icon: Settings },
+  { to: '/employees', label: 'Add Employee', icon: UserPlus },
+  { to: '/interns', label: 'Add Intern', icon: UserPlus },
+  { to: '/trainees', label: 'Add Trainee', icon: UserPlus },
+  { to: '/projects', label: 'Add Project', icon: Plus },
+  { to: '/departments', label: 'Add Department', icon: Plus },
 ];
 
 const CATEGORY_LABELS = { FREE_INTERNSHIP: 'Free Internship', JOT: 'JOT', UNCATEGORIZED: 'Uncategorized' };
@@ -31,33 +32,11 @@ const AUDIT_ACTION_LABELS = {
 
 export default function SuperAdminDashboard() {
   const [overview, setOverview] = useState(null);
-  const [activity, setActivity] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      api.get('/analytics/overview'),
-      api.get('/timesheets', { params: { status: 'PENDING' } }),
-      api.get('/work-updates', { params: { status: 'SUBMITTED' } }),
-    ])
-      .then(([ov, ts, wu]) => {
-        setOverview(ov.data.data);
-        const timesheetItems = ts.data.data.slice(0, 5).map((t) => ({
-          id: `ts-${t.id}`,
-          title: `${t.user.firstName} ${t.user.lastName}`,
-          subtitle: `${t.project?.name || 'No project'} · ${t.hoursLogged}h`,
-          meta: new Date(t.date).toLocaleDateString(),
-          badgeValue: t.status,
-        }));
-        const workUpdateItems = wu.data.data.slice(0, 5).map((w) => ({
-          id: `wu-${w.id}`,
-          title: `${w.user.firstName} ${w.user.lastName}`,
-          subtitle: w.summary,
-          meta: new Date(w.date).toLocaleDateString(),
-          badgeValue: w.status,
-        }));
-        setActivity([...timesheetItems, ...workUpdateItems].slice(0, 6));
-      })
+    api.get('/analytics/overview')
+      .then(({ data }) => setOverview(data.data))
       .finally(() => setLoading(false));
   }, []);
 
@@ -79,11 +58,11 @@ export default function SuperAdminDashboard() {
     return <p className="text-sm text-muted-foreground">No analytics available.</p>;
   }
 
-  const { headcount, tasks, attendance, pendingApprovals, reports, audit } = overview;
+  const { headcount, tasks, attendance, projects, reports, audit } = overview;
   const taskChartData = tasks.byStatus.map((t) => ({ name: t.status.replace('_', ' '), count: t.count }));
-  const attendanceChartData = Object.entries(attendance.last30Days).map(([status, count]) => ({
-    status: status.replace('_', ' '),
-    count,
+  const attendanceTrendData = (attendance.dailyTrend || []).map((d) => ({
+    date: new Date(d.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }),
+    present: d.present,
   }));
   const categoryChartData = Object.entries(reports?.categoryBreakdown || {}).map(([key, count]) => ({
     status: CATEGORY_LABELS[key] || key,
@@ -93,7 +72,7 @@ export default function SuperAdminDashboard() {
     id: a.id,
     title: a.internName,
     subtitle: `${AUDIT_ACTION_LABELS[a.action] || a.action} by ${a.actorName}`,
-    meta: new Date(a.createdAt).toLocaleDateString(),
+    meta: `${new Date(a.createdAt).toLocaleDateString()} · ${new Date(a.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
     badgeValue: a.action,
   }));
 
@@ -101,41 +80,38 @@ export default function SuperAdminDashboard() {
     <div className="space-y-6">
       <PageHeader title="Organization Overview" subtitle="Real-time snapshot across the entire organization" />
 
-      {/* Trimmed to org-wide "pulse" metrics that aren't already one click
-          away with more detail on their own module page: Employees/
-          Interns/Trainees/Departments/Active Projects/Total Expenses live
-          only on Employees, Interns, Trainees, Departments, Projects and
-          Expenses respectively; Pending Internship Approvals/Offer
-          Letters/Certificates live on the Intern Document Review page;
-          Tasks Not Allocated now lives on the Tasks page; Upcoming
-          Workshops/Workshop Follow-ups moved to the Workshops page; Active
-          MOUs/MOUs Expiring Soon moved to the MOUs page. */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+        <KpiCard label="Employees" value={headcount.totalEmployees} icon={Users} accent="primary" />
+        <KpiCard label="Interns" value={headcount.totalInterns} icon={GraduationCap} accent="info" />
+        <KpiCard label="Trainees" value={headcount.totalTrainees} icon={BookOpen} accent="purple" />
+        <KpiCard label="Departments" value={headcount.totalDepartments} icon={Building2} accent="muted" />
+        <KpiCard label="Projects" value={projects.totalProjects} icon={FolderKanban} accent="info" />
         <KpiCard label="Active Users" value={headcount.activeUsers} icon={UserCheck} accent="success" />
-        <KpiCard
-          label="Pending Approvals"
-          value={pendingApprovals.timesheets + pendingApprovals.workUpdates}
-          hint={`${pendingApprovals.timesheets} timesheets · ${pendingApprovals.workUpdates} updates`}
-          icon={ClipboardCheck}
-          accent="warning"
-        />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      {/* Three distinct chart forms, each suited to what it's actually
+          showing: a trend over time (area), a status split of one whole
+          (donut), and a short ranked list of named categories (horizontal
+          bars) — deliberately not the same chart shape twice. */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Attendance — Last 30 Days</CardTitle>
+          </CardHeader>
+          <CardContent className="pb-5">
+            {attendanceTrendData.length > 0 ? (
+              <AreaChart data={attendanceTrendData} dataKey="present" nameKey="date" />
+            ) : (
+              <p className="py-16 text-center text-sm text-muted-foreground">No attendance recorded yet.</p>
+            )}
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader>
             <CardTitle>Tasks by Status</CardTitle>
           </CardHeader>
           <CardContent className="pb-5">
-            <BarChart data={taskChartData} dataKey="count" nameKey="name" />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Attendance — Last 30 Days</CardTitle>
-          </CardHeader>
-          <CardContent className="pb-5">
-            <PieChart data={attendanceChartData} dataKey="count" nameKey="status" />
+            <PieChart data={taskChartData} dataKey="count" nameKey="name" height={240} />
           </CardContent>
         </Card>
       </div>
@@ -147,33 +123,39 @@ export default function SuperAdminDashboard() {
           </CardHeader>
           <CardContent className="pb-5">
             {categoryChartData.length > 0 ? (
-              <PieChart data={categoryChartData} dataKey="count" nameKey="status" />
+              <HorizontalBarChart data={categoryChartData} dataKey="count" nameKey="status" height={categoryChartData.length * 56 + 40} />
             ) : (
               <p className="py-16 text-center text-sm text-muted-foreground">No internship enrollments yet.</p>
             )}
           </CardContent>
         </Card>
-        <ActivityList
-          title="Recent Audit Log"
-          items={auditActivity}
-          emptyMessage="No internship lifecycle activity yet."
-        />
+        <AuditLogTimeline items={auditActivity} emptyMessage="No internship lifecycle activity yet." />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <ActivityList
-            title="Needs Attention"
-            items={activity}
-            emptyMessage="No pending approvals right now."
-            viewAllTo="/timesheets"
-          />
-        </div>
-        <div className="space-y-4">
-          <QuickActions actions={QUICK_ACTIONS} />
-          <InsightsPanel insights={superAdminInsights(overview)} />
-        </div>
-      </div>
+      {/* Compact action cards, not the shared list-style QuickActions —
+          each its own bordered tile with an icon chip, arranged in a
+          responsive grid rather than a stacked list of rows. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Quick Actions</CardTitle>
+        </CardHeader>
+        <CardContent className="pb-5">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {QUICK_ACTIONS.map((action) => (
+              <Link
+                key={action.to}
+                to={action.to}
+                className="group flex flex-col items-center gap-2.5 rounded-xl border border-border bg-card px-3 py-5 text-center transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+              >
+                <span className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+                  <action.icon className="size-5" />
+                </span>
+                <span className="text-sm font-medium text-foreground">{action.label}</span>
+              </Link>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

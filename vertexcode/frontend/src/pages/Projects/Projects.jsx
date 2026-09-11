@@ -11,11 +11,6 @@ import TableActions from '../../components/common/TableActions';
 import StatCard from '../../components/common/StatCard';
 import toast from 'react-hot-toast';
 
-const VIEW_TABS = [
-  { value: 'active', label: 'Active' },
-  { value: 'all', label: 'All' },
-  { value: 'trash', label: '🗑️ Trash' },
-];
 const STATUS_OPTIONS = ['PLANNED', 'ACTIVE', 'ON_HOLD', 'COMPLETED', 'CANCELLED'];
 // List-view status filter — deliberately only the four statuses called out
 // as useful for browsing (CANCELLED is a real, settable status via
@@ -36,8 +31,10 @@ export default function Projects() {
   const isSuperAdmin = user.role === 'SUPER_ADMIN';
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [viewTab, setViewTab] = useState('active');
+  const [viewTab, setViewTab] = useState('all');
   const [statusFilter, setStatusFilter] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('');
+  const [priorities, setPriorities] = useState([]);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [summary, setSummary] = useState({ total: 0, active: 0, completed: 0, trash: 0 });
@@ -57,18 +54,21 @@ export default function Projects() {
           // Status filtering is completely separate from Trash — never sent
           // while browsing Trash, so it can't narrow/hide trashed rows.
           status: viewTab === 'trash' ? undefined : (statusFilter || undefined),
+          priority: viewTab === 'trash' ? undefined : (priorityFilter || undefined),
           search: debouncedSearch || undefined,
         },
       }),
       api.get('/projects/summary'),
+      api.get('/masters/task-priorities'),
     ])
-      .then(([p, s]) => {
+      .then(([p, s, pr]) => {
         if (p.status === 'fulfilled') {
           setProjects(p.value.data.data);
           setSelectedIds(new Set());
         }
         if (s.status === 'fulfilled') setSummary(s.value.data.data);
-        const failed = [p, s].find((r) => r.status === 'rejected');
+        if (pr.status === 'fulfilled') setPriorities(pr.value.data.data.filter((item) => item.active));
+        const failed = [p, s, pr].find((r) => r.status === 'rejected');
         if (failed) toast.error(failed.reason?.response?.data?.message || 'Some project data failed to load');
       })
       .finally(() => setLoading(false));
@@ -77,7 +77,7 @@ export default function Projects() {
     const id = setTimeout(() => setDebouncedSearch(search), 400);
     return () => clearTimeout(id);
   }, [search]);
-  useEffect(load, [viewTab, statusFilter, debouncedSearch]);
+  useEffect(load, [viewTab, statusFilter, priorityFilter, debouncedSearch]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -264,28 +264,34 @@ export default function Projects() {
         <StatCard label="Trash" value={summary.trash} accent="red" icon={Trash2} />
       </div>
 
-      <div className="tabs">
-        {VIEW_TABS.map((t) => (
-          <button key={t.value} className={`tab ${viewTab === t.value ? 'active' : ''}`} onClick={() => setViewTab(t.value)}>
-            {t.value === 'trash' ? (<>{t.label}{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}</>) : t.label}
-          </button>
-        ))}
-      </div>
-
       <div className="toolbar">
-        <span className="search-input-wrap">
-          <Search size={16} strokeWidth={2.5} />
-          <input className="search-input" placeholder="Search by name or description..." value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search projects" />
-        </span>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          disabled={viewTab === 'trash'}
-          title={viewTab === 'trash' ? 'Status filter does not apply to Trash' : undefined}
-          aria-label="Filter by status"
-        >
-          {STATUS_FILTER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
+        <button className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab(viewTab === 'trash' ? 'all' : 'trash')}>
+          🗑️ Trash{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}
+        </button>
+        <div className="toolbar-actions">
+          <span className="search-input-wrap">
+            <Search size={16} strokeWidth={2.5} />
+            <input className="search-input" placeholder="Search by name or description..." value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search projects" />
+          </span>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            disabled={viewTab === 'trash'}
+            title={viewTab === 'trash' ? 'Status filter does not apply to Trash' : undefined}
+            aria-label="Filter by status"
+          >
+            {STATUS_FILTER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <select
+            value={priorityFilter}
+            onChange={(e) => setPriorityFilter(e.target.value)}
+            disabled={viewTab === 'trash'}
+            aria-label="Filter by task priority"
+          >
+            <option value="">All Task Priorities</option>
+            {priorities.map((priority) => <option key={priority.code} value={priority.code}>{priority.label}</option>)}
+          </select>
+        </div>
       </div>
 
       {isSuperAdmin && viewTab !== 'trash' && selectedIds.size > 0 && (

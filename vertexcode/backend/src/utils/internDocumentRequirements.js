@@ -1,6 +1,6 @@
 // A requirement "slot" is satisfied if ANY of its listed document types is
-// VERIFIED. Bonafide Certificate and College ID Card are each independently
-// mandatory. Permission Letter and Resume are intentionally NOT listed here —
+// VERIFIED. Only the Bonafide Certificate is mandatory. College ID Card,
+// Permission Letter and Resume are intentionally NOT listed here —
 // both remain valid, uploadable document types (see SINGLE_TYPES in
 // document.controller.js), just never required for final approval. Every
 // place that needs to know "has this intern cleared document review"
@@ -9,7 +9,6 @@
 // same module so the rule can't drift out of sync between them.
 const REQUIRED_DOC_GROUPS = [
   { key: 'bonafide', anyOf: ['BONAFIDE'], label: 'Bonafide Certificate' },
-  { key: 'collegeId', anyOf: ['COLLEGE_ID'], label: 'College ID Card' },
 ];
 
 const REQUIRED_DOC_TYPES = REQUIRED_DOC_GROUPS.flatMap((g) => g.anyOf);
@@ -31,8 +30,7 @@ function evaluateRequiredDocs(documents) {
   });
   return {
     satisfied: groups.every((g) => g.status === 'VERIFIED'),
-    // "uploaded" = every slot has at least something submitted (draft counts,
-    // matching the pre-existing submitForVerification rule for BONAFIDE/COLLEGE_ID).
+    // "uploaded" = every required slot has at least something submitted.
     uploaded: groups.every((g) => g.status !== 'MISSING'),
     anyPendingReview: groups.some((g) => g.status === 'PENDING_REVIEW'),
     groups,

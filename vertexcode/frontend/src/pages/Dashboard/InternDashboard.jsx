@@ -23,8 +23,8 @@ import { useClockWidget } from '@/pages/Dashboard/EmployeeDashboard';
 import { internInsights } from '@/lib/dashboardInsights';
 import { localDateString } from '@/lib/utils';
 
-const REQUIRED_DOC_TYPES = ['BONAFIDE', 'COLLEGE_ID'];
-const DOC_TYPE_LABELS = { BONAFIDE: 'Bonafide Certificate', COLLEGE_ID: 'College ID Card' };
+const REQUIRED_DOC_TYPES = ['BONAFIDE'];
+const DOC_TYPE_LABELS = { BONAFIDE: 'Bonafide Certificate' };
 
 const QUICK_ACTIONS = [
   { to: '/leave', label: 'Apply Leave', icon: CalendarOff },
