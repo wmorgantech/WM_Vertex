@@ -4,6 +4,7 @@ import AdminDashboard from './AdminDashboard';
 import EmployeeDashboard from './EmployeeDashboard';
 import InternDashboard from './InternDashboard';
 import TraineeDashboard from './TraineeDashboard';
+import HodStaffDashboard from './HodStaffDashboard';
 
 const DASHBOARDS = {
   SUPER_ADMIN: SuperAdminDashboard,
@@ -11,6 +12,8 @@ const DASHBOARDS = {
   EMPLOYEE: EmployeeDashboard,
   INTERN: InternDashboard,
   TRAINEE: TraineeDashboard,
+  HOD: HodStaffDashboard,
+  STAFF: HodStaffDashboard,
 };
 
 export default function Dashboard() {

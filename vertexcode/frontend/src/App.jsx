@@ -8,6 +8,8 @@ import AuthLayout from './layouts/AuthLayout';
 import DashboardLayout from './layouts/DashboardLayout';
 
 import Login from './pages/Auth/Login';
+import ForgotPassword from './pages/Auth/ForgotPassword';
+import ResetPassword from './pages/Auth/ResetPassword';
 import Dashboard from './pages/Dashboard/Dashboard';
 import EmployeeList from './pages/Employees/EmployeeList';
 import EmployeeDetail from './pages/Employees/EmployeeDetail';
@@ -80,6 +82,8 @@ export default function App() {
           <Routes>
             <Route element={<AuthLayout />}>
               <Route path="/login" element={<Login />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
             </Route>
 
             <Route element={<ProtectedRoute />}>

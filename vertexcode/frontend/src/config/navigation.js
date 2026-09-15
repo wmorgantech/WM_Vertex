@@ -179,12 +179,32 @@ const TRAINEE_GROUPS = [
   },
 ];
 
+// Minimal HOD/Staff nav — deliberately narrower than SELF_GROUPS: no
+// Enquiries/Workshops links, since those roles aren't in ENQUIRY_PAGE_ROLES
+// in App.jsx (a link to a page they'd be bounced out of is worse than no
+// link). No college/department-scoped data pages yet either — that needs a
+// real College<->User relationship that doesn't exist in the schema today
+// (see schema.prisma Role enum comment); this is the safe stub pending that.
+const HOD_STAFF_GROUPS = [
+  { label: 'Overview', items: [{ to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }] },
+  {
+    label: 'My Work',
+    items: [
+      { to: '/tasks', label: 'My Tasks', icon: ListChecks },
+      { to: '/attendance', label: 'Attendance', icon: Clock },
+      { to: '/leave', label: 'Leave', icon: CalendarOff },
+    ],
+  },
+];
+
 export const NAV_GROUPS_BY_ROLE = {
   SUPER_ADMIN: SUPER_ADMIN_GROUPS,
   ADMIN: MANAGER_GROUPS,
   EMPLOYEE: EMPLOYEE_GROUPS,
   INTERN: INTERN_GROUPS,
   TRAINEE: TRAINEE_GROUPS,
+  HOD: HOD_STAFF_GROUPS,
+  STAFF: HOD_STAFF_GROUPS,
 };
 
 // Designation that additionally grants an Employee the ability to add
