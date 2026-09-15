@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Pencil, Trash2, Eye, RotateCcw, Upload, Download, ListChecks, Clock, AlertTriangle, UserX } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye, RotateCcw, Upload, Download, ListChecks, Clock, AlertTriangle, UserX, MessageSquare, Send } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -45,6 +45,9 @@ export default function Tasks() {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('');
+  const [assigneeFilter, setAssigneeFilter] = useState('');
+  const [createdByFilter, setCreatedByFilter] = useState('');
   const [unallocatedOnly, setUnallocatedOnly] = useState(false);
   const [viewTab, setViewTab] = useState('active');
   const [page, setPage] = useState(1);
@@ -59,6 +62,37 @@ export default function Tasks() {
   const [importing, setImporting] = useState(false);
   const [importErrors, setImportErrors] = useState(null);
   const fileInputRef = useRef(null);
+  const [comments, setComments] = useState([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [newComment, setNewComment] = useState('');
+  const [postingComment, setPostingComment] = useState(false);
+
+  // Progress-update / comments log, loaded fresh each time a task is opened
+  // in the View modal. Reuses the task's own ownership rule server-side —
+  // no separate permission check needed here.
+  useEffect(() => {
+    if (!viewing) { setComments([]); setNewComment(''); return; }
+    setCommentsLoading(true);
+    api.get(`/tasks/${viewing.id}/comments`)
+      .then(({ data }) => setComments(data.data))
+      .catch(() => setComments([]))
+      .finally(() => setCommentsLoading(false));
+  }, [viewing]);
+
+  const handlePostComment = async (e) => {
+    e.preventDefault();
+    if (!newComment.trim()) return;
+    setPostingComment(true);
+    try {
+      const { data } = await api.post(`/tasks/${viewing.id}/comments`, { body: newComment.trim() });
+      setComments((prev) => [...prev, data.data]);
+      setNewComment('');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to add update');
+    } finally {
+      setPostingComment(false);
+    }
+  };
 
   useEffect(() => {
     const id = setTimeout(() => setDebouncedSearch(search), 400);
@@ -79,6 +113,9 @@ export default function Tasks() {
         params: {
           status: statusFilter || undefined,
           excludeStatus: !statusFilter && !isManager ? 'DONE' : undefined,
+          priority: isManager ? (priorityFilter || undefined) : undefined,
+          assigneeId: isManager ? (assigneeFilter || undefined) : undefined,
+          createdById: isManager ? (createdByFilter || undefined) : undefined,
           unallocated: unallocatedOnly ? 'true' : undefined,
           search: debouncedSearch || undefined,
           scope: isSuperAdmin ? viewTab : undefined,
@@ -138,8 +175,8 @@ export default function Tasks() {
       }
     }).finally(() => setLoading(false));
   };
-  useEffect(() => { setPage(1); }, [debouncedSearch, statusFilter, unallocatedOnly, viewTab]);
-  useEffect(load, [debouncedSearch, statusFilter, unallocatedOnly, viewTab, page]);
+  useEffect(() => { setPage(1); }, [debouncedSearch, statusFilter, priorityFilter, assigneeFilter, createdByFilter, unallocatedOnly, viewTab]);
+  useEffect(load, [debouncedSearch, statusFilter, priorityFilter, assigneeFilter, createdByFilter, unallocatedOnly, viewTab, page]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -308,7 +345,7 @@ export default function Tasks() {
     { key: 'project', header: 'Project', render: (r) => r.project?.name || '—' },
     { key: 'priority', header: 'Priority', render: (r) => <Badge value={r.priority} /> },
     { key: 'dueDate', header: 'Due', render: (r) => r.dueDate ? new Date(r.dueDate).toLocaleDateString() : '—' },
-    { key: 'progress', header: 'Progress', render: (r) => `${r.progress}%` },
+    ...(isManager ? [{ key: 'progress', header: 'Progress', render: (r) => `${r.progress}%` }] : []),
     {
       key: 'status', header: 'Status', render: (r) => (
         <select value={r.status} onChange={(e) => updateStatus(r.id, e.target.value)}>
@@ -399,10 +436,24 @@ export default function Tasks() {
           {statuses.map((s) => <option key={s.code} value={s.code}>{statusLabel(s)}</option>)}
         </select>
         {isManager && (
-          <label className={`filter-chip${unallocatedOnly ? ' is-active' : ''}`}>
-            <input type="checkbox" checked={unallocatedOnly} onChange={(e) => setUnallocatedOnly(e.target.checked)} />
-            Not Allocated Only
-          </label>
+          <>
+            <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)}>
+              <option value="">All priorities</option>
+              {priorities.map((p) => <option key={p.code} value={p.code}>{p.label}</option>)}
+            </select>
+            <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}>
+              <option value="">All assignees</option>
+              {users.map((u) => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+            </select>
+            <select value={createdByFilter} onChange={(e) => setCreatedByFilter(e.target.value)}>
+              <option value="">All assigned by</option>
+              {users.map((u) => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+            </select>
+            <label className={`filter-chip${unallocatedOnly ? ' is-active' : ''}`}>
+              <input type="checkbox" checked={unallocatedOnly} onChange={(e) => setUnallocatedOnly(e.target.checked)} />
+              Not Allocated Only
+            </label>
+          </>
         )}
         {isSuperAdmin && (
           <div className="toolbar-actions">
@@ -486,9 +537,41 @@ export default function Tasks() {
               <DetailField label="Project" value={viewing.project?.name} />
               <DetailField label="Type" value={viewing.type} />
               <DetailField label="Due Date" value={viewing.dueDate ? new Date(viewing.dueDate).toLocaleDateString() : null} />
-              <DetailField label="Progress" value={`${viewing.progress}%`} />
+              {isManager && <DetailField label="Progress" value={`${viewing.progress}%`} />}
               <DetailField full label="Description" value={viewing.description} />
             </div>
+
+            <div className="detail-comments">
+              <h4 className="detail-comments-title"><MessageSquare size={16} strokeWidth={2.5} /> Comments / Progress Updates</h4>
+              {commentsLoading ? (
+                <p className="empty-state" style={{ padding: '8px 0' }}>Loading...</p>
+              ) : comments.length === 0 ? (
+                <p className="empty-state" style={{ padding: '8px 0' }}>No updates yet.</p>
+              ) : (
+                <ul className="detail-comments-list">
+                  {comments.map((c) => (
+                    <li key={c.id}>
+                      <span className="detail-comments-meta">
+                        {c.author ? `${c.author.firstName} ${c.author.lastName}` : 'Unknown'} · {new Date(c.createdAt).toLocaleString()}
+                      </span>
+                      <span className="detail-comments-body">{c.body}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <form className="detail-comments-form" onSubmit={handlePostComment}>
+                <input
+                  placeholder="Add a short update — what's done or in progress..."
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  maxLength={1000}
+                />
+                <button type="submit" className="btn btn-secondary btn-sm" disabled={postingComment || !newComment.trim()}>
+                  <Send size={14} /> {postingComment ? 'Posting...' : 'Post'}
+                </button>
+              </form>
+            </div>
+
             <div className="form-actions">
               <button type="button" className="btn btn-ghost" onClick={() => setViewing(null)}>Close</button>
             </div>

@@ -19,6 +19,14 @@ const CATEGORIES_BY_ROLE = {
 // own enquiry through this narrower, appropriate subset.
 const NON_MANAGER_ALLOWED_STATUSES = ['IN_PROGRESS', 'FOLLOW_UP_REQUIRED', 'CLOSED', 'CANCELLED'];
 
+// Who is enquiring — a manager logging an external lead may set this freely;
+// a self-service submitter (EMPLOYEE/INTERN) always has it derived from
+// their own role, same identity-lock reasoning as contactName/Email/Phone
+// below. "Course Enquirer" and "Student" only apply to leads a manager logs
+// on behalf of someone without a VertexWM account of their own — there is no
+// public/unauthenticated submission route today (see enquiry.routes.js).
+const MANAGER_SUBMITTER_TYPES = ['STUDENT', 'INTERN', 'COURSE_ENQUIRER', 'EMPLOYEE', 'OTHER'];
+
 function withEnquiryFlags(e) {
   const now = new Date();
   const followUpOverdue = !!e.followUpDate && new Date(e.followUpDate) < now && !['CONVERTED', 'CLOSED', 'CANCELLED'].includes(e.status);
@@ -45,6 +53,8 @@ async function listEnquiries(req, res) {
     },
     include: {
       assignedEmployee: { select: { id: true, firstName: true, lastName: true } },
+      college: { select: { id: true, name: true } },
+      collegeDepartment: { select: { id: true, name: true } },
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -56,6 +66,8 @@ async function getEnquiry(req, res) {
     where: { id: req.params.id },
     include: {
       assignedEmployee: { select: { id: true, firstName: true, lastName: true } },
+      college: { select: { id: true, name: true } },
+      collegeDepartment: { select: { id: true, name: true } },
     },
   });
   if (!enquiry) throw new ApiError(404, 'Enquiry not found');
@@ -87,6 +99,7 @@ async function createEnquiry(req, res) {
   const {
     contactName, contactEmail, contactPhone, companyName, subject, description,
     source, category, assignedEmployeeId, status, followUpDate, nextAction, remarks,
+    submitterType, collegeId, collegeDepartmentId, courseOrProgram,
   } = req.body;
 
   const isManagerRole = ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role);
@@ -98,6 +111,9 @@ async function createEnquiry(req, res) {
   }
   if (isManagerRole) {
     if (!contactName || !contactPhone) throw new ApiError(400, 'contactName and phone are required');
+    if (submitterType !== undefined && submitterType !== null && !MANAGER_SUBMITTER_TYPES.includes(submitterType)) {
+      throw new ApiError(400, `submitterType must be one of: ${MANAGER_SUBMITTER_TYPES.join(', ')}`);
+    }
   } else if (!description) {
     throw new ApiError(400, 'description is required');
   }
@@ -110,6 +126,13 @@ async function createEnquiry(req, res) {
       companyName: isManagerRole ? companyName : null,
       subject, description, category,
       source: source || 'WEBSITE',
+      // Self-service submitters always get their type derived from their own
+      // account role — never trusted from the request body — same reasoning
+      // as contactName/Email/Phone above.
+      submitterType: isManagerRole ? (submitterType || null) : req.user.role,
+      collegeId: collegeId || null,
+      collegeDepartmentId: collegeDepartmentId || null,
+      courseOrProgram: courseOrProgram || null,
       assignedEmployeeId: isManagerRole ? (assignedEmployeeId || null) : req.user.id,
       status: status || 'NEW',
       followUpDate: followUpDate ? new Date(followUpDate) : null,
@@ -133,6 +156,7 @@ async function updateEnquiry(req, res) {
   const {
     contactName, contactEmail, contactPhone, companyName, subject, description,
     source, category, assignedEmployeeId, status, followUpDate, nextAction, remarks,
+    submitterType, collegeId, collegeDepartmentId, courseOrProgram,
   } = req.body;
 
   if (category !== undefined && category !== null) {
@@ -140,6 +164,9 @@ async function updateEnquiry(req, res) {
     if (!allowedCategories.includes(category)) {
       throw new ApiError(400, `category must be one of: ${allowedCategories.join(', ')}`);
     }
+  }
+  if (isManagerRole && submitterType !== undefined && submitterType !== null && !MANAGER_SUBMITTER_TYPES.includes(submitterType)) {
+    throw new ApiError(400, `submitterType must be one of: ${MANAGER_SUBMITTER_TYPES.join(', ')}`);
   }
   // A non-manager may only move their own enquiry through the appropriate
   // internal-workflow statuses — the Business Development pipeline stages
@@ -163,6 +190,10 @@ async function updateEnquiry(req, res) {
       ...(subject !== undefined && { subject }),
       ...(description !== undefined && { description }),
       ...(category !== undefined && { category }),
+      ...(isManagerRole && submitterType !== undefined && { submitterType: submitterType || null }),
+      ...(collegeId !== undefined && { collegeId: collegeId || null }),
+      ...(collegeDepartmentId !== undefined && { collegeDepartmentId: collegeDepartmentId || null }),
+      ...(courseOrProgram !== undefined && { courseOrProgram: courseOrProgram || null }),
       // Reassigning to a different employee is a manager-only action.
       ...(isManagerRole && assignedEmployeeId !== undefined && { assignedEmployeeId: assignedEmployeeId || null }),
       ...(status !== undefined && { status }),

@@ -276,4 +276,66 @@ router.delete('/:id', isSuperAdmin, ctrl.deleteTask);
  */
 router.post('/:id/restore', isSuperAdmin, ctrl.restoreTask);
 
+/**
+ * @swagger
+ * /tasks/{id}/comments:
+ *   get:
+ *     tags: [Tasks]
+ *     summary: List progress updates/comments on a task (assignee, creator, or manager)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       403:
+ *         description: Forbidden
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       404:
+ *         description: Not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *   post:
+ *     tags: [Tasks]
+ *     summary: Add a progress update/comment to a task (assignee, creator, or manager)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [body]
+ *             properties:
+ *               body: { type: string }
+ *     responses:
+ *       201:
+ *         description: Created
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ *       403:
+ *         description: Forbidden
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
+ */
+router.get('/:id/comments', ctrl.listTaskComments);
+router.post('/:id/comments', ctrl.createTaskComment);
+
 module.exports = router;

@@ -41,7 +41,7 @@ const PAGE_SIZE = 25;
 // Interns and Trainees have their own dedicated modules. Sent as the
 // baseline `role` filter (backend accepts a comma-separated list) so
 // exclusion happens server-side and pagination totals stay correct.
-const EMPLOYEE_ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'];
+const EMPLOYEE_ROLES = ['EMPLOYEE', 'HOD', 'STAFF', 'ADMIN', 'SUPER_ADMIN'];
 
 // Role filter options — each resolves to the exact comma-separated `role`
 // list already supported by GET /users (role.split(',') -> {in: [...]}), so
@@ -50,6 +50,8 @@ const EMPLOYEE_ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'];
 // role filter never accidentally hides Super Admin accounts.
 const ROLE_FILTER_OPTIONS = [
   { value: 'EMPLOYEE', label: 'Employee', roles: ['EMPLOYEE', 'SUPER_ADMIN'] },
+  { value: 'HOD', label: 'HOD', roles: ['HOD', 'SUPER_ADMIN'] },
+  { value: 'STAFF', label: 'Staff', roles: ['STAFF', 'SUPER_ADMIN'] },
   { value: 'ADMIN', label: 'Admin', roles: ['ADMIN', 'SUPER_ADMIN'] },
   { value: 'SUPER_ADMIN', label: 'Super Admin', roles: ['SUPER_ADMIN'] },
   { value: 'ALL', label: 'All', roles: EMPLOYEE_ROLES },
@@ -664,6 +666,8 @@ export default function EmployeeList() {
             <label>Role
               <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
                 <option value="EMPLOYEE">Employee</option>
+                <option value="HOD">HOD</option>
+                <option value="STAFF">Staff</option>
                 {isSuperAdmin && <option value="ADMIN">Admin</option>}
               </select>
             </label>
@@ -755,6 +759,8 @@ export default function EmployeeList() {
                 disabled={!isSuperAdmin && (editingUser.role === 'SUPER_ADMIN' || editForm.role === 'SUPER_ADMIN')}
               >
                 <option value="EMPLOYEE">Employee</option>
+                <option value="HOD">HOD</option>
+                <option value="STAFF">Staff</option>
                 {/* Always rendered so the select shows correctly when this
                     is already the target's role; disabled as a *new*
                     choice for non-Super-Admins — matches the backend's

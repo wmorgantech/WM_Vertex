@@ -16,7 +16,7 @@ function scopeWhere(scope) {
 }
 
 async function listTasks(req, res) {
-  const { status, excludeStatus, priority, type, projectId, assigneeId, unallocated, dueBefore, dueAfter, search, scope, page, limit } = req.query;
+  const { status, excludeStatus, priority, type, projectId, assigneeId, createdById, unallocated, dueBefore, dueAfter, search, scope, page, limit } = req.query;
   const isManagerRole = ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role);
 
   const where = {
@@ -30,6 +30,8 @@ async function listTasks(req, res) {
     ...(type && { type }),
     ...(projectId && { projectId }),
     ...(assigneeId && isManagerRole && { assigneeId }),
+    // "Assigned By" filter — manager-only, mirrors the assigneeId pattern above.
+    ...(createdById && isManagerRole && { createdById }),
     ...(unallocated === 'true' && isManagerRole && { assigneeId: null }),
     ...(!isManagerRole && { assigneeId: req.user.id }),
     ...((dueBefore || dueAfter) && {
@@ -171,6 +173,43 @@ async function updateTask(req, res) {
   return sendSuccess(res, 200, updated);
 }
 
+// A task's assignee, its creator, or a manager may read/post progress
+// updates — same ownership rule updateTask already uses for edits.
+async function canAccessTaskComments(req, task) {
+  const isManagerRole = ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role);
+  return isManagerRole || req.user.id === task.assigneeId || req.user.id === task.createdById;
+}
+
+// GET /api/tasks/:id/comments — progress updates / comments log for one task.
+async function listTaskComments(req, res) {
+  const task = await prisma.task.findUnique({ where: { id: req.params.id } });
+  if (!task) throw new ApiError(404, 'Task not found');
+  if (!(await canAccessTaskComments(req, task))) throw new ApiError(403, 'Not authorized to view this task');
+
+  const comments = await prisma.taskComment.findMany({
+    where: { taskId: req.params.id },
+    include: { author: { select: { id: true, firstName: true, lastName: true } } },
+    orderBy: { createdAt: 'asc' },
+  });
+  return sendSuccess(res, 200, comments);
+}
+
+// POST /api/tasks/:id/comments — add a short progress update/comment.
+async function createTaskComment(req, res) {
+  const task = await prisma.task.findUnique({ where: { id: req.params.id } });
+  if (!task) throw new ApiError(404, 'Task not found');
+  if (!(await canAccessTaskComments(req, task))) throw new ApiError(403, 'Not authorized to update this task');
+
+  const { body } = req.body;
+  if (!body || !body.trim()) throw new ApiError(400, 'body is required');
+
+  const comment = await prisma.taskComment.create({
+    data: { taskId: req.params.id, authorId: req.user.id, body: body.trim() },
+    include: { author: { select: { id: true, firstName: true, lastName: true } } },
+  });
+  return sendSuccess(res, 201, comment);
+}
+
 // DELETE /api/tasks/:id — Super Admin only, soft delete. Previously a hard
 // delete; Timesheets reference tasks (Timesheet.taskId, no onDelete
 // specified), so a hard delete of a task with existing timesheets would
@@ -300,4 +339,4 @@ async function importTasks(req, res) {
   return sendSuccess(res, 201, { imported: created.length, message: `${created.length} task(s) imported.` });
 }
 
-module.exports = { listTasks, getTask, createTask, updateTask, deleteTask, restoreTask, importTasks };
+module.exports = { listTasks, getTask, createTask, updateTask, deleteTask, restoreTask, importTasks, listTaskComments, createTaskComment };
