@@ -287,6 +287,20 @@ input, select, textarea { font-family: inherit; }
 }
 .detail-section + .detail-section { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
 
+/* Task "Comments / Progress Updates" — a short log inside the View modal. */
+.detail-comments { padding-top: 14px; border-top: 1px solid var(--border); }
+.detail-comments-title {
+  display: flex; align-items: center; gap: 6px;
+  margin: 0 0 10px; font-size: 12px; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
+}
+.detail-comments-list { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 10px; max-height: 220px; overflow-y: auto; }
+.detail-comments-list li { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: var(--bg-subtle, #f8f7fc); border-radius: 8px; }
+.detail-comments-meta { font-size: 11px; color: var(--text-muted); }
+.detail-comments-body { font-size: 13px; color: var(--text); }
+.detail-comments-form { display: flex; gap: 8px; }
+.detail-comments-form input { flex: 1; }
+
 /* --- Permission Management: role context header + one card per module --- */
 .permission-role-header {
   display: flex;
@@ -736,23 +750,6 @@ input, select, textarea { font-family: inherit; }
    space and Tab moves cleanly from one day straight into the next. */
 .timesheet-grid th, .timesheet-grid td { padding: 6px 8px; }
 
-/* "Work Assignment" super-header groups Position+Project under one label,
-   like a spreadsheet's grouped columns — reads as one unit, not two
-   unrelated fields, without merging them into a single wide cell. */
-.timesheet-grid tr.col-super-row th {
-  position: static; /* never sticky — only the field-label row beneath is */
-  padding: 5px 8px 4px;
-  border-bottom: none;
-  background: var(--surface);
-}
-.timesheet-grid .col-super-label {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-}
-
 /* Position/Project read as one logical work assignment: a single divider
    after Project, none between the two, groups them visually as a pair
    distinct from the day-hours block. Long values ellipsize instead of
@@ -904,6 +901,21 @@ input, select, textarea { font-family: inherit; }
 }
 .ts-month-cal-cell:last-child { border-right: none; }
 .ts-month-cal-blank { background: #fbfbfc; }
+/* Calendar cells are real <button>s (click a date to view that day's
+   entries) — reset the browser's default button chrome back to looking
+   like the plain cell it was, then add a subtle hover/focus treatment. */
+.ts-month-cal-clickable {
+  background: none;
+  border-top: 0;
+  border-left: 0;
+  border-bottom: 0;
+  font: inherit;
+  width: 100%;
+  cursor: pointer;
+  transition: background-color 0.12s;
+}
+.ts-month-cal-clickable:hover { background: var(--bg); }
+.ts-month-cal-clickable:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 .ts-month-cal-date { font-size: 13px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
 .ts-month-cal-hours { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .ts-month-cal-nonworking .ts-month-cal-date,
@@ -943,18 +955,50 @@ input, select, textarea { font-family: inherit; }
 .ts-legend-leave { background: var(--amber); }
 .ts-legend-weekend { background: #d1d5db; }
 
-/* Assignment Summary's grand total — a plain right-aligned line, not
-   another table row, so it doesn't get mistaken for one more assignment. */
-.ts-breakdown-total {
+/* Leave Summary — a compact row of type/day-count pairs, not a table (only
+   ever as many items as there are active leave types). */
+.ts-leave-summary { display: flex; flex-wrap: wrap; gap: 10px; }
+.ts-leave-summary-item {
   display: flex;
-  justify-content: flex-end;
-  align-items: baseline;
-  gap: 12px;
-  padding: 10px 4px 0;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
   font-size: 13px;
-  color: var(--text-muted);
 }
-.ts-breakdown-total strong { font-size: 15px; color: var(--text); font-variant-numeric: tabular-nums; }
+.ts-leave-summary-label { color: var(--text-muted); }
+.ts-leave-summary-value { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* Weekly Status — one compact row per week: period, status badge, View.
+   Replaces the old Expected/Actual/Difference table columns, which just
+   restated numbers already visible in the calendar/KPIs above. */
+.ts-week-status-list { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.ts-week-status-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--surface);
+}
+.ts-week-status-row + .ts-week-status-row { border-top: 1px solid var(--border); }
+.ts-week-status-period { flex: 1; font-size: 13px; color: var(--text); }
+
+/* Day-detail modal (Monthly calendar → click a date) — a compact list of
+   that date's entries, not a full table (only ever a handful of rows). */
+.ts-day-entry-list { margin: 0; padding: 0; list-style: none; }
+.ts-day-entry-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.ts-day-entry-row:last-child { border-bottom: none; padding-bottom: 0; }
+.ts-day-entry-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--text); }
+.ts-day-entry-meta { display: flex; align-items: center; gap: 8px; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap; }
 
 /* Row actions stay visually secondary — dimmed until the row is hovered,
    so the hour-entry area (not the delete icon) leads the eye. */
@@ -997,31 +1041,21 @@ input, select, textarea { font-family: inherit; }
 }
 .ts-edit-banner strong { font-weight: 700; }
 .ts-edit-banner span { color: #b45309; }
-.ts-reject-banner {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  flex-wrap: wrap;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  color: #991b1b;
-  border-radius: 8px;
-  padding: 9px 14px;
-  font-size: 12.5px;
-  margin-bottom: 14px;
-}
-.ts-reject-banner strong { font-weight: 700; }
 
-/* Locked (submitted/approved) footer row — status text plus, for an
-   approved week, a secondary Edit action sitting right alongside it. */
-.ts-locked-row {
+/* Weekly Submission Status — one line below the table: a plain "Status"
+   label, the status Badge, and (when rejected) the reason inline. Replaces
+   a full status badge in the page header plus a redundant "This week has
+   been approved/submitted" sentence in the footer. */
+.ts-status-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
-  margin-top: 20px;
+  margin: 16px 0 0;
+  font-size: 13px;
 }
+.ts-status-label { color: var(--text-muted); }
+.ts-status-reason { color: #991b1b; }
 
 /* --- Badge --- */
 .badge {
