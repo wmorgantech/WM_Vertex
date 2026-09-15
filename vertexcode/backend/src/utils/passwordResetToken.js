@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 
-const TOKEN_TTL_MINUTES = 60;
+const TOKEN_TTL_MINUTES = 30;
 
 // The raw token (high-entropy, 256 bits) is what gets emailed to the user
 // and is never persisted. Only its SHA-256 hash is stored, so a compromised

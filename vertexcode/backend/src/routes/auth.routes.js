@@ -167,7 +167,7 @@ router.get('/me', authenticate, ctrl.me);
  *       email belongs to an account, and never sends anything for a
  *       TERMINATED or SUSPENDED account — this prevents an attacker from
  *       using this endpoint to discover which emails are registered.
- *       If eligible, emails a single-use reset link (valid 60 minutes) via
+ *       If eligible, emails a single-use reset link (valid 30 minutes) via
  *       the app's existing SMTP configuration. Requesting a new reset
  *       invalidates any previous unused reset token for the same account.
  *       Subject to the global API rate limit.
@@ -216,7 +216,7 @@ router.post('/forgot-password', forgotPasswordValidators, validate, ctrl.forgotP
  *     tags: [Auth]
  *     summary: Reset a password using a token from the forgot-password email
  *     description: >
- *       The token is single-use and expires 60 minutes after it was issued;
+ *       The token is single-use and expires 30 minutes after it was issued;
  *       both an expired and an already-used token are rejected with the same
  *       generic 400 (no distinction is revealed). On success, clears any
  *       pending mustChangePassword flag (the same rule self-service password

@@ -94,7 +94,7 @@ async function me(req, res) {
 // sending anything for TERMINATED/SUSPENDED accounts, matching login()'s own
 // status rule, without ever revealing that distinction in the response.
 async function forgotPassword(req, res) {
-  const { email } = req.body;
+  const email = req.body.email?.trim().toLowerCase();
   if (!email) throw new ApiError(400, 'Email is required');
 
   const genericResponse = { message: 'If an account with that email exists, a password reset link has been sent.' };
@@ -111,20 +111,24 @@ async function forgotPassword(req, res) {
   });
 
   const { token, tokenHash, expiresAt } = generateResetToken();
-  await prisma.passwordResetToken.create({
+  const resetToken = await prisma.passwordResetToken.create({
     data: { userId: user.id, tokenHash, expiresAt },
   });
 
-  const resetLink = `${process.env.APP_URL}/reset-password?token=${token}`;
-  await sendMail({
+  const appUrl = process.env.APP_URL?.replace(/\/+$/, '');
+  const sent = appUrl && await sendMail({
     to: user.email,
     subject: 'Reset your VertexWM password',
     html: renderEmailTemplate('passwordReset.html', {
       firstName: user.firstName,
-      resetLink,
-      expiresInMinutes: 60,
+      resetLink: `${appUrl}/reset-password?token=${encodeURIComponent(token)}`,
+      expiresInMinutes: 30,
     }),
   });
+
+  if (!sent) {
+    await prisma.passwordResetToken.delete({ where: { id: resetToken.id } });
+  }
 
   return sendSuccess(res, 200, genericResponse);
 }
@@ -148,23 +152,27 @@ async function resetPassword(req, res) {
 
   const hashed = await bcrypt.hash(password, 10);
 
-  await prisma.$transaction([
-    prisma.user.update({
+  await prisma.$transaction(async (tx) => {
+    // Claim the token inside the transaction so concurrent requests cannot
+    // both use the same valid token.
+    const claimed = await tx.passwordResetToken.updateMany({
+      where: { id: resetToken.id, used: false, expiresAt: { gt: new Date() } },
+      data: { used: true },
+    });
+    if (claimed.count !== 1) throw new ApiError(400, 'Invalid or expired reset token');
+
+    await tx.user.update({
       where: { id: user.id },
       data: { password: hashed, mustChangePassword: false },
-    }),
-    prisma.passwordResetToken.update({
-      where: { id: resetToken.id },
-      data: { used: true },
-    }),
+    });
     // A password reset is a recovery action for a potentially compromised
     // account — any existing sessions (refresh tokens) issued under the old
     // password should not silently continue to work.
-    prisma.refreshToken.updateMany({
+    await tx.refreshToken.updateMany({
       where: { userId: user.id, revoked: false },
       data: { revoked: true },
-    }),
-  ]);
+    });
+  });
 
   return sendSuccess(res, 200, { message: 'Password has been reset successfully. Please log in with your new password.' });
 }

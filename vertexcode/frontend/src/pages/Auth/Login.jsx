@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, Eye, EyeOff, Loader2, TriangleAlert } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import wmMark from '../../assets/wmorgan-mark.png';
@@ -128,6 +128,14 @@ export default function Login() {
               >
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
+            </div>
+            <div className="flex justify-end">
+              <Link
+                to="/forgot-password"
+                className="text-xs font-medium text-primary transition-colors hover:text-primary/80"
+              >
+                Forgot Password?
+              </Link>
             </div>
           </div>
 
