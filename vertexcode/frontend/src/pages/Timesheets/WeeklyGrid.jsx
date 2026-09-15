@@ -7,13 +7,13 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { toIsoDate, parseIsoDate, mondayOf, addDays, weekDays, formatWeekRange, dayLabel, TIMESHEET_STATUS_LABELS } from './weekUtils';
 
-function rowKey(position, projectId) {
-  return `${position || 'none'}::${projectId || 'none'}`;
+function rowKey(position) {
+  return position || 'none';
 }
 
-// Stable React key per grid row, independent of Position/Project — a row's
-// identity must survive the user changing either dropdown in place, so it
-// can't be derived from rowKey() (see setRowField).
+// Stable React key per grid row, independent of Position — a row's
+// identity must survive the user changing the dropdown in place, so it
+// can't be derived from rowKey() (see setPosition).
 let rowKeySeq = 0;
 function genRowKey() {
   rowKeySeq += 1;
@@ -25,20 +25,19 @@ function clampHours(n) {
 }
 
 // Groups the flat Timesheet rows returned by /timesheets/summary into grid
-// rows keyed by (Position, Project) — one row = one Position/Project
-// allocation, with a daily hour cell per day. Task is legacy only (kept on
-// the model for historical records — see timesheet.controller.js) and has
-// no column in this UI.
+// rows keyed by Position — one row = one Position, with a daily hour cell
+// per day. Project/Task are legacy-only on the model (kept for historical
+// records — see timesheet.controller.js) and have no column in this UI;
+// an entry that happens to carry a projectId from before keeps it
+// untouched server-side, this view just doesn't show or edit it.
 function buildRowsFromEntries(entries) {
   const map = new Map();
   for (const e of entries) {
-    const key = rowKey(e.position, e.projectId);
+    const key = rowKey(e.position);
     if (!map.has(key)) {
       map.set(key, {
         key: genRowKey(),
         position: e.position || null,
-        projectId: e.projectId || null,
-        projectName: e.project?.name || '',
         description: e.description || '',
         cells: {},
       });
@@ -112,8 +111,6 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [positions, setPositions] = useState([]);
-  const [projects, setProjects] = useState([]);
-  const [editingRowKey, setEditingRowKey] = useState(null);
   // Editing an already-APPROVED week is a distinct, explicit mode the owner
   // opts into via the Edit button — never a side effect of the row/status
   // being editable in the DB sense. It never touches the persisted status by
@@ -141,7 +138,6 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
         setSummary(data.data);
         setRows(buildRowsFromEntries(data.data.entries));
         setEditingApproved(false); // a fresh fetch always reflects the true persisted state
-        setEditingRowKey(null);
       })
       .finally(() => setLoading(false));
   };
@@ -149,10 +145,9 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
 
   // Position dropdown is sourced from the existing Designation master —
   // same one Super Admin manages under Configuration → Master Data — not a
-  // new master table. Project reuses the existing Projects list/API.
+  // new master table.
   useEffect(() => {
     api.get('/masters/designations').then(({ data }) => setPositions(data.data.filter((d) => d.active)));
-    api.get('/projects').then(({ data }) => setProjects(data.data));
   }, []);
 
   // Explicitly re-opening an APPROVED week (editingApproved) is the one
@@ -161,10 +156,12 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
   const canEditApproved = !readOnly && summary?.status === 'APPROVED';
   const locked = (readOnly || ['SUBMITTED', 'APPROVED'].includes(summary?.status)) && !(canEditApproved && editingApproved);
   const isCurrentWeek = toIsoDate(monday) === toIsoDate(mondayOf(new Date()));
-  // Editing an approved week is scoped to correcting existing rows' hours/
-  // position/project — adding or removing whole rows stays unavailable in
-  // that mode, so the Actions column (and its colSpan) hides along with it.
-  const showActionsColumn = !readOnly && (!locked || (canEditApproved && !editingApproved));
+  // No dedicated "Actions" column — just a slim, unlabeled trailing column
+  // holding the delete icon. Excluded during editingApproved same as the
+  // "Add Assignment" button below: correcting an approved week is scoped
+  // to adjusting existing rows' hours/position/project, not adding or
+  // removing whole rows.
+  const canDeleteRows = !readOnly && !locked && !editingApproved;
 
   const liveDayTotals = useMemo(() => {
     const totals = {};
@@ -199,38 +196,29 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
     setCell(rIdx, iso, Number.isNaN(n) ? '' : clampHours(n).toFixed(2));
   };
 
-  // Backs the Position/Project dropdowns. A row is identified for saving
-  // purposes by (Position, Project) — see buildRowsFromEntries — so
-  // changing either on an existing row must be blocked if it would collide
-  // with another row already using that same pair this week (they'd
-  // silently merge into one row on the next reload otherwise).
-  const setRowField = (idx, field, rawValue) => {
+  // Backs the Position dropdown. A row is identified for saving purposes by
+  // Position — see buildRowsFromEntries — so changing it on an existing row
+  // must be blocked if it would collide with another row already using
+  // that Position this week (they'd silently merge into one row on the
+  // next reload otherwise).
+  const setPosition = (idx, rawValue) => {
     const value = rawValue || null;
     setRows((prev) => {
-      const current = prev[idx];
-      const nextPosition = field === 'position' ? value : current.position;
-      const nextProjectId = field === 'projectId' ? value : current.projectId;
-      const newKey = rowKey(nextPosition, nextProjectId);
-      const collides = prev.some((r, i) => i !== idx && rowKey(r.position, r.projectId) === newKey);
+      const newKey = rowKey(value);
+      const collides = prev.some((r, i) => i !== idx && rowKey(r.position) === newKey);
       if (collides) {
-        toast.error('A row for this Position/Project combination already exists this week');
+        toast.error('A row for this Position already exists this week');
         return prev;
       }
-      const project = projects.find((p) => p.id === nextProjectId);
       const next = [...prev];
-      next[idx] = {
-        ...current,
-        position: nextPosition,
-        projectId: nextProjectId,
-        projectName: nextProjectId ? (project?.name || current.projectName) : '',
-      };
+      next[idx] = { ...prev[idx], position: value };
       return next;
     });
   };
 
   const removeRow = async (rIdx) => {
     const row = rows[rIdx];
-    const label = [row.position, row.projectName].filter(Boolean).join(' — ') || 'unassigned';
+    const label = row.position || 'unassigned';
     if (!window.confirm(`Remove all "${label}" entries for this week?`)) return;
     const idsToDelete = Object.values(row.cells).map((c) => c.id).filter(Boolean);
     try {
@@ -249,25 +237,23 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
   // Only one blank row is ever allowed at a time, so two never silently
   // merge into one on the next reload (see buildRowsFromEntries).
   const addRow = () => {
-    const existingKeys = new Set(rows.map((r) => rowKey(r.position, r.projectId)));
+    const existingKeys = new Set(rows.map((r) => rowKey(r.position)));
     const ownPosition = authUser.designation;
-    const defaultPosition = ownPosition && !existingKeys.has(rowKey(ownPosition, null)) ? ownPosition : null;
-    if (existingKeys.has(rowKey(defaultPosition, null))) {
-      toast.error('An unassigned row already exists — set its position/project before adding another');
+    const defaultPosition = ownPosition && !existingKeys.has(rowKey(ownPosition)) ? ownPosition : null;
+    if (existingKeys.has(rowKey(defaultPosition))) {
+      toast.error('An unassigned row already exists — set its position before adding another');
       return;
     }
-    setRows((prev) => [...prev, { key: genRowKey(), position: defaultPosition, projectId: null, projectName: '', description: '', cells: {} }]);
+    setRows((prev) => [...prev, { key: genRowKey(), position: defaultPosition, description: '', cells: {} }]);
   };
 
-  const editRow = (row) => {
-    if (locked && canEditApproved) setEditingApproved(true);
-    setEditingRowKey(row.key);
-  };
-
-  const rowEditable = (row) => {
-    const hasSavedEntries = Object.values(row.cells).some((cell) => cell.id);
-    return !readOnly && !locked && (!hasSavedEntries || editingApproved || editingRowKey === row.key);
-  };
+  // Direct editing for Draft/Rejected (and, once opted into via "Request
+  // Re-edit", an Approved week too) — a row's editability follows the
+  // week-level lock state alone. There is deliberately no separate
+  // per-row "click Edit first" step; that used to require re-toggling
+  // every row individually after each save, which fought normal Draft
+  // editing.
+  const rowEditable = (row) => !readOnly && !locked;
 
   const buildEntries = () => {
     const entries = [];
@@ -276,11 +262,14 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
         const cell = row.cells[iso];
         const hours = Number(cell?.hoursLogged) || 0;
         if (!cell?.id && hours <= 0) continue; // never existed, still empty — nothing to send
+        // No projectId sent — this view no longer edits it. The backend
+        // only overwrites projectId when the key is present at all, so
+        // omitting it leaves an existing entry's project untouched and a
+        // brand-new entry gets created with none.
         entries.push({
           id: cell?.id,
           date: iso,
           position: row.position,
-          projectId: row.projectId,
           hoursLogged: hours,
           description: row.description,
         });
@@ -353,7 +342,6 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
       <div className="ts-header-block">
         <div className="ts-header-row">
           <h2 className="ts-period-heading">{formatWeekRange(monday, 6)}</h2>
-          {summary && <Badge value={summary.status} label={TIMESHEET_STATUS_LABELS[summary.status]} />}
         </div>
         <div className="ts-nav-group">
           <button className="btn btn-ghost btn-icon" onClick={openDatePicker} aria-label="Pick a date">
@@ -377,18 +365,6 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
         </div>
       </div>
 
-      {summary?.status === 'REJECTED' && (() => {
-        const reasons = [...new Set(
-          summary.entries.filter((e) => e.status === 'REJECTED' && e.rejectionReason).map((e) => e.rejectionReason)
-        )];
-        if (reasons.length === 0) return null;
-        return (
-          <div className="ts-reject-banner">
-            <strong>Rejected:</strong> {reasons.join(' · ')}
-          </div>
-        );
-      })()}
-
       {canEditApproved && editingApproved && (
         <div className="ts-edit-banner">
           <strong>Editing an approved timesheet</strong>
@@ -401,7 +377,6 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
         return (
           <SummaryCards items={[
             { label: 'Expected', value: `${summary.expectedHours.toFixed(2)}h`, icon: Clock, accent: 'blue' },
-            { label: 'Actual', value: `${weekTotal.toFixed(2)}h`, icon: CheckCircle2, accent: 'blue' },
             {
               label: 'Difference',
               value: `${diff > 0 ? '+' : ''}${diff.toFixed(2)}h`,
@@ -416,7 +391,7 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
       {!locked && !editingApproved && (
         <div style={{ marginBottom: 12 }}>
           <button className="btn btn-secondary" onClick={addRow}>
-            <Plus size={14} /> Add New Row
+            <Plus size={14} /> Add Assignment
           </button>
         </div>
       )}
@@ -424,13 +399,8 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
       <div className="table-wrap sticky-header timesheet-grid">
         <table className="data-table">
           <thead>
-            <tr className="col-super-row">
-              <th colSpan={2} className="col-super-label">Work Assignment</th>
-              <th colSpan={dayIsos.length + 1 + (showActionsColumn ? 1 : 0)}></th>
-            </tr>
             <tr>
-              <th className="col-sticky col-group-end" style={{ minWidth: 165 }}>Role / Position</th>
-              <th className="col-group-end" style={{ minWidth: 155 }}>Project</th>
+              <th className="col-sticky col-group-end" style={{ minWidth: 165 }}>Position</th>
               {dayIsos.map((iso) => {
                 const dow = parseIsoDate(iso).getDay();
                 const isWeekend = dow === 0 || dow === 6;
@@ -444,13 +414,13 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
                 );
               })}
               <th className="col-num col-total-head">Total</th>
-              {showActionsColumn && <th className="col-actions">Actions</th>}
+              {canDeleteRows && <th className="col-actions" aria-hidden="true"></th>}
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={showActionsColumn ? 11 : 10} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 24 }}>
+                <td colSpan={canDeleteRows ? 10 : 9} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 24 }}>
                   No entries yet this week.
                 </td>
               </tr>
@@ -462,30 +432,15 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
                   <td className="col-sticky col-group-end">
                     <select
                       disabled={!rowEditable(row)}
-                      aria-label="Role / Position"
+                      aria-label="Position"
                       title={row.position || ''}
                       value={row.position || ''}
-                      onChange={(e) => setRowField(rIdx, 'position', e.target.value)}
+                      onChange={(e) => setPosition(rIdx, e.target.value)}
                     >
                       <option value="">Select Position</option>
                       {positions.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
                       {row.position && !positions.some((p) => p.name === row.position) && (
                         <option value={row.position}>{row.position}</option>
-                      )}
-                    </select>
-                  </td>
-                  <td className="col-group-end">
-                    <select
-                      disabled={!rowEditable(row)}
-                      aria-label="Project"
-                      title={row.projectName || ''}
-                      value={row.projectId || ''}
-                      onChange={(e) => setRowField(rIdx, 'projectId', e.target.value)}
-                    >
-                      <option value="">Select Project</option>
-                      {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      {row.projectId && !projects.some((p) => p.id === row.projectId) && (
-                        <option value={row.projectId}>{row.projectName || row.projectId}</option>
                       )}
                     </select>
                   </td>
@@ -507,18 +462,11 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
                     </td>
                   ))}
                   <td className="col-num col-total-cell">{rowTotal.toFixed(2)}</td>
-                  {showActionsColumn && (
+                  {canDeleteRows && (
                     <td className="col-actions">
-                      {Object.values(row.cells).some((cell) => cell.id) && !editingApproved && (
-                        <button className="btn btn-ghost btn-sm btn-icon" onClick={() => editRow(row)} aria-label="Edit row" title="Edit row">
-                          <Pencil size={14} />
-                        </button>
-                      )}
-                      {!locked && !editingApproved && (
-                        <button className="btn btn-ghost btn-sm btn-icon" onClick={() => removeRow(rIdx)} aria-label="Remove row" title="Remove row">
-                          <Trash2 size={14} />
-                        </button>
-                      )}
+                      <button className="btn btn-ghost btn-sm btn-icon" onClick={() => removeRow(rIdx)} aria-label="Remove row" title="Remove row">
+                        <Trash2 size={14} />
+                      </button>
                     </td>
                   )}
                 </tr>
@@ -528,20 +476,37 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
           {rows.length > 0 && (
             <tfoot>
               <tr className="ts-weekly-total-row">
-                <td colSpan={2} className="col-group-end">Weekly Total</td>
+                <td className="col-group-end">Weekly Total</td>
                 {dayIsos.map((iso) => (
                   <td key={iso} className={`col-num${iso === todayIso ? ' col-today' : ''}`}>{liveDayTotals[iso].toFixed(2)}</td>
                 ))}
                 <td className="col-num col-total-cell">{weekTotal.toFixed(2)}</td>
-                {showActionsColumn && <td className="col-actions"></td>}
+                {canDeleteRows && <td className="col-actions"></td>}
               </tr>
             </tfoot>
           )}
         </table>
       </div>
 
-      {!readOnly && (
-        <div className="form-actions" style={{ marginTop: 20 }}>
+      {/* Weekly Submission Status, below the table — one badge, plus the
+          rejection reason inline when there is one. Replaces the old
+          "This week has been approved/submitted" prose sentence, which
+          said nothing the badge doesn't already say. */}
+      {summary && (() => {
+        const rejectReasons = summary.status === 'REJECTED'
+          ? [...new Set(summary.entries.filter((e) => e.status === 'REJECTED' && e.rejectionReason).map((e) => e.rejectionReason))]
+          : [];
+        return (
+          <div className="ts-status-row">
+            <span className="ts-status-label">Status</span>
+            <Badge value={summary.status} label={TIMESHEET_STATUS_LABELS[summary.status]} />
+            {rejectReasons.length > 0 && <span className="ts-status-reason">{rejectReasons.join(' · ')}</span>}
+          </div>
+        );
+      })()}
+
+      {!readOnly && (editingApproved || !locked || canEditApproved) && (
+        <div className="form-actions" style={{ marginTop: 12 }}>
           {editingApproved ? (
             <>
               <button className="btn btn-ghost" disabled={submitting} onClick={cancelEditApproved}>
@@ -552,16 +517,11 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
               </button>
             </>
           ) : locked ? (
-            <div className="ts-locked-row">
-              <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: 0 }}>
-                {summary?.status === 'APPROVED' ? 'This week has been approved.' : 'This week has been submitted and is waiting for approval.'}
-              </p>
-              {canEditApproved && (
-                <button className="btn btn-secondary btn-sm" onClick={() => setEditingApproved(true)}>
-                  <Pencil size={13} /> Edit Timesheet
-                </button>
-              )}
-            </div>
+            canEditApproved && (
+              <button className="btn btn-secondary btn-sm" onClick={() => setEditingApproved(true)}>
+                <Pencil size={13} /> Request Re-edit
+              </button>
+            )
           ) : (
             <>
               <button className="btn btn-secondary" disabled={saving || submitting} onClick={saveDraft}>

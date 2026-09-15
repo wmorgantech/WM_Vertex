@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Eye, Clock, CheckCircle2, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Eye, CheckCircle2, CalendarOff, UserCheck } from 'lucide-react';
 import api from '../../api/axios';
-import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import SummaryCards from './SummaryCards';
@@ -34,7 +33,7 @@ function weeksInMonth(monthStart, monthEnd) {
 // padded with blank leading/trailing cells so it reads as a real calendar
 // grid. A status dot reuses the day's own classifyDay() status from the
 // backend rather than recomputing anything client-side.
-function MonthCalendar({ days, todayIso, leaveByDate }) {
+function MonthCalendar({ days, todayIso, leaveByDate, onSelectDay }) {
   const weeks = useMemo(() => {
     if (!days || days.length === 0) return [];
     const firstDow = parseIsoDate(days[0].date).getDay(); // 0=Sun..6=Sat
@@ -73,10 +72,12 @@ function MonthCalendar({ days, todayIso, leaveByDate }) {
                   ? (hours === 0 ? 'ts-dot-empty' : 'ts-dot-partial')
                   : 'ts-dot-complete';
             return (
-              <div
-                className={`ts-month-cal-cell${day.date === todayIso ? ' ts-month-cal-today' : ''}${!day.isWorkingDay ? ' ts-month-cal-nonworking' : ''}${onLeave ? ' ts-month-cal-leave' : ''}`}
+              <button
+                type="button"
+                className={`ts-month-cal-cell ts-month-cal-clickable${day.date === todayIso ? ' ts-month-cal-today' : ''}${!day.isWorkingDay ? ' ts-month-cal-nonworking' : ''}${onLeave ? ' ts-month-cal-leave' : ''}`}
                 key={di}
                 title={leaveLabel || day.nonWorkingReason || ''}
+                onClick={() => onSelectDay(day.date)}
               >
                 <span className="ts-month-cal-date">{parseIsoDate(day.date).getDate()}</span>
                 {onLeave ? (
@@ -85,7 +86,7 @@ function MonthCalendar({ days, todayIso, leaveByDate }) {
                   <span className="ts-month-cal-hours">{hours > 0 ? `${hours}h` : '—'}</span>
                 )}
                 {dotClass && <span className={`ts-month-cal-dot ${dotClass}`} />}
-              </div>
+              </button>
             );
           })}
         </div>
@@ -102,7 +103,10 @@ export default function MonthlySummary({ userId, onViewWeek }) {
   const [employeeInfo, setEmployeeInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [viewingWeek, setViewingWeek] = useState(null); // manager/TeamView fallback — see handleView
-  const [leaveByDate, setLeaveByDate] = useState(new Map());
+  const [viewingDay, setViewingDay] = useState(null); // ISO date string — clicked calendar cell
+  const [leaveRequests, setLeaveRequests] = useState([]);
+  const [leaveTypes, setLeaveTypes] = useState([]);
+  const [attendanceSummary, setAttendanceSummary] = useState(null);
   const dateInputRef = useRef(null);
   const todayIso = useMemo(() => toIsoDate(new Date()), []);
   const isCurrentMonth = useMemo(() => {
@@ -122,14 +126,20 @@ export default function MonthlySummary({ userId, onViewWeek }) {
       ...weeks.map((w) => api.get('/timesheets/summary', {
         params: { from: toIsoDate(w.rangeFrom), to: toIsoDate(w.rangeTo), ...(userId && { userId }) },
       })),
-    ]).then(([monthRes, ...weekRes]) => {
+      // Same existing /attendance/summary endpoint Attendance.jsx itself
+      // uses (already supports userId for a manager viewing someone else,
+      // exactly like /timesheets/summary does) — powers the "Attendance" KPI.
+      api.get('/attendance/summary', { params: { from, to, ...(userId && { userId }) } }),
+    ]).then(([monthRes, ...rest]) => {
+      const attendanceRes = rest.pop();
       setMonthSummary(monthRes.data.data);
       setWeekRows(weeks.map((w, i) => ({
         label: `Week ${i + 1}`,
         weekStart: w.weekStart,
         period: formatWeekRange(w.weekStart, 6),
-        ...weekRes[i].data.data,
+        ...rest[i].data.data,
       })));
+      setAttendanceSummary(attendanceRes.data.data);
     }).finally(() => setLoading(false));
   }, [from, to, userId]);
 
@@ -145,27 +155,55 @@ export default function MonthlySummary({ userId, onViewWeek }) {
   // approval), but it doesn't know *which* leave type caused it. This just
   // overlays that one extra detail. listRequests() has no date-range filter
   // server-side, so all of this user's approved requests are fetched once
-  // and matched against the visible month client-side — no new backend code.
+  // (not re-fetched on month navigation) and the per-month figures below
+  // are derived from it client-side — no new backend code.
   useEffect(() => {
     api.get('/leave', { params: { status: 'APPROVED', ...(userId && { userId }) } })
-      .then(({ data }) => {
-        const map = new Map();
-        for (const req of data.data) {
-          // Parse the Y-M-D straight off the ISO string rather than
-          // `new Date(req.startDate)` + local getters — that combination
-          // shifts a day in timezones behind UTC (the same class of bug
-          // fixed earlier in setHours(0,0,0,0) callers).
-          let cursorDate = parseIsoDate(req.startDate.slice(0, 10));
-          const endDate = parseIsoDate(req.endDate.slice(0, 10));
-          while (cursorDate <= endDate) {
-            map.set(toIsoDate(cursorDate), req.leaveType?.label || 'Leave');
-            cursorDate = addDays(cursorDate, 1);
-          }
-        }
-        setLeaveByDate(map);
-      })
-      .catch(() => setLeaveByDate(new Map()));
+      .then(({ data }) => setLeaveRequests(data.data))
+      .catch(() => setLeaveRequests([]));
   }, [userId]);
+
+  // Same master-data endpoint Configuration → Master Data manages leave
+  // types through — drives the Leave Summary's rows so it always matches
+  // whatever leave types are actually configured, not a hardcoded list.
+  useEffect(() => {
+    api.get('/masters/leave-types').then(({ data }) => setLeaveTypes(data.data.filter((t) => t.active)));
+  }, []);
+
+  const leaveByDate = useMemo(() => {
+    const map = new Map();
+    for (const req of leaveRequests) {
+      // Parse the Y-M-D straight off the ISO string rather than
+      // `new Date(req.startDate)` + local getters — that combination
+      // shifts a day in timezones behind UTC (the same class of bug fixed
+      // earlier in setHours(0,0,0,0) callers).
+      let cursorDate = parseIsoDate(req.startDate.slice(0, 10));
+      const endDate = parseIsoDate(req.endDate.slice(0, 10));
+      while (cursorDate <= endDate) {
+        map.set(toIsoDate(cursorDate), req.leaveType?.label || 'Leave');
+        cursorDate = addDays(cursorDate, 1);
+      }
+    }
+    return map;
+  }, [leaveRequests]);
+
+  // Leave Summary's day counts per type, clipped to the currently-viewed
+  // month only (a request can span outside it).
+  const leaveTypeCounts = useMemo(() => {
+    const counts = {};
+    for (const req of leaveRequests) {
+      const code = req.leaveType?.code;
+      if (!code) continue;
+      let cursorDate = parseIsoDate(req.startDate.slice(0, 10));
+      const endDate = parseIsoDate(req.endDate.slice(0, 10));
+      while (cursorDate <= endDate) {
+        const iso = toIsoDate(cursorDate);
+        if (iso >= from && iso <= to) counts[code] = (counts[code] || 0) + 1;
+        cursorDate = addDays(cursorDate, 1);
+      }
+    }
+    return counts;
+  }, [leaveRequests, from, to]);
 
   // Self-service (Timesheets.jsx) jumps the Weekly tab to the chosen week via
   // onViewWeek. The manager/TeamView case renders MonthlySummary without
@@ -184,45 +222,26 @@ export default function MonthlySummary({ userId, onViewWeek }) {
     else el.click();
   };
 
-  const columns = [
-    { key: 'week', header: 'Week', render: (r) => r.label },
-    { key: 'period', header: 'Period', render: (r) => r.period },
-    { key: 'expected', header: 'Expected', align: 'right', render: (r) => `${r.expectedHours}h` },
-    { key: 'actual', header: 'Actual', align: 'right', render: (r) => `${r.actualHours}h` },
-    { key: 'difference', header: 'Difference', align: 'right', render: (r) => `${r.difference >= 0 ? '+' : ''}${r.difference}h` },
-    { key: 'status', header: 'Status', render: (r) => <Badge value={r.status} label={TIMESHEET_STATUS_LABELS[r.status]} /> },
-    {
-      key: 'actions', header: '', align: 'actions', render: (r) => (
-        <button className="btn btn-ghost btn-sm" onClick={() => handleView(r.weekStart)}>
-          <Eye size={14} /> View
-        </button>
-      ),
-    },
-  ];
+  // Entries for whichever calendar cell was clicked — the month summary's
+  // `entries` array (already fetched) sliced down to just that one date.
+  // No new API call.
+  const dayEntries = useMemo(() => {
+    if (!viewingDay || !monthSummary) return [];
+    return (monthSummary.entries || []).filter((e) => e.date.slice(0, 10) === viewingDay);
+  }, [viewingDay, monthSummary]);
 
-  // Supplementary view for monthly review: the same entries already fetched
-  // per week, pivoted by (Position, Project) into a single month total per
-  // assignment — purely a client-side regroup, no new API.
-  const breakdownRows = useMemo(() => {
-    const map = new Map();
-    weekRows.forEach((wr) => {
-      (wr.entries || []).forEach((e) => {
-        const key = `${e.position || ''}::${e.projectId || ''}`;
-        if (!map.has(key)) {
-          map.set(key, { key, position: e.position || '—', projectName: e.project?.name || '—', total: 0 });
-        }
-        map.get(key).total += e.hoursLogged;
-      });
-    });
-    return [...map.values()].sort((a, b) => b.total - a.total);
-  }, [weekRows]);
+  // Leave Days — the same authoritative ON_LEAVE signal the calendar's own
+  // dots already use (an Attendance record written by leave.controller.js
+  // on approval), just counted for the "monthly overview" KPI.
+  const leaveDaysCount = monthSummary ? monthSummary.days.filter((d) => d.nonWorkingReason === 'ON_LEAVE').length : 0;
 
-  const breakdownTotal = breakdownRows.reduce((s, r) => s + r.total, 0);
-  const breakdownColumns = [
-    { key: 'position', header: 'Position', render: (r) => r.position },
-    { key: 'project', header: 'Project', render: (r) => r.projectName },
-    { key: 'total', header: 'Total', align: 'right', render: (r) => <strong>{r.total.toFixed(2)}h</strong> },
-  ];
+  // Attendance — Present+Late out of every Attendance record in the month
+  // (same PRESENT+LATE-counts-as-attended convention already used for the
+  // Trainee dashboard's own Attendance KPI).
+  const presentDays = attendanceSummary ? (attendanceSummary.PRESENT || 0) + (attendanceSummary.LATE || 0) : 0;
+  const attendanceValue = attendanceSummary && attendanceSummary.totalDays
+    ? `${presentDays}/${attendanceSummary.totalDays}`
+    : '—';
 
   return (
     <div>
@@ -260,36 +279,48 @@ export default function MonthlySummary({ userId, onViewWeek }) {
       {loading ? <div className="page-loading">Loading...</div> : monthSummary && (
         <>
           <SummaryCards items={[
-            { label: 'Expected', value: `${monthSummary.expectedHours}h`, icon: Clock, accent: 'blue' },
-            { label: 'Actual', value: `${monthSummary.actualHours}h`, icon: CheckCircle2, accent: 'blue' },
-            {
-              label: 'Difference',
-              value: `${monthSummary.difference > 0 ? '+' : ''}${monthSummary.difference}h`,
-              icon: monthSummary.difference > 0 ? TrendingUp : monthSummary.difference < 0 ? TrendingDown : Minus,
-              accent: monthSummary.difference > 0 ? 'green' : monthSummary.difference < 0 ? 'amber' : 'gray',
-            },
+            { label: 'Total Hours', value: `${monthSummary.actualHours}h`, icon: CheckCircle2, accent: 'blue' },
             { label: 'Working Days', value: monthSummary.workingDays, icon: Calendar, accent: 'purple' },
+            { label: 'Leave Days', value: leaveDaysCount, icon: CalendarOff, accent: 'amber' },
+            { label: 'Attendance', value: attendanceValue, icon: UserCheck, accent: 'green' },
           ]} />
 
-          <MonthCalendar days={monthSummary.days} todayIso={todayIso} leaveByDate={leaveByDate} />
+          <MonthCalendar days={monthSummary.days} todayIso={todayIso} leaveByDate={leaveByDate} onSelectDay={setViewingDay} />
           <div className="ts-legend">
             <span><i className="ts-legend-dot ts-dot-complete" /> Worked</span>
             <span><i className="ts-legend-dot ts-legend-leave" /> Leave</span>
             <span><i className="ts-legend-dot ts-legend-weekend" /> Weekend</span>
           </div>
 
-          <p className="ts-section-label" style={{ marginTop: 24 }}>Weeks</p>
-          <DataTable columns={columns} rows={weekRows} emptyMessage="No weeks in this month." />
-
-          {breakdownRows.length > 0 && (
+          {leaveTypes.length > 0 && (
             <>
-              <p className="ts-section-label" style={{ marginTop: 24 }}>Assignment Summary</p>
-              <DataTable columns={breakdownColumns} rows={breakdownRows} emptyMessage="No entries this month." />
-              <div className="ts-breakdown-total">
-                <span>Total</span>
-                <strong>{breakdownTotal.toFixed(2)}h</strong>
+              <p className="ts-section-label" style={{ marginTop: 24 }}>Leave Summary</p>
+              <div className="ts-leave-summary">
+                {leaveTypes.map((t) => (
+                  <div className="ts-leave-summary-item" key={t.code}>
+                    <span className="ts-leave-summary-label">{t.label}</span>
+                    <span className="ts-leave-summary-value">{leaveTypeCounts[t.code] || 0}</span>
+                  </div>
+                ))}
               </div>
             </>
+          )}
+
+          <p className="ts-section-label" style={{ marginTop: 24 }}>Weekly Status</p>
+          {weekRows.length === 0 ? (
+            <p className="empty-state" style={{ padding: 0, textAlign: 'left' }}>No weeks in this month.</p>
+          ) : (
+            <div className="ts-week-status-list">
+              {weekRows.map((w) => (
+                <div className="ts-week-status-row" key={toIsoDate(w.weekStart)}>
+                  <span className="ts-week-status-period">{w.period}</span>
+                  <Badge value={w.status} label={TIMESHEET_STATUS_LABELS[w.status]} />
+                  <button className="btn btn-ghost btn-sm" onClick={() => handleView(w.weekStart)}>
+                    <Eye size={14} /> View
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
         </>
       )}
@@ -302,6 +333,26 @@ export default function MonthlySummary({ userId, onViewWeek }) {
             initialMonday={viewingWeek}
             ownerRoleLabel={employeeInfo?.designation || titleCase(employeeInfo?.role)}
           />
+        </Modal>
+      )}
+
+      {viewingDay && (
+        <Modal title={parseIsoDate(viewingDay).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })} onClose={() => setViewingDay(null)}>
+          {dayEntries.length === 0 ? (
+            <p className="empty-state" style={{ padding: 0, textAlign: 'left' }}>No entries logged on this date.</p>
+          ) : (
+            <ul className="ts-day-entry-list">
+              {dayEntries.map((e) => (
+                <li className="ts-day-entry-row" key={e.id}>
+                  <p className="ts-day-entry-title">{e.position || 'Unassigned'}</p>
+                  <div className="ts-day-entry-meta">
+                    <span>{e.hoursLogged}h</span>
+                    <Badge value={e.status} label={TIMESHEET_STATUS_LABELS[e.status]} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </Modal>
       )}
     </div>

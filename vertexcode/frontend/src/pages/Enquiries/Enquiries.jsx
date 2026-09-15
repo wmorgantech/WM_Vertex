@@ -45,11 +45,22 @@ const CATEGORY_LABELS = Object.fromEntries(
 );
 const categoryLabel = (code) => CATEGORY_LABELS[code] || code;
 
+// Who is enquiring — mirrors MANAGER_SUBMITTER_TYPES in
+// enquiry.controller.js exactly. Manager-only field: a self-service
+// submitter's type is always derived from their own account role server-side
+// (never trusted from the request), same as their contact details.
+const SUBMITTER_TYPES = [
+  { code: 'STUDENT', label: 'Student' }, { code: 'INTERN', label: 'Intern' },
+  { code: 'COURSE_ENQUIRER', label: 'Course Enquirer' }, { code: 'EMPLOYEE', label: 'Employee' },
+  { code: 'OTHER', label: 'Other' },
+];
+
 const emptyManagerForm = {
   contactName: '', contactEmail: '', contactPhone: '', companyName: '', category: '', subject: '', description: '',
   source: 'WEBSITE', followUpDate: '', assignedEmployeeId: '',
+  submitterType: '', collegeId: '', collegeDepartmentId: '', courseOrProgram: '',
 };
-const emptySelfForm = { category: '', subject: '', description: '', followUpDate: '' };
+const emptySelfForm = { category: '', subject: '', description: '', followUpDate: '', collegeId: '', collegeDepartmentId: '', courseOrProgram: '' };
 
 export default function Enquiries() {
   const { user } = useAuth();
@@ -58,6 +69,7 @@ export default function Enquiries() {
   const roleCategories = isManager ? ADMIN_CATEGORIES : isIntern ? INTERN_CATEGORIES : EMPLOYEE_CATEGORIES;
   const [enquiries, setEnquiries] = useState([]);
   const [staffUsers, setStaffUsers] = useState([]);
+  const [colleges, setColleges] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -71,24 +83,38 @@ export default function Enquiries() {
 
   const load = () => {
     setLoading(true);
-    const calls = [api.get('/enquiries', { params: { search: search || undefined, status: statusFilter || undefined, source: (isManager && sourceFilter) || undefined } })];
+    const calls = [
+      api.get('/enquiries', { params: { search: search || undefined, status: statusFilter || undefined, source: (isManager && sourceFilter) || undefined } }),
+      api.get('/colleges'),
+    ];
     if (isManager) calls.push(api.get('/users'));
     Promise.all(calls)
-      .then(([e, u]) => {
+      .then(([e, c, u]) => {
         setEnquiries(e.data.data);
+        setColleges(c.data.data);
         if (u) setStaffUsers(u.data.data.filter((x) => ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'].includes(x.role)));
       })
       .finally(() => setLoading(false));
   };
   useEffect(load, [search, statusFilter, sourceFilter]);
 
+  const selectedFormCollege = colleges.find((c) => c.id === form.collegeId);
+  const selectedEditCollege = colleges.find((c) => c.id === editForm.collegeId);
+
   const handleCreate = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {
       const payload = isManager
-        ? { ...form, followUpDate: form.followUpDate || null, assignedEmployeeId: form.assignedEmployeeId || null }
-        : { category: form.category, subject: form.subject, description: form.description, followUpDate: form.followUpDate || null };
+        ? {
+          ...form, followUpDate: form.followUpDate || null, assignedEmployeeId: form.assignedEmployeeId || null,
+          submitterType: form.submitterType || null, collegeId: form.collegeId || null,
+          collegeDepartmentId: form.collegeDepartmentId || null, courseOrProgram: form.courseOrProgram || null,
+        }
+        : {
+          category: form.category, subject: form.subject, description: form.description, followUpDate: form.followUpDate || null,
+          collegeId: form.collegeId || null, collegeDepartmentId: form.collegeDepartmentId || null, courseOrProgram: form.courseOrProgram || null,
+        };
       await api.post('/enquiries', payload);
       toast.success('Enquiry logged');
       setShowModal(false);
@@ -107,6 +133,8 @@ export default function Enquiries() {
       status: en.status, category: en.category || '', followUpDate: en.followUpDate ? en.followUpDate.slice(0, 10) : '',
       nextAction: en.nextAction || '', remarks: en.remarks || '',
       assignedEmployeeId: en.assignedEmployee?.id || '',
+      submitterType: en.submitterType || '', collegeId: en.collegeId || '',
+      collegeDepartmentId: en.collegeDepartmentId || '', courseOrProgram: en.courseOrProgram || '',
     });
   };
 
@@ -115,8 +143,15 @@ export default function Enquiries() {
     setSaving(true);
     try {
       const payload = isManager
-        ? { ...editForm, followUpDate: editForm.followUpDate || null, assignedEmployeeId: editForm.assignedEmployeeId || null }
-        : { status: editForm.status, category: editForm.category, followUpDate: editForm.followUpDate || null };
+        ? {
+          ...editForm, followUpDate: editForm.followUpDate || null, assignedEmployeeId: editForm.assignedEmployeeId || null,
+          submitterType: editForm.submitterType || null, collegeId: editForm.collegeId || null,
+          collegeDepartmentId: editForm.collegeDepartmentId || null, courseOrProgram: editForm.courseOrProgram || null,
+        }
+        : {
+          status: editForm.status, category: editForm.category, followUpDate: editForm.followUpDate || null,
+          collegeId: editForm.collegeId || null, collegeDepartmentId: editForm.collegeDepartmentId || null, courseOrProgram: editForm.courseOrProgram || null,
+        };
       await api.put(`/enquiries/${editing.id}`, payload);
       toast.success('Enquiry updated');
       setEditing(null);
@@ -140,10 +175,15 @@ export default function Enquiries() {
   };
 
   const columns = isManager ? [
-    { key: 'contactName', header: 'Contact' },
+    { key: 'contactName', header: 'Submitted By' },
     { key: 'category', header: 'Category', render: (r) => r.category ? categoryLabel(r.category) : '—' },
-    { key: 'subject', header: 'Subject' },
+    { key: 'subject', header: 'Purpose' },
+    {
+      key: 'college', header: 'College / Dept',
+      render: (r) => r.college ? `${r.college.name}${r.collegeDepartment ? ` — ${r.collegeDepartment.name}` : ''}` : '—',
+    },
     { key: 'assignee', header: 'Assigned To', render: (r) => r.assignedEmployee ? `${r.assignedEmployee.firstName} ${r.assignedEmployee.lastName}` : '—' },
+    { key: 'createdAt', header: 'Date', render: (r) => new Date(r.createdAt).toLocaleDateString() },
     {
       key: 'followUp', header: 'Follow-up', render: (r) => r.followUpOverdue
         ? <span className="badge badge-red">FOLLOW-UP OVERDUE</span>
@@ -230,11 +270,32 @@ export default function Enquiries() {
                   {roleCategories.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
                 </select>
               </label>
+              <label>Enquirer Type
+                <select value={form.submitterType} onChange={(e) => setForm({ ...form, submitterType: e.target.value })}>
+                  <option value="">— Select —</option>
+                  {SUBMITTER_TYPES.map((t) => <option key={t.code} value={t.code}>{t.label}</option>)}
+                </select>
+              </label>
               <label>Source
                 <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })}>
                   {SOURCES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
                 </select>
               </label>
+              <label>College
+                <select value={form.collegeId} onChange={(e) => setForm({ ...form, collegeId: e.target.value, collegeDepartmentId: '' })}>
+                  <option value="">— None —</option>
+                  {colleges.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </label>
+              {selectedFormCollege?.departments?.length > 0 && (
+                <label>Department
+                  <select value={form.collegeDepartmentId} onChange={(e) => setForm({ ...form, collegeDepartmentId: e.target.value })}>
+                    <option value="">— None —</option>
+                    {selectedFormCollege.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </label>
+              )}
+              <label>Course / Internship<input value={form.courseOrProgram} onChange={(e) => setForm({ ...form, courseOrProgram: e.target.value })} /></label>
               <label>Subject / Requirement<input required value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} /></label>
               <label>Enquiry Details<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
               <label>Assigned Employee
@@ -258,6 +319,21 @@ export default function Enquiries() {
                   {roleCategories.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
                 </select>
               </label>
+              <label>College (optional)
+                <select value={form.collegeId} onChange={(e) => setForm({ ...form, collegeId: e.target.value, collegeDepartmentId: '' })}>
+                  <option value="">— None —</option>
+                  {colleges.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </label>
+              {selectedFormCollege?.departments?.length > 0 && (
+                <label>Department
+                  <select value={form.collegeDepartmentId} onChange={(e) => setForm({ ...form, collegeDepartmentId: e.target.value })}>
+                    <option value="">— None —</option>
+                    {selectedFormCollege.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </label>
+              )}
+              <label>Course / Internship (optional)<input value={form.courseOrProgram} onChange={(e) => setForm({ ...form, courseOrProgram: e.target.value })} /></label>
               <label>Subject<input required value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} /></label>
               <label>Enquiry Details<textarea required value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
               <label>Follow-up Date<input type="date" value={form.followUpDate} onChange={(e) => setForm({ ...form, followUpDate: e.target.value })} /></label>
@@ -284,7 +360,11 @@ export default function Enquiries() {
                 <DetailField label="Email" value={viewing.contactEmail} />
                 <DetailField label="Phone" value={viewing.contactPhone} />
                 <DetailField label="Category" value={viewing.category ? categoryLabel(viewing.category) : null} />
+                <DetailField label="Enquirer Type" value={viewing.submitterType ? (SUBMITTER_TYPES.find((t) => t.code === viewing.submitterType)?.label || viewing.submitterType) : null} />
                 <DetailField label="Source" value={viewing.source} />
+                <DetailField label="College" value={viewing.college?.name} />
+                <DetailField label="Department" value={viewing.collegeDepartment?.name} />
+                <DetailField label="Course / Internship" value={viewing.courseOrProgram} />
                 <DetailField label="Assigned To" value={viewing.assignedEmployee ? `${viewing.assignedEmployee.firstName} ${viewing.assignedEmployee.lastName}` : 'Unassigned'} />
                 <DetailField label="Follow-up Date" value={viewing.followUpDate ? new Date(viewing.followUpDate).toLocaleDateString() : null} />
                 <DetailField full label="Enquiry Details" value={viewing.description} />
@@ -297,6 +377,9 @@ export default function Enquiries() {
               <div className="detail-grid">
                 <DetailField label="Requester" value={viewing.contactName} />
                 <DetailField label="Category" value={viewing.category ? categoryLabel(viewing.category) : null} />
+                <DetailField label="College" value={viewing.college?.name} />
+                <DetailField label="Department" value={viewing.collegeDepartment?.name} />
+                <DetailField label="Course / Internship" value={viewing.courseOrProgram} />
                 <DetailField label="Follow-up Date" value={viewing.followUpDate ? new Date(viewing.followUpDate).toLocaleDateString() : null} />
                 <DetailField full label="Enquiry Details" value={viewing.description} />
                 <DetailField label="Created Date" value={new Date(viewing.createdAt).toLocaleString()} />
@@ -324,9 +407,30 @@ export default function Enquiries() {
                 {roleCategories.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
               </select>
             </label>
+            <label>College
+              <select value={editForm.collegeId} onChange={(e) => setEditForm({ ...editForm, collegeId: e.target.value, collegeDepartmentId: '' })}>
+                <option value="">— None —</option>
+                {colleges.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </label>
+            {selectedEditCollege?.departments?.length > 0 && (
+              <label>Department
+                <select value={editForm.collegeDepartmentId} onChange={(e) => setEditForm({ ...editForm, collegeDepartmentId: e.target.value })}>
+                  <option value="">— None —</option>
+                  {selectedEditCollege.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </label>
+            )}
+            <label>Course / Internship<input value={editForm.courseOrProgram} onChange={(e) => setEditForm({ ...editForm, courseOrProgram: e.target.value })} /></label>
             <label>Follow-up Date<input type="date" value={editForm.followUpDate} onChange={(e) => setEditForm({ ...editForm, followUpDate: e.target.value })} /></label>
             {isManager && (
               <>
+                <label>Enquirer Type
+                  <select value={editForm.submitterType} onChange={(e) => setEditForm({ ...editForm, submitterType: e.target.value })}>
+                    <option value="">— Select —</option>
+                    {SUBMITTER_TYPES.map((t) => <option key={t.code} value={t.code}>{t.label}</option>)}
+                  </select>
+                </label>
                 <label>Assigned Employee
                   <select value={editForm.assignedEmployeeId} onChange={(e) => setEditForm({ ...editForm, assignedEmployeeId: e.target.value })}>
                     <option value="">— None —</option>

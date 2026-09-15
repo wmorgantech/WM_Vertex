@@ -318,6 +318,7 @@ model User {
   passwordResetTokens      PasswordResetToken[]
   assignedTasks            Task[]                  @relation("TaskAssignee")
   createdTasks             Task[]                  @relation("TaskCreator")
+  taskComments             TaskComment[]           @relation("TaskCommentAuthor")
   approvedTimesheets       Timesheet[]             @relation("TimesheetApprover")
   timesheets               Timesheet[]             @relation("TimesheetOwner")
   mentoredTrainees         TraineeEnrollment[]     @relation("TraineeMentor")
@@ -638,6 +639,7 @@ model College {
   departments   CollegeDepartment[]
   mous          MOU[]
   workshops     Workshop[]
+  enquiries     Enquiry[]
 }
 
 model CollegeDepartment {
@@ -652,6 +654,7 @@ model CollegeDepartment {
   college       College    @relation(fields: [collegeId], references: [id], onDelete: Cascade)
   mous          MOU[]
   workshops     Workshop[]
+  enquiries     Enquiry[]
 
   @@unique([collegeId, name])
 }
@@ -717,31 +720,44 @@ model MOU {
 }
 
 model Enquiry {
-  id                 String        @id @default(uuid())
-  contactName        String
-  contactEmail       String?
-  contactPhone       String?
-  companyName        String?
-  subject            String
-  description        String?
-  source             EnquirySource @default(WEBSITE)
+  id                  String             @id @default(uuid())
+  contactName         String
+  contactEmail        String?
+  contactPhone        String?
+  companyName         String?
+  subject             String
+  description         String?
+  source              EnquirySource      @default(WEBSITE)
   // Internal enquiry topic (HR/Payroll/Leave/Attendance/Task/IT Support/...),
   // separate from `source` (external lead attribution channel — unchanged).
   // Plain string, not an enum: the allowed set differs by role and is
   // validated in enquiry.controller.js rather than at the DB level, the same
   // way status transitions are already handled there.
-  category           String?
-  assignedEmployeeId String?
-  status             EnquiryStatus @default(NEW)
-  followUpDate       DateTime?
-  nextAction         String?
-  remarks            String?
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
-  assignedEmployee   User?         @relation("EnquiryAssignee", fields: [assignedEmployeeId], references: [id])
+  category            String?
+  // Who is enquiring: Student, Intern, Course Enquirer, Employee, etc. Plain
+  // string (not an enum) for the same reason as `category` above — the
+  // allowed set is small and validated in the controller.
+  submitterType       String?
+  collegeId           String?
+  collegeDepartmentId String?
+  // Course/internship program being enquired about, free text — no
+  // TrainingProgram/internship-track FK reuse here since enquirers are often
+  // not yet enrolled in anything the DB can reference by id.
+  courseOrProgram     String?
+  assignedEmployeeId  String?
+  status              EnquiryStatus      @default(NEW)
+  followUpDate        DateTime?
+  nextAction          String?
+  remarks             String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  assignedEmployee    User?              @relation("EnquiryAssignee", fields: [assignedEmployeeId], references: [id])
+  college             College?           @relation(fields: [collegeId], references: [id])
+  collegeDepartment   CollegeDepartment? @relation(fields: [collegeDepartmentId], references: [id])
 
   @@index([status])
   @@index([assignedEmployeeId])
+  @@index([collegeId])
 }
 
 model Project {
@@ -777,36 +793,53 @@ model ProjectMember {
 }
 
 model Task {
-  id          String       @id @default(uuid())
+  id          String        @id @default(uuid())
   title       String
   description String?
-  type        String       @default("DAILY")
-  priority    String       @default("MEDIUM")
-  status      String       @default("TODO")
-  progress    Int          @default(0)
+  type        String        @default("DAILY")
+  priority    String        @default("MEDIUM")
+  status      String        @default("TODO")
+  progress    Int           @default(0)
   dueDate     DateTime?
   projectId   String?
   assigneeId  String?
   createdById String
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
   completedAt DateTime?
   // Soft-delete marker — `status` is an admin-configurable master-table
   // value (TaskStatus) used for real workflow states; overloading it for
   // deletion would risk colliding with a status someone already configured
   // to mean something else. Null = active; set = in Trash.
   deletedAt   DateTime?
-  assignee    User?        @relation("TaskAssignee", fields: [assigneeId], references: [id])
-  createdBy   User         @relation("TaskCreator", fields: [createdById], references: [id])
-  priorityRef TaskPriority @relation(fields: [priority], references: [code])
-  project     Project?     @relation(fields: [projectId], references: [id])
-  statusRef   TaskStatus   @relation(fields: [status], references: [code])
-  typeRef     TaskType     @relation(fields: [type], references: [code])
+  assignee    User?         @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  createdBy   User          @relation("TaskCreator", fields: [createdById], references: [id])
+  priorityRef TaskPriority  @relation(fields: [priority], references: [code])
+  project     Project?      @relation(fields: [projectId], references: [id])
+  statusRef   TaskStatus    @relation(fields: [status], references: [code])
+  typeRef     TaskType      @relation(fields: [type], references: [code])
   timesheets  Timesheet[]
+  comments    TaskComment[]
 
   @@index([assigneeId])
   @@index([status])
   @@index([projectId])
+}
+
+// Minimal, additive: a short running log of progress updates/comments on a
+// task, for the "My Tasks" employee view. No existing structure fit this —
+// AuditLog is admin-only-readable, DailyWorkUpdate has no taskId, and
+// Task.description is a single overwritable field, not an accumulating log.
+model TaskComment {
+  id        String   @id @default(uuid())
+  taskId    String
+  authorId  String
+  body      String
+  createdAt DateTime @default(now())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author    User     @relation("TaskCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([taskId])
 }
 
 model Attendance {
@@ -878,6 +911,14 @@ enum Role {
   EMPLOYEE
   INTERN
   TRAINEE
+  // Minimal role stub: authenticate, default deny-all via the Permission
+  // table (permission.js denies any role with no matching row), and a safe
+  // generic nav/dashboard fallback. No college-scoped data filtering yet —
+  // that needs a real College/CollegeDepartment<->User FK relationship,
+  // which does not exist today (InternEnrollment.collegeName/hodName are
+  // free-text, not FKs) and is intentionally left as a follow-up.
+  HOD
+  STAFF
 }
 
 enum EmploymentStatus {
