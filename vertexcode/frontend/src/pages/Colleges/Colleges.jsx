@@ -21,6 +21,7 @@ export default function Colleges() {
   const [viewing, setViewing] = useState(null);
   const [colleges, setColleges] = useState([]);
   const [types, setTypes] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -47,14 +48,18 @@ export default function Colleges() {
         status: viewTab === 'trash' ? undefined : (statusFilter || undefined),
         location: viewTab === 'trash' ? undefined : (locationFilter || undefined),
       } }),
+      api.get('/colleges'),
       api.get('/colleges/summary'),
       api.get('/masters/college-types'),
     ])
-      .then(([c, s, t]) => {
+      .then(([c, all, s, t]) => {
         if (c.status === 'fulfilled') { setColleges(c.value.data.data); setExpandedId(null); }
+        if (all.status === 'fulfilled') {
+          setLocations([...new Set(all.value.data.data.map((college) => college.city).filter(Boolean))].sort());
+        }
         if (s.status === 'fulfilled') setSummary(s.value.data.data);
         if (t.status === 'fulfilled') setTypes(t.value.data.data.filter((x) => x.active));
-        const failed = [c, s, t].find((r) => r.status === 'rejected');
+        const failed = [c, all, s, t].find((r) => r.status === 'rejected');
         if (failed) toast.error(failed.reason?.response?.data?.message || 'Some college data failed to load');
       })
       .finally(() => setLoading(false));
@@ -64,8 +69,6 @@ export default function Colleges() {
     return () => clearTimeout(id);
   }, [search]);
   useEffect(load, [viewTab, debouncedSearch, statusFilter, locationFilter]);
-
-  const locations = [...new Set(colleges.map((college) => college.city).filter(Boolean))].sort();
 
   const handleCreate = async (e) => {
     e.preventDefault();

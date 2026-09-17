@@ -26,6 +26,7 @@ export default function Departments() {
   const { user } = useAuth();
   const isSuperAdmin = user.role === 'SUPER_ADMIN';
   const [departments, setDepartments] = useState([]);
+  const [headCandidates, setHeadCandidates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewTab, setViewTab] = useState('active');
   const [search, setSearch] = useState('');
@@ -33,10 +34,10 @@ export default function Departments() {
   const [summary, setSummary] = useState({ total: 0, active: 0, trash: 0 });
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ name: '', description: '' });
+  const [form, setForm] = useState({ name: '', description: '', headId: '' });
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [editForm, setEditForm] = useState({ name: '', description: '' });
+  const [editForm, setEditForm] = useState({ name: '', description: '', headId: '' });
   const [viewing, setViewing] = useState(null);
   const [viewLoading, setViewLoading] = useState(false);
 
@@ -45,14 +46,16 @@ export default function Departments() {
     Promise.allSettled([
       api.get('/departments', { params: { scope: viewTab, search: debouncedSearch || undefined } }),
       api.get('/departments/summary'),
+      api.get('/users', { params: { role: 'EMPLOYEE,ADMIN,SUPER_ADMIN', limit: 100 } }),
     ])
-      .then(([d, s]) => {
+      .then(([d, s, heads]) => {
         if (d.status === 'fulfilled') {
           setDepartments(d.value.data.data);
           setSelectedIds(new Set());
         }
         if (s.status === 'fulfilled') setSummary(s.value.data.data);
-        const failed = [d, s].find((r) => r.status === 'rejected');
+        if (heads.status === 'fulfilled') setHeadCandidates(heads.value.data.data);
+        const failed = [d, s, heads].find((r) => r.status === 'rejected');
         if (failed) toast.error(failed.reason?.response?.data?.message || 'Some department data failed to load');
       })
       .finally(() => setLoading(false));
@@ -67,10 +70,10 @@ export default function Departments() {
     e.preventDefault();
     setSaving(true);
     try {
-      await api.post('/departments', form);
+      await api.post('/departments', { ...form, headId: form.headId || null });
       toast.success('Department created');
       setShowModal(false);
-      setForm({ name: '', description: '' });
+      setForm({ name: '', description: '', headId: '' });
       load();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to create department');
@@ -90,14 +93,14 @@ export default function Departments() {
 
   const openEdit = (d) => {
     setEditing(d);
-    setEditForm({ name: d.name, description: d.description || '' });
+    setEditForm({ name: d.name, description: d.description || '', headId: d.head?.id || '' });
   };
 
   const handleSaveEdit = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {
-      await api.put(`/departments/${editing.id}`, editForm);
+      await api.put(`/departments/${editing.id}`, { ...editForm, headId: editForm.headId || null });
       toast.success('Department updated');
       setEditing(null);
       load();
@@ -298,6 +301,12 @@ export default function Departments() {
           <form className="form-grid" onSubmit={handleCreate}>
             <label>Name<input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
             <label>Description<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
+            <label>Department Head
+              <select value={form.headId} onChange={(e) => setForm({ ...form, headId: e.target.value })}>
+                <option value="">— None —</option>
+                {headCandidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.firstName} {candidate.lastName}</option>)}
+              </select>
+            </label>
             <div className="form-actions">
               <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Create'}</button>
@@ -358,6 +367,12 @@ export default function Departments() {
           <form className="form-grid" onSubmit={handleSaveEdit}>
             <label>Name<input required value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} /></label>
             <label>Description<textarea value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} /></label>
+            <label>Department Head
+              <select value={editForm.headId} onChange={(e) => setEditForm({ ...editForm, headId: e.target.value })}>
+                <option value="">— None —</option>
+                {headCandidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.firstName} {candidate.lastName}</option>)}
+              </select>
+            </label>
             <div className="form-actions">
               <button type="button" className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>

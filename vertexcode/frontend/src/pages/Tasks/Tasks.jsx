@@ -20,15 +20,23 @@ import { downloadReport } from '../../lib/download';
 const STATUS_LABEL_OVERRIDES = { NOT_ASSIGNED: 'Unassigned', DONE: 'Completed' };
 const statusLabel = (s) => STATUS_LABEL_OVERRIDES[s.code] || s.label;
 const PAGE_SIZE = 25;
-// Active/All/Trash — same deletedAt-based convention as every other module
-// this session, kept fully independent of the existing `status` (TaskStatus)
-// filter below. Only Super Admin ever sees Trash (matches Delete/Restore
-// being Super-Admin-only).
-const VIEW_TABS = [
-  { value: 'active', label: 'Active' },
-  { value: 'all', label: 'All' },
-  { value: 'trash', label: '🗑️ Trash' },
-];
+const USER_PAGE_SIZE = 100;
+
+async function loadAllUsers() {
+  const allUsers = [];
+  let page = 1;
+  let total = Infinity;
+
+  while (allUsers.length < total) {
+    const { data } = await api.get('/users', { params: { page, limit: USER_PAGE_SIZE } });
+    allUsers.push(...data.data);
+    total = data.meta?.total ?? allUsers.length;
+    if (!data.data.length) break;
+    page += 1;
+  }
+
+  return { data: { data: allUsers } };
+}
 
 export default function Tasks() {
   const { user } = useAuth();
@@ -49,7 +57,7 @@ export default function Tasks() {
   const [assigneeFilter, setAssigneeFilter] = useState('');
   const [createdByFilter, setCreatedByFilter] = useState('');
   const [unallocatedOnly, setUnallocatedOnly] = useState(false);
-  const [viewTab, setViewTab] = useState('active');
+  const [showTrash, setShowTrash] = useState(false);
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -118,7 +126,7 @@ export default function Tasks() {
           createdById: isManager ? (createdByFilter || undefined) : undefined,
           unallocated: unallocatedOnly ? 'true' : undefined,
           search: debouncedSearch || undefined,
-          scope: isSuperAdmin ? viewTab : undefined,
+          scope: isSuperAdmin && showTrash ? 'trash' : undefined,
           page,
           limit: PAGE_SIZE,
         },
@@ -128,7 +136,7 @@ export default function Tasks() {
       api.get('/masters/task-types'),
     ];
     if (isManager) {
-      calls.push(api.get('/users'), api.get('/projects'));
+      calls.push(loadAllUsers(), api.get('/projects'));
     }
     // Manager-only KPI counts, reusing GET /tasks?limit=1 (no new backend
     // endpoint) exactly like Interns/Employees' summary cards. Deliberately
@@ -175,8 +183,8 @@ export default function Tasks() {
       }
     }).finally(() => setLoading(false));
   };
-  useEffect(() => { setPage(1); }, [debouncedSearch, statusFilter, priorityFilter, assigneeFilter, createdByFilter, unallocatedOnly, viewTab]);
-  useEffect(load, [debouncedSearch, statusFilter, priorityFilter, assigneeFilter, createdByFilter, unallocatedOnly, viewTab, page]);
+  useEffect(() => { setPage(1); }, [debouncedSearch, statusFilter, priorityFilter, assigneeFilter, createdByFilter, unallocatedOnly, showTrash]);
+  useEffect(load, [debouncedSearch, statusFilter, priorityFilter, assigneeFilter, createdByFilter, unallocatedOnly, showTrash, page]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -423,12 +431,9 @@ export default function Tasks() {
         </div>
       )}
 
-      {/* Single compact toolbar row, shared pattern: search/status/allocation
-          filters flow left to right; the Active/All/Trash scope tabs (Super
-          Admin only) are pinned to the far right via .toolbar-actions.
-          Kept as tab buttons rather than a second "Status" dropdown since a
-          real TaskStatus dropdown already lives in this same row — two
-          controls both labeled "Status" would be more confusing, not less. */}
+        {/* Search and workflow filters stay separate from the Super Admin-only
+          Trash view. The status dropdown controls task workflow state; Trash
+          controls the soft-delete scope. */}
       <div className="toolbar">
         <input className="search-input" placeholder="Search by title..." value={search} onChange={(e) => setSearch(e.target.value)} />
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
@@ -457,16 +462,14 @@ export default function Tasks() {
         )}
         {isSuperAdmin && (
           <div className="toolbar-actions">
-            <div className="tabs" style={{ marginBottom: 0, border: 'none' }}>
-              {VIEW_TABS.map((t) => (
-                <button key={t.value} className={`tab ${viewTab === t.value ? 'active' : ''}`} onClick={() => setViewTab(t.value)}>{t.label}</button>
-              ))}
-            </div>
+            <button type="button" className={`tab ${showTrash ? 'active' : ''}`} onClick={() => setShowTrash((current) => !current)}>
+              <Trash2 size={14} /> Trash
+            </button>
           </div>
         )}
       </div>
 
-      {isSuperAdmin && viewTab !== 'trash' && selectedIds.size > 0 && (
+      {isSuperAdmin && !showTrash && selectedIds.size > 0 && (
         <div className="toolbar" style={{ marginBottom: 12 }}>
           <span>{selectedIds.size} selected</span>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Clear selection</button>
@@ -479,9 +482,9 @@ export default function Tasks() {
       {loading ? <div className="page-loading">Loading...</div> : (
         <>
           <DataTable
-            columns={viewTab === 'trash' && isSuperAdmin ? trashColumns : columns}
+            columns={showTrash && isSuperAdmin ? trashColumns : columns}
             rows={tasks}
-            emptyMessage={viewTab === 'trash' ? 'Trash is empty.' : 'No tasks found.'}
+            emptyMessage={showTrash ? 'Trash is empty.' : 'No tasks found.'}
           />
           <Pagination meta={meta} onPageChange={setPage} />
         </>
