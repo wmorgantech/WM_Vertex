@@ -1,7 +1,34 @@
-import { ShieldCheck, FileText, Download, Award, Tag, Activity, Inbox } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import {
+  ShieldCheck, FileText, Download, Award, Tag, Activity, Inbox, FilePlus, Pencil, Trash2,
+  RotateCcw, CheckCircle2, XCircle, Upload, Send, RefreshCw, ArrowRightLeft, UserX,
+} from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 
+// Covers every action string actually written to the AuditLog table across
+// the backend (verified via grep of every `recordAudit({ action: ... })`
+// call site) plus the narrower InternshipAudit-specific ones this
+// component originally supported — a sensible fallback (Activity) covers
+// anything not explicitly listed rather than rendering nothing.
 const ACTION_ICONS = {
+  CREATED: FilePlus,
+  UPDATED: Pencil,
+  EDITED: Pencil,
+  DELETED: Trash2,
+  PERMANENTLY_DELETED: Trash2,
+  RESTORED: RotateCcw,
+  APPROVED: CheckCircle2,
+  REJECTED: XCircle,
+  EXPORTED: Download,
+  IMPORTED: Upload,
+  SUBMITTED: Send,
+  RESUBMITTED: Send,
+  UPLOADED: Upload,
+  DOCUMENT_UPLOADED: Upload,
+  DOWNLOADED: Download,
+  STATUS_CHANGED: RefreshCw,
+  REASSIGNED: ArrowRightLeft,
+  DEACTIVATED: UserX,
   FINAL_APPROVED: ShieldCheck,
   OFFER_LETTER_GENERATED: FileText,
   OFFER_LETTER_DOWNLOADED: Download,
@@ -10,16 +37,21 @@ const ACTION_ICONS = {
   CATEGORY_SET: Tag,
 };
 
-// A compact vertical timeline for the SuperAdmin dashboard's audit log —
-// new, not the shared ActivityList (used by 5 other dashboards), so those
-// are unaffected. `items` are pre-formatted {id, title, subtitle, meta,
+// A compact vertical timeline for the SuperAdmin dashboard — new, not the
+// shared ActivityList (used by 5 other dashboards), so those are
+// unaffected. `items` are pre-formatted {id, title, subtitle, meta,
 // badgeValue} same as ActivityList expected, with badgeValue being the raw
 // audit action code used to pick the icon.
-export default function AuditLogTimeline({ items = [], emptyMessage = 'Nothing to show yet.' }) {
+export default function AuditLogTimeline({ items = [], emptyMessage = 'Nothing to show yet.', title = 'Recent Activity', viewAllTo }) {
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Recent Audit Log</CardTitle>
+      <CardHeader className="flex-row items-center justify-between space-y-0">
+        <CardTitle>{title}</CardTitle>
+        {viewAllTo && items.length > 0 && (
+          <Link to={viewAllTo} className="text-xs font-medium text-primary hover:underline">
+            View all
+          </Link>
+        )}
       </CardHeader>
       <CardContent className="pb-5">
         {items.length === 0 ? (
