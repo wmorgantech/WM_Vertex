@@ -162,4 +162,28 @@ router.get('/interns', can('analytics', 'view'), ctrl.internPerformance);
  */
 router.get('/me', ctrl.myPerformance);
 
+/**
+ * @swagger
+ * /analytics/hod-overview:
+ *   get:
+ *     tags: [Analytics]
+ *     summary: HOD/Staff college-scoped intern/student monitoring dashboard
+ *     description: >
+ *       No explicit role gate — scoped entirely to the caller's own
+ *       collegeId/collegeDepartmentId (see utils/hodScope.js), never a
+ *       client-supplied parameter. A caller with no college assigned (any
+ *       non-HOD/STAFF role, or an unconfigured HOD/STAFF account) gets
+ *       `{ configured: false }` rather than any fallback to unrestricted data.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiSuccess' }
+ *       401: { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+ */
+router.get('/hod-overview', ctrl.hodOverview);
+
 module.exports = router;

@@ -74,6 +74,8 @@ async function getUser(req, res) {
       directReports: { select: { id: true, firstName: true, lastName: true, role: true, designation: true } },
       internEnrollment: { include: { batch: true, mentor: { select: { id: true, firstName: true, lastName: true } } } },
       location: { select: { id: true, name: true } },
+      authorizedCollege: { select: { id: true, name: true } },
+      authorizedCollegeDept: { select: { id: true, name: true } },
     },
   });
   if (!user) throw new ApiError(404, 'User not found');
@@ -90,6 +92,7 @@ async function createUser(req, res) {
   const {
     email, password, firstName, lastName, phone, role, designation,
     employmentType, departmentId, managerId, locationId, joinDate,
+    collegeId, collegeDepartmentId,
   } = req.body;
 
   if (!email || !password || !firstName || !lastName) {
@@ -124,6 +127,14 @@ async function createUser(req, res) {
       departmentId: departmentId || null,
       managerId: managerId || null,
       locationId: locationId || null,
+      // Meaningful only for HOD/STAFF (their college-monitoring scope) —
+      // harmless to store for any other role since nothing reads it there.
+      // A HOD always monitors its whole college (never a single
+      // department) — collegeDepartmentId is force-cleared here regardless
+      // of what's sent, backend-enforced rather than left to the frontend
+      // to simply not offer the field. Only STAFF may have one set.
+      collegeId: collegeId || null,
+      collegeDepartmentId: role === 'HOD' ? null : (collegeDepartmentId || null),
       joinDate: joinDate ? new Date(joinDate) : new Date(),
     },
   });
@@ -300,7 +311,7 @@ async function updateUser(req, res) {
     'firstName', 'lastName', 'email', 'phone', 'role', 'designation', 'employmentType',
     'status', 'departmentId', 'managerId', 'locationId', 'avatarUrl', 'exitDate', 'joinDate',
     'gender', 'dateOfBirth', 'address', 'skills', 'technologyStack', 'certifications', 'experienceYears',
-    'mustChangePassword',
+    'mustChangePassword', 'collegeId', 'collegeDepartmentId',
   ];
 
   const fields = isManagerRole ? allowedManagerFields : allowedSelfFields;
@@ -311,6 +322,13 @@ async function updateUser(req, res) {
   if (data.exitDate) data.exitDate = new Date(data.exitDate);
   if (data.dateOfBirth) data.dateOfBirth = new Date(data.dateOfBirth);
   if (data.joinDate) data.joinDate = new Date(data.joinDate);
+
+  // A HOD always monitors its whole college, never a single department —
+  // force-cleared regardless of what's sent, whether the role is changing
+  // to HOD in this same request or the target is already HOD. Backend-
+  // enforced, not left to the frontend to simply not offer the field.
+  const effectiveRole = data.role || target.role;
+  if (effectiveRole === 'HOD') data.collegeDepartmentId = null;
 
   if (data.email) {
     data.email = data.email.toLowerCase();
