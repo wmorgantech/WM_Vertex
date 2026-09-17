@@ -22,6 +22,7 @@ import Attendance from './pages/Attendance/Attendance';
 import Timesheets from './pages/Timesheets/Timesheets';
 import WorkUpdates from './pages/WorkUpdates/WorkUpdates';
 import Analytics from './pages/Analytics/Analytics';
+import Reports from './pages/Reports/Reports';
 import Documents from './pages/Documents/Documents';
 import Masters from './pages/Configuration/Masters';
 import Permissions from './pages/Configuration/Permissions';
@@ -136,6 +137,7 @@ export default function App() {
                 </Route>
 
                 <Route element={<RoleRoute roles={SUPER_ADMIN_ROLES} />}>
+                  <Route path="/reports" element={<Reports />} />
                   <Route path="/configuration/masters" element={<Masters />} />
                   <Route path="/configuration/permissions" element={<Permissions />} />
                   <Route path="/configuration/audit-log" element={<AuditLog />} />

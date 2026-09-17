@@ -1,9 +1,8 @@
-import { NavLink } from 'react-router-dom';
 import { Layers } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { getNavGroups } from '@/config/navigation';
 import { useAuth } from '@/context/AuthContext';
+import SidebarNavLink from './SidebarNavLink';
 
 export default function MobileSidebar({ open, onOpenChange }) {
   const { user } = useAuth();
@@ -27,23 +26,7 @@ export default function MobileSidebar({ open, onOpenChange }) {
               </p>
               <div className="space-y-0.5">
                 {group.items.map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.to === '/dashboard'}
-                    onClick={() => onOpenChange(false)}
-                    className={({ isActive }) =>
-                      cn(
-                        'flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors',
-                        isActive
-                          ? 'bg-primary/10 text-primary'
-                          : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
-                      )
-                    }
-                  >
-                    <item.icon className="size-4 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                  </NavLink>
+                  <SidebarNavLink key={item.to} item={item} onClick={() => onOpenChange(false)} />
                 ))}
               </div>
             </div>

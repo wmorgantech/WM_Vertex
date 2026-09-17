@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { NavLink } from 'react-router-dom';
 import { PanelLeftClose, PanelLeftOpen, Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getNavGroups } from '@/config/navigation';
 import { useAuth } from '@/context/AuthContext';
+import SidebarNavLink from './SidebarNavLink';
 
 const STORAGE_KEY = 'vertexwm_sidebar_collapsed';
 
@@ -19,24 +19,7 @@ export function useSidebarCollapsed() {
 }
 
 function NavItem({ item, collapsed }) {
-  const link = (
-    <NavLink
-      to={item.to}
-      end={item.to === '/dashboard'}
-      className={({ isActive }) =>
-        cn(
-          'group flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors',
-          collapsed && 'justify-center px-0',
-          isActive
-            ? 'bg-primary/10 text-primary'
-            : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
-        )
-      }
-    >
-      <item.icon className="size-4 shrink-0" />
-      {!collapsed && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
-    </NavLink>
-  );
+  const link = <SidebarNavLink item={item} collapsed={collapsed} />;
 
   if (!collapsed) return link;
 
@@ -60,7 +43,7 @@ export default function Sidebar({ collapsed, onToggle, className }) {
         className
       )}
     >
-      <div className={cn('flex h-14 items-center gap-2 px-4', collapsed && 'justify-center px-0')}>
+      <div className={cn('flex h-14 shrink-0 items-center gap-2 border-b border-sidebar-border px-4', collapsed && 'justify-center px-0')}>
         <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
           <Layers className="size-4" />
         </div>

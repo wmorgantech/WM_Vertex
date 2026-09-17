@@ -149,6 +149,10 @@ input, select, textarea { font-family: inherit; }
 }
 @keyframes vx-spin { to { transform: rotate(360deg); } }
 
+/* Generic spinning-icon utility (e.g. a Loader2 icon on a busy button) —
+   reuses the same rotation keyframe as .page-loading above. */
+.spin { animation: vx-spin 0.8s linear infinite; }
+
 .empty-state {
   display: flex;
   flex-direction: column;

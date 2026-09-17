@@ -11,16 +11,14 @@ import {
   FileText,
   FolderOpen,
   BarChart3,
+  FileBarChart,
   Sliders,
   ShieldCheck,
   History,
   School,
   Presentation,
   FileSignature,
-  Bell,
   CalendarOff,
-  ListPlus,
-  FileCog,
   IndianRupee,
   MessageSquare,
   CalendarClock,
@@ -74,36 +72,90 @@ const MANAGER_GROUPS = [
   },
 ];
 
-// Expenses is Super Admin-only (hardcoded business rule — see
-// backend/src/routes/expense.routes.js), not part of MANAGER_GROUPS shared
-// with Admin.
-const FINANCE_GROUP = {
-  label: 'Finance',
-  items: [{ to: '/expenses', label: 'Expenses', icon: IndianRupee }],
-};
-
-// Super Admin doesn't need the Enquiries workflow (it's an Admin/Employee
-// business-development tool) — dropped from the shared MANAGER_GROUPS list
-// for Super Admin's nav only. Admin still gets the full, unmodified
-// MANAGER_GROUPS (including Enquiries) below. This is a navigation-only
-// change: the /enquiries route, its API, and Admin's access are untouched.
+// Super Admin's nav — a fixed, self-contained structure (not derived from
+// MANAGER_GROUPS, which stays exactly as-is for Admin below) per the
+// corporate-level sidebar audit/redesign. Every route/permission here is
+// pre-existing and untouched — this file only changes grouping, labels and
+// icons:
+//   - Enquiries is now its own top-level group for Super Admin (previously
+//     filtered out of the shared list — the /enquiries route and its API
+//     already allowed SUPER_ADMIN; only the nav link was hidden).
+//   - Colleges moved from "Business Development" into "People &
+//     Organization"; Workshops/MOUs became their own "Programs &
+//     Partnerships" group; Work Updates moved from time-tracking into
+//     "Work Management" alongside Projects/Tasks.
+//   - Reports is a new nav entry pointing at a new, minimal frontend page
+//     (pages/Reports/Reports.jsx) that consolidates the existing
+//     GET /reports/* export endpoints (previously only reachable as
+//     "Export CSV/Excel" buttons scattered across each module page) — no
+//     backend change, no new capability, just one findable home for them.
+//   - Intern Documents, Notification Settings, Custom Fields and Document
+//     Settings are intentionally no longer in the sidebar (routes/pages
+//     still exist, unregistered from App.jsx untouched, reachable by
+//     direct URL — this is a nav-only hide, not a removal).
+//   - "Admin Permissions" is relabeled "Permissions" and "Master Data"
+//     moved to its own "Configuration" group, separate from
+//     "Administration" (Permissions + Audit Log).
 const SUPER_ADMIN_GROUPS = [
-  ...MANAGER_GROUPS.map((group) =>
-    group.label === 'Business Development'
-      ? { ...group, items: group.items.filter((item) => item.to !== '/enquiries') }
-      : group
-  ),
-  FINANCE_GROUP,
+  {
+    label: 'Overview',
+    items: [
+      { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { to: '/analytics', label: 'Analytics', icon: BarChart3 },
+      { to: '/reports', label: 'Reports', icon: FileBarChart },
+    ],
+  },
+  {
+    label: 'People & Organization',
+    items: [
+      { to: '/employees', label: 'Employees', icon: Users },
+      { to: '/interns', label: 'Interns', icon: GraduationCap },
+      { to: '/trainees', label: 'Trainees', icon: BookOpen },
+      { to: '/colleges', label: 'Colleges', icon: School },
+      { to: '/departments', label: 'Departments', icon: Building2 },
+    ],
+  },
+  {
+    label: 'Work Management',
+    items: [
+      { to: '/projects', label: 'Projects', icon: FolderKanban },
+      { to: '/tasks', label: 'Tasks', icon: ListChecks },
+      { to: '/work-updates', label: 'Work Updates', icon: FileText },
+    ],
+  },
+  {
+    label: 'Time & Attendance',
+    items: [
+      { to: '/attendance', label: 'Attendance', icon: Clock },
+      { to: '/leave', label: 'Leave', icon: CalendarOff },
+      { to: '/timesheets', label: 'Timesheets', icon: FileClock },
+    ],
+  },
+  {
+    label: 'Enquiries',
+    items: [{ to: '/enquiries', label: 'Enquiries', icon: MessageSquare }],
+  },
+  {
+    label: 'Finance',
+    items: [{ to: '/expenses', label: 'Expenses', icon: IndianRupee }],
+  },
+  {
+    label: 'Programs & Partnerships',
+    items: [
+      { to: '/workshops', label: 'Workshops', icon: Presentation },
+      { to: '/mous', label: 'MOUs', icon: FileSignature },
+    ],
+  },
+  {
+    label: 'Administration',
+    items: [
+      { to: '/configuration/permissions', label: 'Permissions', icon: ShieldCheck },
+      { to: '/configuration/audit-log', label: 'Audit Log', icon: History },
+    ],
+  },
   {
     label: 'Configuration',
-    items: [
-      { to: '/configuration/masters', label: 'Master Data', icon: Sliders },
-      { to: '/configuration/permissions', label: 'Admin Permissions', icon: ShieldCheck },
-      { to: '/configuration/audit-log', label: 'Audit Log', icon: History },
-      { to: '/configuration/notifications', label: 'Notifications', icon: Bell },
-      { to: '/configuration/custom-fields', label: 'Custom Fields', icon: ListPlus },
-      { to: '/configuration/document-settings', label: 'Document Settings', icon: FileCog },
-    ],
+    items: [{ to: '/configuration/masters', label: 'Master Data', icon: Sliders }],
   },
 ];
 

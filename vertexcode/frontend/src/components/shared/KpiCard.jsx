@@ -4,7 +4,12 @@ import { cn } from '@/lib/utils';
 const ACCENTS = {
   primary: 'bg-primary/10 text-primary',
   success: 'bg-success/15 text-success',
-  warning: 'bg-warning/20 text-warning-foreground dark:text-warning',
+  // `text-warning-foreground` (white) was previously used here — the app
+  // has no active dark theme (no `.dark` class is ever applied anywhere),
+  // so this rendered as white-on-pale-amber every time: poor contrast.
+  // `text-warning`, matching every other accent's own-color pattern below,
+  // fixes it.
+  warning: 'bg-warning/20 text-warning',
   destructive: 'bg-destructive/10 text-destructive',
   purple: 'bg-purple/15 text-purple',
   info: 'bg-info/15 text-info',
