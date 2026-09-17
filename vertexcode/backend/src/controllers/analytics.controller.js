@@ -2,6 +2,7 @@ const prisma = require('../config/db');
 const { sendSuccess } = require('../utils/apiResponse');
 const { computeInternshipStage } = require('../utils/internshipStage');
 const { evaluateRequiredDocs } = require('../utils/internDocumentRequirements');
+const { collegeScopeAnd } = require('../utils/hodScope');
 
 // UTC-anchored midnight for "n days ago" on the local calendar — see
 // attendance.controller.js's dayStart() for why plain setHours(0,0,0,0)
@@ -234,6 +235,167 @@ async function myPerformance(req, res) {
   });
 }
 
+// GET /api/analytics/hod-overview — HOD/Staff college-scoped student
+// monitoring dashboard (Interns + Trainees combined as "Students", plus
+// each broken out individually for the Students/Interns/Trainees tabs).
+// Scoped entirely to the caller's own collegeId/collegeDepartmentId (see
+// utils/hodScope.js) — never trusts any client-supplied college/department
+// parameter, so this cannot be used to probe another college's data. A
+// HOD/STAFF account with no college assigned (or any other role, which
+// never has one) gets `configured: false` rather than any fallback to
+// unrestricted data. HOD sees its whole college (every department); STAFF
+// is narrowed to its assigned department, if one is set — both enforced by
+// collegeScopeAnd, not by anything this function does itself.
+async function hodOverview(req, res) {
+  if (!req.user.collegeId) {
+    return sendSuccess(res, 200, { configured: false });
+  }
+
+  const scopeAnd = collegeScopeAnd(req.user);
+  const [college, collegeDepartment, internEnrollments, traineeEnrollments] = await Promise.all([
+    prisma.college.findUnique({ where: { id: req.user.collegeId }, select: { id: true, name: true } }),
+    req.user.collegeDepartmentId
+      ? prisma.collegeDepartment.findUnique({ where: { id: req.user.collegeDepartmentId }, select: { id: true, name: true } })
+      : Promise.resolve(null),
+    prisma.internEnrollment.findMany({
+      where: { AND: scopeAnd },
+      include: {
+        user: { select: { id: true, firstName: true, lastName: true, email: true, status: true } },
+        batch: { select: { name: true } },
+      },
+    }),
+    prisma.traineeEnrollment.findMany({
+      where: { AND: scopeAnd },
+      include: {
+        user: { select: { id: true, firstName: true, lastName: true, email: true, status: true } },
+        program: { select: { name: true } },
+      },
+    }),
+  ]);
+
+  const roster = [
+    ...internEnrollments.map((e) => ({
+      enrollmentId: e.id, userId: e.user.id, firstName: e.user.firstName, lastName: e.user.lastName,
+      email: e.user.email, accountStatus: e.user.status, type: 'INTERN',
+      group: e.batch?.name || null, completionStatus: e.completionStatus,
+    })),
+    ...traineeEnrollments.map((e) => ({
+      enrollmentId: e.id, userId: e.user.id, firstName: e.user.firstName, lastName: e.user.lastName,
+      email: e.user.email, accountStatus: e.user.status, type: 'TRAINEE',
+      group: e.program?.name || null, completionStatus: e.completionStatus,
+    })),
+  ];
+  const allUserIds = roster.map((r) => r.userId);
+  const since = daysAgo(30);
+  const todayStart = daysAgo(0);
+
+  const [statuses, tasks, attendanceToday, attendanceLast30, recentComments] = await Promise.all([
+    prisma.taskStatus.findMany({ select: { code: true, label: true, isFinal: true } }),
+    allUserIds.length
+      ? prisma.task.findMany({ where: { assigneeId: { in: allUserIds }, deletedAt: null }, select: { status: true, assigneeId: true } })
+      : Promise.resolve([]),
+    allUserIds.length
+      ? prisma.attendance.findMany({ where: { userId: { in: allUserIds }, date: todayStart }, select: { userId: true, status: true } })
+      : Promise.resolve([]),
+    allUserIds.length
+      ? prisma.attendance.findMany({ where: { userId: { in: allUserIds }, date: { gte: since } }, select: { status: true } })
+      : Promise.resolve([]),
+    allUserIds.length
+      ? prisma.taskComment.findMany({
+        where: { task: { assigneeId: { in: allUserIds } } },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        include: {
+          author: { select: { firstName: true, lastName: true } },
+          task: { select: { id: true, title: true, assigneeId: true } },
+        },
+      })
+      : Promise.resolve([]),
+  ]);
+
+  const finalCodes = new Set(statuses.filter((s) => s.isFinal).map((s) => s.code));
+  const statusLabelByCode = new Map(statuses.map((s) => [s.code, s.label]));
+  const tasksCompleted = tasks.filter((t) => finalCodes.has(t.status)).length;
+  const tasksByStatusCode = tasks.reduce((acc, t) => {
+    acc[t.status] = (acc[t.status] || 0) + 1;
+    return acc;
+  }, {});
+
+  const attendanceByStatus30 = attendanceLast30.reduce((acc, r) => {
+    acc[r.status] = (acc[r.status] || 0) + 1;
+    return acc;
+  }, {});
+  const todayStatusByUser = new Map(attendanceToday.map((a) => [a.userId, a.status]));
+
+  // Per-person task rollup and "latest comment", built from the same
+  // `tasks`/`recentComments` queries above — no per-person query loop.
+  const taskCountsByUser = new Map();
+  for (const t of tasks) {
+    const bucket = taskCountsByUser.get(t.assigneeId) || { assigned: 0, completed: 0 };
+    bucket.assigned += 1;
+    if (finalCodes.has(t.status)) bucket.completed += 1;
+    taskCountsByUser.set(t.assigneeId, bucket);
+  }
+  const nameByUser = new Map(roster.map((r) => [r.userId, `${r.firstName} ${r.lastName}`]));
+  const latestCommentByUser = new Map();
+  for (const c of recentComments) {
+    if (!latestCommentByUser.has(c.task.assigneeId)) {
+      latestCommentByUser.set(c.task.assigneeId, { body: c.body, createdAt: c.createdAt, authorName: `${c.author.firstName} ${c.author.lastName}` });
+    }
+  }
+
+  const rosterOut = roster.map((r) => {
+    const t = taskCountsByUser.get(r.userId) || { assigned: 0, completed: 0 };
+    return {
+      id: r.userId,
+      enrollmentId: r.enrollmentId,
+      name: `${r.firstName} ${r.lastName}`,
+      email: r.email,
+      type: r.type,
+      accountStatus: r.accountStatus,
+      completionStatus: r.completionStatus,
+      group: r.group,
+      todaysAttendance: todayStatusByUser.get(r.userId) || 'NOT_MARKED',
+      tasksAssigned: t.assigned,
+      tasksCompleted: t.completed,
+      tasksPending: t.assigned - t.completed,
+      latestUpdate: latestCommentByUser.get(r.userId) || null,
+    };
+  });
+
+  return sendSuccess(res, 200, {
+    configured: true,
+    scope: { college, collegeDepartment, role: req.user.role },
+    summary: {
+      totalStudents: roster.length,
+      activeStudents: roster.filter((r) => r.accountStatus === 'ACTIVE').length,
+      totalInterns: internEnrollments.length,
+      totalTrainees: traineeEnrollments.length,
+      todayPresent: attendanceToday.filter((a) => a.status === 'PRESENT' || a.status === 'LATE').length,
+    },
+    tasks: {
+      assigned: tasks.length,
+      completed: tasksCompleted,
+      pending: tasks.length - tasksCompleted,
+      byStatus: Object.entries(tasksByStatusCode).map(([code, count]) => ({ code, label: statusLabelByCode.get(code) || code, count })),
+    },
+    attendance: {
+      last30Days: attendanceByStatus30,
+      presentDays: (attendanceByStatus30.PRESENT || 0) + (attendanceByStatus30.LATE || 0),
+      totalRecords: attendanceLast30.length,
+    },
+    roster: rosterOut,
+    recentActivity: recentComments.map((c) => ({
+      id: c.id,
+      studentName: nameByUser.get(c.task.assigneeId) || 'Unknown',
+      taskTitle: c.task.title,
+      body: c.body,
+      authorName: `${c.author.firstName} ${c.author.lastName}`,
+      createdAt: c.createdAt,
+    })),
+  });
+}
+
 // GET /api/analytics/interns — intern program performance
 async function internPerformance(req, res) {
   const enrollments = await prisma.internEnrollment.findMany({
@@ -257,4 +419,4 @@ async function internPerformance(req, res) {
   return sendSuccess(res, 200, { enrollments, byStatus, averagePerformanceRating });
 }
 
-module.exports = { overview, teamPerformance, myPerformance, internPerformance };
+module.exports = { overview, teamPerformance, myPerformance, internPerformance, hodOverview };

@@ -2,6 +2,7 @@ const prisma = require('../config/db');
 const ApiError = require('../utils/apiError');
 const { sendSuccess } = require('../utils/apiResponse');
 const { recordAudit } = require('../utils/audit');
+const { isHodRole, collegeScopeAnd } = require('../utils/hodScope');
 
 // --- Training Programs -------------------------------------------------------
 
@@ -183,7 +184,10 @@ async function listEnrollments(req, res) {
     ? { completionStatus: completionStatuses.length === 1 ? completionStatuses[0] : { in: completionStatuses } }
     : null;
 
-  // SUPER_ADMIN: unrestricted. ADMIN: only trainees they mentor. TRAINEE: only their own.
+  // SUPER_ADMIN: unrestricted. HOD/STAFF: their authorized college (and
+  // department, for STAFF only — see utils/hodScope.js) — a HOD/STAFF
+  // account with no college assigned matches nothing. ADMIN: only trainees
+  // they mentor. TRAINEE: only their own.
   let where;
   if (req.user.role === 'SUPER_ADMIN') {
     where = {
@@ -191,6 +195,15 @@ async function listEnrollments(req, res) {
       ...(mentorId && { mentorId }),
       ...(completionStatusClause && completionStatusClause),
       user: userClause,
+    };
+  } else if (isHodRole(req.user.role)) {
+    where = {
+      AND: [
+        ...collegeScopeAnd(req.user),
+        ...(programId ? [{ programId }] : []),
+        ...(completionStatusClause ? [completionStatusClause] : []),
+        { user: userClause },
+      ],
     };
   } else if (req.user.role === 'ADMIN') {
     where = {
@@ -218,6 +231,8 @@ async function listEnrollments(req, res) {
         user: { select: { id: true, firstName: true, lastName: true, email: true, status: true, exitDate: true } },
         program: true,
         mentor: { select: { id: true, firstName: true, lastName: true } },
+        college: { select: { id: true, name: true } },
+        collegeDeptRef: { select: { id: true, name: true } },
         _count: { select: { payments: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -280,7 +295,10 @@ async function getEnrollment(req, res) {
 }
 
 async function enrollTrainee(req, res) {
-  const { userId, programId, mentorId, education, qualification, experienceYears, trainingStartDate, trainingEndDate, totalFee, discount, finalFee, notes } = req.body;
+  const {
+    userId, programId, mentorId, education, qualification, experienceYears, trainingStartDate, trainingEndDate,
+    totalFee, discount, finalFee, notes, collegeId, collegeDepartmentId,
+  } = req.body;
   if (!userId || !programId) throw new ApiError(400, 'userId and programId are required');
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -293,6 +311,10 @@ async function enrollTrainee(req, res) {
       trainingStartDate: trainingStartDate ? new Date(trainingStartDate) : null,
       trainingEndDate: trainingEndDate ? new Date(trainingEndDate) : null,
       totalFee: totalFee ?? null, discount: discount ?? null, finalFee: finalFee ?? null, notes,
+      // Real FK college/department scoping — what HOD/STAFF monitoring
+      // filters on (see utils/hodScope.js).
+      collegeId: collegeId || null,
+      collegeDepartmentId: collegeDepartmentId || null,
     },
   });
 
@@ -310,7 +332,7 @@ async function updateEnrollment(req, res) {
   if (!before) throw new ApiError(404, 'Enrollment not found');
   assertTraineeAccess(req, before);
 
-  const { mentorId, completionStatus, trainingStartDate, trainingEndDate, totalFee, discount, finalFee, notes } = req.body;
+  const { mentorId, completionStatus, trainingStartDate, trainingEndDate, totalFee, discount, finalFee, notes, collegeId, collegeDepartmentId } = req.body;
   // TERMINATED is reserved for the dedicated delete/restore flow below,
   // which keeps completionStatus and the linked User.status in sync — same
   // guard as intern.controller.js's updateEnrollment, for the same reason
@@ -330,6 +352,8 @@ async function updateEnrollment(req, res) {
       ...(discount !== undefined && { discount }),
       ...(finalFee !== undefined && { finalFee }),
       ...(notes !== undefined && { notes }),
+      ...(collegeId !== undefined && { collegeId: collegeId || null }),
+      ...(collegeDepartmentId !== undefined && { collegeDepartmentId: collegeDepartmentId || null }),
     },
   });
 

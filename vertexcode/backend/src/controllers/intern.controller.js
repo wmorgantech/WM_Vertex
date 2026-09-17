@@ -12,6 +12,7 @@ const { recordAudit } = require('../utils/audit');
 const { notify } = require('../utils/notify');
 const { evaluateRequiredDocs } = require('../utils/internDocumentRequirements');
 const { computeEmployeeCode } = require('../utils/employeeCode');
+const { isHodRole, collegeScopeAnd } = require('../utils/hodScope');
 
 const CATEGORY_LABELS = { FREE_INTERNSHIP: 'Free Internship', JOT: 'Job Oriented Training (JOT)' };
 
@@ -255,9 +256,12 @@ async function listEnrollments(req, res) {
     ? { completionStatus: completionStatuses.length === 1 ? completionStatuses[0] : { in: completionStatuses } }
     : null;
 
-  // SUPER_ADMIN: unrestricted. Everyone else: interns they mentor (includes
-  // Admins, and any employee who added an intern and defaulted to mentoring
-  // them — see enrollIntern) plus their own enrollment if they have one.
+  // SUPER_ADMIN: unrestricted. HOD/STAFF: their authorized college (and
+  // department, if further narrowed) only — see utils/hodScope.js; a
+  // HOD/STAFF account with no college assigned matches nothing. Everyone
+  // else: interns they mentor (includes Admins, and any employee who added
+  // an intern and defaulted to mentoring them — see enrollIntern) plus
+  // their own enrollment if they have one.
   let where;
   if (req.user.role === 'SUPER_ADMIN') {
     where = {
@@ -265,6 +269,15 @@ async function listEnrollments(req, res) {
       ...(mentorId && { mentorId }),
       ...(completionStatusClause && completionStatusClause),
       ...(hasUserClause && { user: userClause }),
+    };
+  } else if (isHodRole(req.user.role)) {
+    where = {
+      AND: [
+        ...collegeScopeAnd(req.user),
+        ...(batchId ? [{ batchId }] : []),
+        ...(completionStatusClause ? [completionStatusClause] : []),
+        ...(hasUserClause ? [{ user: userClause }] : []),
+      ],
     };
   } else {
     // The owner-scoping OR and the other filters must stay in separate AND
@@ -295,6 +308,8 @@ async function listEnrollments(req, res) {
         user: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, status: true, joinDate: true, exitDate: true } },
         batch: true,
         mentor: { select: { id: true, firstName: true, lastName: true } },
+        college: { select: { id: true, name: true } },
+        collegeDeptRef: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: 'desc' },
       ...(paginate && { take, skip }),
@@ -315,7 +330,7 @@ async function listEnrollments(req, res) {
 // never creates or modifies a User row, only the enrollment linking them to
 // a batch.
 async function enrollIntern(req, res) {
-  const { userId, batchId, mentorId, stipend, notes, category } = req.body;
+  const { userId, batchId, mentorId, stipend, notes, category, collegeId, collegeDepartmentId } = req.body;
   if (!userId || !batchId) throw new ApiError(400, 'userId and batchId are required');
   if (category && !['FREE_INTERNSHIP', 'JOT'].includes(category)) {
     throw new ApiError(400, 'category must be FREE_INTERNSHIP or JOT');
@@ -340,7 +355,14 @@ async function enrollIntern(req, res) {
   const effectiveMentorId = mentorId || (req.user.role !== 'SUPER_ADMIN' ? req.user.id : null);
 
   const enrollment = await prisma.internEnrollment.create({
-    data: { userId, batchId, mentorId: effectiveMentorId, stipend, notes, category: category || null },
+    data: {
+      userId, batchId, mentorId: effectiveMentorId, stipend, notes, category: category || null,
+      // Real FK college/department scoping (additive alongside the
+      // intern's own free-text collegeName/collegeDepartment self-service
+      // fields, unchanged) — this is what HOD/STAFF monitoring filters on.
+      collegeId: collegeId || null,
+      collegeDepartmentId: collegeDepartmentId || null,
+    },
   });
   await recordAudit({
     actorId: req.user.id, action: 'CREATED', module: 'INTERN_ENROLLMENT', entityId: enrollment.id,
@@ -351,7 +373,7 @@ async function enrollIntern(req, res) {
 }
 
 async function updateEnrollment(req, res) {
-  const { mentorId, completionStatus, performanceRating, progressPercent, stipend, notes, category } = req.body;
+  const { mentorId, completionStatus, performanceRating, progressPercent, stipend, notes, category, collegeId, collegeDepartmentId } = req.body;
   if (category && !['FREE_INTERNSHIP', 'JOT'].includes(category)) {
     throw new ApiError(400, 'category must be FREE_INTERNSHIP or JOT');
   }
@@ -386,6 +408,8 @@ async function updateEnrollment(req, res) {
       ...(stipend !== undefined && { stipend }),
       ...(notes !== undefined && { notes }),
       ...(category !== undefined && { category: category || null }),
+      ...(collegeId !== undefined && { collegeId: collegeId || null }),
+      ...(collegeDepartmentId !== undefined && { collegeDepartmentId: collegeDepartmentId || null }),
     },
   });
 

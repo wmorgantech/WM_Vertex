@@ -286,6 +286,14 @@ model User {
   updatedAt                DateTime                @updatedAt
   locationId               String?
   employmentType           String                  @default("FULL_TIME")
+  // HOD/STAFF authorization scope — which college (and optionally
+  // department within it) this account may monitor intern/student data for.
+  // Meaningless for every other role; left null there. There is no
+  // "unscoped HOD" — a HOD/STAFF account with collegeId null sees nothing
+  // (see intern.controller.js listEnrollments and analytics.controller.js
+  // hodOverview), rather than falling back to unrestricted access.
+  collegeId                String?
+  collegeDepartmentId      String?
   address                  String?
   certifications           String[]                @default([])
   dateOfBirth              DateTime?
@@ -332,6 +340,8 @@ model User {
   designationRef           Designation?            @relation("UserDesignation", fields: [designation], references: [name])
   employmentTypeRef        EmploymentType          @relation(fields: [employmentType], references: [code])
   location                 Location?               @relation(fields: [locationId], references: [id])
+  authorizedCollege        College?                @relation("UserAuthorizedCollege", fields: [collegeId], references: [id])
+  authorizedCollegeDept    CollegeDepartment?      @relation("UserAuthorizedCollegeDept", fields: [collegeDepartmentId], references: [id])
   manager                  User?                   @relation("ManagerHierarchy", fields: [managerId], references: [id])
   directReports            User[]                  @relation("ManagerHierarchy")
   assignedWorkshops        Workshop[]              @relation("WorkshopAssignee")
@@ -400,6 +410,12 @@ model InternEnrollment {
   collegeName         String?
   course              String?
   hodName             String?
+  // Real FK scoping, additive alongside the free-text collegeName/
+  // collegeDepartment above (kept as-is, unchanged) — existing enrollments
+  // have these null until explicitly linked; only new/edited enrollments
+  // set them. This is what HOD/STAFF college-scoping actually filters on.
+  collegeId           String?
+  collegeDepartmentId String?
   internshipEndDate   DateTime?
   internshipStartDate DateTime?
   registerNumber      String?
@@ -415,6 +431,8 @@ model InternEnrollment {
   finalApprovedBy     User?                  @relation("EnrollmentFinalApprover", fields: [finalApprovedById], references: [id])
   mentor              User?                  @relation("InternMentor", fields: [mentorId], references: [id])
   user                User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  college             College?               @relation(fields: [collegeId], references: [id])
+  collegeDeptRef      CollegeDepartment?     @relation(fields: [collegeDepartmentId], references: [id])
   auditLogs           InternshipAudit[]
   offerLetter         OfferLetter?
 }
@@ -539,28 +557,36 @@ model TrainingTopic {
 }
 
 model TraineeEnrollment {
-  id                String                 @id @default(uuid())
-  userId            String                 @unique
-  programId         String
-  mentorId          String?
-  completionStatus  InternCompletionStatus @default(IN_PROGRESS)
-  progressPercent   Int                    @default(0)
-  education         String?
-  qualification     String?
-  experienceYears   Float?
-  trainingStartDate DateTime?
-  trainingEndDate   DateTime?
-  totalFee          Float?
-  discount          Float?
-  finalFee          Float?
-  notes             String?
-  createdAt         DateTime               @default(now())
-  updatedAt         DateTime               @updatedAt
-  mentor            User?                  @relation("TraineeMentor", fields: [mentorId], references: [id])
-  program           TrainingProgram        @relation(fields: [programId], references: [id])
-  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  payments          TraineePayment[]
-  topicProgress     TraineeTopicProgress[]
+  id                  String                 @id @default(uuid())
+  userId              String                 @unique
+  programId           String
+  mentorId            String?
+  completionStatus    InternCompletionStatus @default(IN_PROGRESS)
+  progressPercent     Int                    @default(0)
+  education           String?
+  qualification       String?
+  experienceYears     Float?
+  trainingStartDate   DateTime?
+  trainingEndDate     DateTime?
+  totalFee            Float?
+  discount            Float?
+  finalFee            Float?
+  notes               String?
+  // Real FK college/department scoping, same purpose and pattern as
+  // InternEnrollment's collegeId/collegeDepartmentId — this is what
+  // HOD/STAFF college-scoped monitoring filters Trainees on. Null until an
+  // admin explicitly links a trainee's enrollment to a college.
+  collegeId           String?
+  collegeDepartmentId String?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  mentor              User?                  @relation("TraineeMentor", fields: [mentorId], references: [id])
+  program             TrainingProgram        @relation(fields: [programId], references: [id])
+  user                User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  college             College?               @relation(fields: [collegeId], references: [id])
+  collegeDeptRef      CollegeDepartment?     @relation(fields: [collegeDepartmentId], references: [id])
+  payments            TraineePayment[]
+  topicProgress       TraineeTopicProgress[]
 }
 
 model TraineeTopicProgress {
@@ -618,43 +644,49 @@ model TraineePayment {
 }
 
 model College {
-  id            String              @id @default(uuid())
-  name          String              @unique
-  typeCode      String?
-  university    String?
-  address       String?
-  city          String?
-  district      String?
-  state         String?
-  website       String?
-  contactPerson String?
-  phone         String?
-  email         String?
-  coordinator   String?
-  active        Boolean             @default(true)
-  deletedAt     DateTime?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
-  type          CollegeType?        @relation(fields: [typeCode], references: [code])
-  departments   CollegeDepartment[]
-  mous          MOU[]
-  workshops     Workshop[]
-  enquiries     Enquiry[]
+  id                 String              @id @default(uuid())
+  name               String              @unique
+  typeCode           String?
+  university         String?
+  address            String?
+  city               String?
+  district           String?
+  state              String?
+  website            String?
+  contactPerson      String?
+  phone              String?
+  email              String?
+  coordinator        String?
+  active             Boolean             @default(true)
+  deletedAt          DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  type               CollegeType?        @relation(fields: [typeCode], references: [code])
+  departments        CollegeDepartment[]
+  mous               MOU[]
+  workshops          Workshop[]
+  enquiries          Enquiry[]
+  enrollments        InternEnrollment[]
+  traineeEnrollments TraineeEnrollment[]
+  authorizedUsers    User[]              @relation("UserAuthorizedCollege")
 }
 
 model CollegeDepartment {
-  id            String     @id @default(uuid())
-  collegeId     String
-  name          String
-  contactPerson String?
-  contactPhone  String?
-  contactEmail  String?
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-  college       College    @relation(fields: [collegeId], references: [id], onDelete: Cascade)
-  mous          MOU[]
-  workshops     Workshop[]
-  enquiries     Enquiry[]
+  id                 String              @id @default(uuid())
+  collegeId          String
+  name               String
+  contactPerson      String?
+  contactPhone       String?
+  contactEmail       String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  college            College             @relation(fields: [collegeId], references: [id], onDelete: Cascade)
+  mous               MOU[]
+  workshops          Workshop[]
+  enquiries          Enquiry[]
+  enrollments        InternEnrollment[]
+  traineeEnrollments TraineeEnrollment[]
+  authorizedUsers    User[]              @relation("UserAuthorizedCollegeDept")
 
   @@unique([collegeId, name])
 }

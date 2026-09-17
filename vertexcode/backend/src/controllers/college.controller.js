@@ -4,6 +4,7 @@ const prisma = require('../config/db');
 const ApiError = require('../utils/apiError');
 const { sendSuccess } = require('../utils/apiResponse');
 const { recordAudit } = require('../utils/audit');
+const { isHodRole } = require('../utils/hodScope');
 
 const MOU_EXPIRY_WARNING_DAYS = 30;
 
@@ -19,8 +20,29 @@ function scopeWhere(scope) {
   return { deletedAt: null };
 }
 
+// HOD/Staff have no legitimate use for the full business-development
+// college directory (Enquiries/Workshops/MOUs, where GET /colleges is
+// otherwise used, aren't in their nav) — the only college data they need is
+// their own authorized one, which their nav already surfaces via the
+// scoped analytics/hod-overview endpoint. Restricting here is defense in
+// depth: even a direct API call can't read another college's contact
+// details/address/etc.
 async function listColleges(req, res) {
   const { search, scope, status, location } = req.query;
+
+  if (isHodRole(req.user.role)) {
+    if (!req.user.collegeId) return sendSuccess(res, 200, []);
+    const own = await prisma.college.findMany({
+      where: { id: req.user.collegeId, deletedAt: null },
+      include: {
+        type: true,
+        departments: { orderBy: { createdAt: 'desc' } },
+        _count: { select: { workshops: true, mous: true } },
+      },
+    });
+    return sendSuccess(res, 200, own);
+  }
+
   const colleges = await prisma.college.findMany({
     where: {
       ...scopeWhere(scope),
@@ -48,6 +70,14 @@ async function listColleges(req, res) {
 }
 
 async function getCollege(req, res) {
+  // Same restriction as listColleges — a HOD/STAFF account may only fetch
+  // their own authorized college by id, not any other college's detail
+  // (workshops/MOUs included in this response are Business Development
+  // data outside their monitoring workflow entirely).
+  if (isHodRole(req.user.role) && req.params.id !== req.user.collegeId) {
+    throw new ApiError(403, 'Not authorized to view this college');
+  }
+
   const college = await prisma.college.findUnique({
     where: { id: req.params.id },
     include: {
