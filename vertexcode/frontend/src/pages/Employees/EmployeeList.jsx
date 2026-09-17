@@ -21,7 +21,9 @@ import { downloadReport, downloadCsv } from '../../lib/download';
 const emptyForm = {
   email: '', password: '', firstName: '', lastName: '', role: 'EMPLOYEE',
   designation: '', employmentType: 'FULL_TIME', departmentId: '', managerId: '', locationId: '',
+  collegeId: '', collegeDepartmentId: '',
 };
+const HOD_ROLES = ['HOD', 'STAFF'];
 
 const listToText = (arr) => (arr || []).join(', ');
 const textToList = (text) => text.split(',').map((s) => s.trim()).filter(Boolean);
@@ -30,6 +32,7 @@ const buildEditForm = (u) => ({
   firstName: u.firstName, lastName: u.lastName, email: u.email, phone: u.phone || '',
   role: u.role, designation: u.designation || '', employmentType: u.employmentType,
   departmentId: u.departmentId || '', locationId: u.locationId || '', managerId: u.managerId || '',
+  collegeId: u.collegeId || '', collegeDepartmentId: u.collegeDepartmentId || '',
   joinDate: u.joinDate ? u.joinDate.slice(0, 10) : '',
   gender: u.gender || '', dateOfBirth: u.dateOfBirth ? u.dateOfBirth.slice(0, 10) : '',
   address: u.address || '', experienceYears: u.experienceYears ?? '',
@@ -71,6 +74,7 @@ export default function EmployeeList() {
   const [departments, setDepartments] = useState([]);
   const [designations, setDesignations] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [colleges, setColleges] = useState([]);
   const [employmentTypes, setEmploymentTypes] = useState([]);
   const [managers, setManagers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -158,11 +162,12 @@ export default function EmployeeList() {
       api.get('/masters/locations'),
       api.get('/masters/employment-types'),
       api.get('/users'),
+      api.get('/colleges'),
       countCall('ACTIVE'),
       countCall('ON_LEAVE,SUSPENDED,ALUMNI'),
       countCall('TERMINATED'),
     ])
-      .then(([u, d, des, loc, et, all, activeCount, inactiveCount, trashCount]) => {
+      .then(([u, d, des, loc, et, all, colls, activeCount, inactiveCount, trashCount]) => {
         if (u.status === 'fulfilled') {
           setUsers(u.value.data.data);
           setMeta(u.value.data.meta || null);
@@ -175,6 +180,7 @@ export default function EmployeeList() {
         if (loc.status === 'fulfilled') setLocations(loc.value.data.data.filter((x) => x.active));
         if (et.status === 'fulfilled') setEmploymentTypes(et.value.data.data.filter((x) => x.active));
         if (all.status === 'fulfilled') setManagers(all.value.data.data.filter((x) => ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'].includes(x.role)));
+        if (colls.status === 'fulfilled') setColleges(colls.value.data.data);
         // Each card updates independently from whichever count call actually
         // succeeded — a single transient failure (e.g. a 429) must not zero
         // out the other two cards along with it.
@@ -185,7 +191,7 @@ export default function EmployeeList() {
           return { total: active + inactive + trash, active, inactive, trash };
         });
 
-        const failed = [u, d, des, loc, et, all, activeCount, inactiveCount, trashCount].find((r) => r.status === 'rejected');
+        const failed = [u, d, des, loc, et, all, colls, activeCount, inactiveCount, trashCount].find((r) => r.status === 'rejected');
         if (failed) {
           const status = failed.reason?.response?.status;
           const message = status === 429
@@ -221,6 +227,8 @@ export default function EmployeeList() {
         departmentId: form.departmentId || null,
         managerId: form.managerId || null,
         locationId: form.locationId || null,
+        collegeId: form.collegeId || null,
+        collegeDepartmentId: form.collegeDepartmentId || null,
       });
       toast.success('Employee created');
       setShowModal(false);
@@ -255,6 +263,8 @@ export default function EmployeeList() {
         departmentId: editForm.departmentId || null,
         locationId: editForm.locationId || null,
         managerId: editForm.managerId || null,
+        collegeId: editForm.collegeId || null,
+        collegeDepartmentId: editForm.collegeDepartmentId || null,
         joinDate: editForm.joinDate || null,
         dateOfBirth: editForm.dateOfBirth || null,
         experienceYears: editForm.experienceYears === '' ? null : Number(editForm.experienceYears),
@@ -671,6 +681,36 @@ export default function EmployeeList() {
                 {isSuperAdmin && <option value="ADMIN">Admin</option>}
               </select>
             </label>
+            {/* HOD monitors its whole college (every department) — no
+                department picker. Staff is narrowed to one department,
+                required, so its scope is never accidentally left
+                college-wide. Backend force-clears collegeDepartmentId for
+                HOD regardless of what's sent (see user.controller.js) —
+                this UI difference isn't the only enforcement. */}
+            {form.role === 'HOD' && (
+              <label>Authorized College
+                <select required value={form.collegeId} onChange={(e) => setForm({ ...form, collegeId: e.target.value, collegeDepartmentId: '' })}>
+                  <option value="">— Select —</option>
+                  {colleges.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </label>
+            )}
+            {form.role === 'STAFF' && (
+              <>
+                <label>Authorized College
+                  <select required value={form.collegeId} onChange={(e) => setForm({ ...form, collegeId: e.target.value, collegeDepartmentId: '' })}>
+                    <option value="">— Select —</option>
+                    {colleges.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </label>
+                <label>Authorized Department
+                  <select required value={form.collegeDepartmentId} onChange={(e) => setForm({ ...form, collegeDepartmentId: e.target.value })}>
+                    <option value="">— Select —</option>
+                    {colleges.find((c) => c.id === form.collegeId)?.departments?.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </label>
+              </>
+            )}
             <label>Employment Type
               <select value={form.employmentType} onChange={(e) => setForm({ ...form, employmentType: e.target.value })}>
                 {employmentTypes.map((et) => <option key={et.code} value={et.code}>{et.label}</option>)}
@@ -722,6 +762,17 @@ export default function EmployeeList() {
                 <DetailField label="Location" value={viewingUser.location?.name} />
                 <DetailField label="Manager" value={viewingUser.manager ? `${viewingUser.manager.firstName} ${viewingUser.manager.lastName}` : null} />
                 <DetailField label="Join Date" value={viewingUser.joinDate ? new Date(viewingUser.joinDate).toLocaleDateString() : null} />
+                {HOD_ROLES.includes(viewingUser.role) && (
+                  <>
+                    <DetailField label="Authorized College" value={viewingUser.authorizedCollege?.name || 'Not configured'} />
+                    {viewingUser.role === 'STAFF' && (
+                      <DetailField label="Authorized Department" value={viewingUser.authorizedCollegeDept?.name || 'Not configured'} />
+                    )}
+                    {viewingUser.role === 'HOD' && (
+                      <DetailField label="Scope" value="Whole college (all departments)" />
+                    )}
+                  </>
+                )}
               </div>
             </div>
 
@@ -770,6 +821,30 @@ export default function EmployeeList() {
                 {isSuperAdmin && <option value="SUPER_ADMIN">Super Admin</option>}
               </select>
             </label>
+            {editForm.role === 'HOD' && (
+              <label>Authorized College
+                <select required value={editForm.collegeId} onChange={(e) => setEditForm({ ...editForm, collegeId: e.target.value, collegeDepartmentId: '' })}>
+                  <option value="">— Select —</option>
+                  {colleges.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </label>
+            )}
+            {editForm.role === 'STAFF' && (
+              <>
+                <label>Authorized College
+                  <select required value={editForm.collegeId} onChange={(e) => setEditForm({ ...editForm, collegeId: e.target.value, collegeDepartmentId: '' })}>
+                    <option value="">— Select —</option>
+                    {colleges.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </label>
+                <label>Authorized Department
+                  <select required value={editForm.collegeDepartmentId} onChange={(e) => setEditForm({ ...editForm, collegeDepartmentId: e.target.value })}>
+                    <option value="">— Select —</option>
+                    {colleges.find((c) => c.id === editForm.collegeId)?.departments?.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </label>
+              </>
+            )}
             <label>Designation
               <select value={editForm.designation} onChange={(e) => setEditForm({ ...editForm, designation: e.target.value })}>
                 <option value="">— None —</option>

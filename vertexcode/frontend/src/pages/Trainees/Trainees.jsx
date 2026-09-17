@@ -69,6 +69,7 @@ export default function Trainees() {
   const [selectedProgramId, setSelectedProgramId] = useState('');
   const [users, setUsers] = useState([]);
   const [enrollableTrainees, setEnrollableTrainees] = useState([]);
+  const [colleges, setColleges] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState(null);
@@ -114,12 +115,13 @@ export default function Trainees() {
       api.get('/trainees/programs'),
       api.get('/users'),
       api.get('/trainees/enrollable-users'),
+      api.get('/colleges'),
       countCall(undefined), // grand total, no completionStatus filter — includes Trash, same convention as Employees/Interns' Total card
       countCall('IN_PROGRESS'),
       countCall('COMPLETED,EXTENDED,CONVERTED_TO_EMPLOYEE'),
       countCall('TERMINATED'),
     ])
-      .then(([e, p, u, en, totalCount, activeCount, inactiveCount, trashCount]) => {
+      .then(([e, p, u, en, colls, totalCount, activeCount, inactiveCount, trashCount]) => {
         if (e.status === 'fulfilled') {
           setEnrollments(e.value.data.data);
           setMeta(e.value.data.meta || null);
@@ -131,6 +133,7 @@ export default function Trainees() {
         }
         if (u.status === 'fulfilled') setUsers(u.value.data.data);
         if (en.status === 'fulfilled') setEnrollableTrainees(en.value.data.data);
+        if (colls.status === 'fulfilled') setColleges(colls.value.data.data);
         // Total counts every enrollment regardless of status — Active +
         // Inactive (COMPLETED/EXTENDED/CONVERTED_TO_EMPLOYEE) + Trash, same
         // bucket definitions Interns' summary cards use. Each card updates
@@ -143,7 +146,7 @@ export default function Trainees() {
           trash: trashCount.status === 'fulfilled' ? (trashCount.value.data.meta?.total ?? 0) : prev.trash,
         }));
 
-        const failed = [e, p, u, en, totalCount, activeCount, inactiveCount, trashCount].find((r) => r.status === 'rejected');
+        const failed = [e, p, u, en, colls, totalCount, activeCount, inactiveCount, trashCount].find((r) => r.status === 'rejected');
         if (failed) {
           const status = failed.reason?.response?.status;
           const message = status === 429
@@ -371,6 +374,8 @@ export default function Trainees() {
       discount: r.discount ?? '',
       finalFee: r.finalFee ?? '',
       notes: r.notes || '',
+      collegeId: r.collegeId || '',
+      collegeDepartmentId: r.collegeDepartmentId || '',
     });
   };
 
@@ -386,6 +391,8 @@ export default function Trainees() {
         totalFee: numOrNull(traineeEditForm.totalFee),
         discount: numOrNull(traineeEditForm.discount),
         finalFee: numOrNull(traineeEditForm.finalFee),
+        collegeId: traineeEditForm.collegeId || null,
+        collegeDepartmentId: traineeEditForm.collegeDepartmentId || null,
       });
       toast.success('Trainee enrollment updated');
       setEditingTrainee(null);
@@ -870,6 +877,22 @@ export default function Trainees() {
             <label>Discount<input type="number" value={traineeEditForm.discount} onChange={(e) => setTraineeEditForm({ ...traineeEditForm, discount: e.target.value })} /></label>
             <label>Final Fee<input type="number" value={traineeEditForm.finalFee} onChange={(e) => setTraineeEditForm({ ...traineeEditForm, finalFee: e.target.value })} /></label>
             <label>Notes<textarea value={traineeEditForm.notes} onChange={(e) => setTraineeEditForm({ ...traineeEditForm, notes: e.target.value })} /></label>
+            {/* Real College/CollegeDepartment link — this is what HOD/Staff
+                college-scoped monitoring filters on. */}
+            <label>College (for HOD/Staff monitoring)
+              <select value={traineeEditForm.collegeId} onChange={(e) => setTraineeEditForm({ ...traineeEditForm, collegeId: e.target.value, collegeDepartmentId: '' })}>
+                <option value="">— None —</option>
+                {colleges.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </label>
+            {colleges.find((c) => c.id === traineeEditForm.collegeId)?.departments?.length > 0 && (
+              <label>College Department
+                <select value={traineeEditForm.collegeDepartmentId} onChange={(e) => setTraineeEditForm({ ...traineeEditForm, collegeDepartmentId: e.target.value })}>
+                  <option value="">— None —</option>
+                  {colleges.find((c) => c.id === traineeEditForm.collegeId).departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </label>
+            )}
             <div className="form-actions">
               <button type="button" className="btn btn-ghost" onClick={() => setEditingTrainee(null)}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={savingTraineeEdit}>{savingTraineeEdit ? 'Saving...' : 'Save'}</button>

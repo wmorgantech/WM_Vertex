@@ -74,6 +74,7 @@ export default function Interns() {
   const [users, setUsers] = useState([]);
   const [enrollableInterns, setEnrollableInterns] = useState([]);
   const [designations, setDesignations] = useState([]);
+  const [colleges, setColleges] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -140,12 +141,13 @@ export default function Interns() {
     // any failure is surfaced instead of silently rendering an empty table.
     Promise.allSettled([
       enrollmentsCall, api.get('/interns/batches'), usersCall, enrollableCall, api.get('/masters/designations'),
+      api.get('/colleges'),
       countCall(undefined, undefined),
       countCall('ACTIVE', 'IN_PROGRESS'),
       countCall('ACTIVE', 'COMPLETED,EXTENDED,CONVERTED_TO_EMPLOYEE'),
       countCall('TERMINATED', undefined),
     ])
-      .then(([e, b, u, en, des, totalCount, activeCount, inactiveCount, trashCount]) => {
+      .then(([e, b, u, en, des, colls, totalCount, activeCount, inactiveCount, trashCount]) => {
         if (e.status === 'fulfilled') {
           setEnrollments(e.value.data.data);
           setMeta(e.value.data.meta || null);
@@ -157,6 +159,7 @@ export default function Interns() {
         if (u.status === 'fulfilled') setUsers(u.value.data.data);
         if (en.status === 'fulfilled') setEnrollableInterns(en.value.data.data);
         if (des.status === 'fulfilled') setDesignations(des.value.data.data.filter((d) => d.active));
+        if (colls.status === 'fulfilled') setColleges(colls.value.data.data);
         // Each card updates independently from whichever count call
         // succeeded, so one transient failure doesn't zero out the others.
         setSummary((prev) => ({
@@ -166,7 +169,7 @@ export default function Interns() {
           trash: trashCount.status === 'fulfilled' ? (trashCount.value.data.meta?.total ?? 0) : prev.trash,
         }));
 
-        const failed = [e, b, u, en, des, totalCount, activeCount, inactiveCount, trashCount].find((r) => r.status === 'rejected');
+        const failed = [e, b, u, en, des, colls, totalCount, activeCount, inactiveCount, trashCount].find((r) => r.status === 'rejected');
         if (failed) {
           const status = failed.reason?.response?.status;
           const message = status === 429
@@ -323,6 +326,8 @@ export default function Interns() {
       stipend: r.stipend ?? '',
       category: r.category || '',
       notes: r.notes || '',
+      collegeId: r.collegeId || '',
+      collegeDepartmentId: r.collegeDepartmentId || '',
     });
     setProfileEditForm({
       firstName: r.user.firstName,
@@ -343,6 +348,8 @@ export default function Interns() {
         progressPercent: enrollEditForm.progressPercent === '' ? 0 : Number(enrollEditForm.progressPercent),
         stipend: enrollEditForm.stipend === '' ? null : Number(enrollEditForm.stipend),
         category: enrollEditForm.category || null,
+        collegeId: enrollEditForm.collegeId || null,
+        collegeDepartmentId: enrollEditForm.collegeDepartmentId || null,
       });
       toast.success('Enrollment updated');
       setEditingEnrollment(null);
@@ -756,6 +763,24 @@ export default function Interns() {
               </select>
             </label>
             <label>Notes<textarea value={enrollEditForm.notes} onChange={(e) => setEnrollEditForm({ ...enrollEditForm, notes: e.target.value })} /></label>
+            {/* Real College/CollegeDepartment link — this is what HOD/Staff
+                college-scoped monitoring filters on; separate from (and
+                additive to) this intern's own free-text College fields on
+                their profile below, which stay self-service/unchanged. */}
+            <label>College (for HOD/Staff monitoring)
+              <select value={enrollEditForm.collegeId} onChange={(e) => setEnrollEditForm({ ...enrollEditForm, collegeId: e.target.value, collegeDepartmentId: '' })}>
+                <option value="">— None —</option>
+                {colleges.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </label>
+            {colleges.find((c) => c.id === enrollEditForm.collegeId)?.departments?.length > 0 && (
+              <label>College Department
+                <select value={enrollEditForm.collegeDepartmentId} onChange={(e) => setEnrollEditForm({ ...enrollEditForm, collegeDepartmentId: e.target.value })}>
+                  <option value="">— None —</option>
+                  {colleges.find((c) => c.id === enrollEditForm.collegeId).departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </label>
+            )}
             <div className="form-actions">
               <button type="button" className="btn btn-ghost" onClick={() => setEditingEnrollment(null)}>Close</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save Enrollment'}</button>
