@@ -61,7 +61,7 @@ export default function Tasks() {
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
-  const [summary, setSummary] = useState({ total: 0, inProgress: 0, blocked: 0, unallocated: 0 });
+  const [summary, setSummary] = useState({ total: 0, inProgress: 0, blocked: 0, unallocated: 0, trash: 0 });
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', type: 'DAILY', priority: 'MEDIUM', dueDate: '', assigneeId: '', projectId: '' });
   const [saving, setSaving] = useState(false);
@@ -150,6 +150,9 @@ export default function Tasks() {
         api.get('/tasks', { params: { status: 'BLOCKED', limit: 1 } }),
         api.get('/tasks', { params: { unallocated: 'true', limit: 1 } }),
       );
+      if (isSuperAdmin) {
+        calls.push(api.get('/tasks', { params: { scope: 'trash', limit: 1 } }));
+      }
     }
     Promise.allSettled(calls).then((results) => {
       const [t, st, pr, ty, u, p] = results;
@@ -164,12 +167,13 @@ export default function Tasks() {
       if (u?.status === 'fulfilled') setUsers(u.value.data.data);
       if (p?.status === 'fulfilled') setProjects(p.value.data.data);
       if (isManager) {
-        const [totalC, inProgressC, blockedC, unallocatedC] = results.slice(countStart);
+        const [totalC, inProgressC, blockedC, unallocatedC, trashC] = results.slice(countStart);
         setSummary((prev) => ({
           total: totalC.status === 'fulfilled' ? (totalC.value.data.meta?.total ?? 0) : prev.total,
           inProgress: inProgressC.status === 'fulfilled' ? (inProgressC.value.data.meta?.total ?? 0) : prev.inProgress,
           blocked: blockedC.status === 'fulfilled' ? (blockedC.value.data.meta?.total ?? 0) : prev.blocked,
           unallocated: unallocatedC.status === 'fulfilled' ? (unallocatedC.value.data.meta?.total ?? 0) : prev.unallocated,
+          trash: isSuperAdmin && trashC?.status === 'fulfilled' ? (trashC.value.data.meta?.total ?? 0) : prev.trash,
         }));
       }
 
@@ -434,7 +438,7 @@ export default function Tasks() {
         {/* Search and workflow filters stay separate from the Super Admin-only
           Trash view. The status dropdown controls task workflow state; Trash
           controls the soft-delete scope. */}
-      <div className="toolbar">
+      <div className="toolbar tasks-toolbar">
         <input className="search-input" placeholder="Search by title..." value={search} onChange={(e) => setSearch(e.target.value)} />
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option value="">{isManager ? 'All statuses' : 'Active'}</option>
@@ -461,9 +465,16 @@ export default function Tasks() {
           </>
         )}
         {isSuperAdmin && (
-          <div className="toolbar-actions">
-            <button type="button" className={`tab ${showTrash ? 'active' : ''}`} onClick={() => setShowTrash((current) => !current)}>
-              <Trash2 size={14} /> Trash
+          <div className="toolbar-actions tasks-toolbar-actions">
+            <button
+              type="button"
+              className={`tab tasks-trash-toggle ${showTrash ? 'active' : ''}`}
+              onClick={() => setShowTrash((current) => !current)}
+              aria-label="Trash"
+              title="Trash"
+            >
+              <Trash2 size={16} />
+              {summary.trash > 0 && <span className="tasks-trash-count">{summary.trash}</span>}
             </button>
           </div>
         )}
