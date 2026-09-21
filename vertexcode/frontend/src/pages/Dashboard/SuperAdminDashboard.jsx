@@ -2,15 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Users, UserCheck, UserPlus, GraduationCap, BookOpen, FolderKanban, Plus, IndianRupee,
-  CalendarOff, FileClock, FileText, FolderOpen, MessageSquare, ChevronRight, Inbox,
+  CalendarOff, FileClock, FileText, FolderOpen, MessageSquare, Inbox, BellRing,
+  Activity, MoreVertical, CalendarDays, ChevronDown, BarChart3, PieChart as PieIcon,
 } from 'lucide-react';
 import api from '@/api/axios';
-import PageHeader from '@/components/shared/PageHeader';
-import KpiCard from '@/components/shared/KpiCard';
-import AreaChart from '@/components/shared/charts/AreaChart';
-import PieChart from '@/components/shared/charts/PieChart';
-import AuditLogTimeline from './AuditLogTimeline';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { useAuth } from '@/context/AuthContext';
+import { Bar, BarChart, Cell, CartesianGrid, Label, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Skeleton } from '@/components/ui/skeleton';
 
 // "Add X" shortcuts, each icon matching the identical icon already used by
@@ -40,6 +37,7 @@ const NEEDS_ATTENTION_META = [
 ];
 
 export default function SuperAdminDashboard() {
+  const { user } = useAuth();
   const [overview, setOverview] = useState(null);
   const [needsAttention, setNeedsAttention] = useState(null);
   const [recentActivity, setRecentActivity] = useState([]);
@@ -93,117 +91,57 @@ export default function SuperAdminDashboard() {
     date: new Date(d.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }),
     present: d.present,
   }));
-  const activityItems = recentActivity.map((a) => ({
-    id: a.id,
-    title: a.entityLabel || a.module.replace(/_/g, ' '),
-    subtitle: `${a.action.replace(/_/g, ' ')} by ${a.actor ? `${a.actor.firstName} ${a.actor.lastName}` : 'System'}`,
-    meta: `${new Date(a.createdAt).toLocaleDateString()} · ${new Date(a.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-    badgeValue: a.action,
-  }));
+  const attentionItems = NEEDS_ATTENTION_META.map((meta) => ({ ...meta, count: needsAttention?.[meta.key] })).filter((item) => item.count);
+  const taskTotal = taskChartData.reduce((sum, item) => sum + item.count, 0);
+  const taskColors = ['#6354e8', '#18b977', '#ffb52d', '#ef4b51', '#8d80ef'];
+  const dateRange = `${new Date(Date.now() - 29 * 86400000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} - ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
 
   return (
-    <div className="space-y-6">
-      <PageHeader title="Organization Overview" subtitle="Real-time snapshot across the entire organization" />
+    <div className="super-dashboard">
+      <header className="super-dashboard-header">
+        <div><h1>Good Morning, {user?.firstName || 'there'}! <span aria-hidden="true">👋</span></h1><p>Here's what's happening across your organization today.</p></div>
+        <button type="button" className="dashboard-date-button"><CalendarDays size={17} />{dateRange}<ChevronDown size={16} /></button>
+      </header>
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-        <KpiCard label="Employees" value={headcount.totalEmployees} icon={Users} accent="primary" />
-        <KpiCard label="Interns" value={headcount.totalInterns} icon={GraduationCap} accent="info" />
-        <KpiCard label="Trainees" value={headcount.totalTrainees} icon={BookOpen} accent="purple" />
-        <KpiCard label="Projects" value={projects.totalProjects} icon={FolderKanban} accent="info" />
-        <KpiCard label="Active Users" value={headcount.activeUsers} icon={UserCheck} accent="success" />
-        <KpiCard label="Total Expenses" value={`₹${(finance?.totalExpenses ?? 0).toLocaleString('en-IN')}`} icon={IndianRupee} accent="warning" />
-      </div>
+      <section className="dashboard-kpi-grid">
+        <DashboardKpi label="Employees" value={headcount.totalEmployees} icon={Users} tone="purple" hint="Total employees" />
+        <DashboardKpi label="Interns" value={headcount.totalInterns} icon={GraduationCap} tone="blue" hint="Active interns" />
+        <DashboardKpi label="Trainees" value={headcount.totalTrainees} icon={BookOpen} tone="pink" hint="Total trainees" />
+        <DashboardKpi label="Projects" value={projects.totalProjects} icon={FolderKanban} tone="green" hint="All projects" />
+        <DashboardKpi label="Active Users" value={headcount.activeUsers} icon={UserCheck} tone="orange" hint="Current active users" />
+        <DashboardKpi label="Total Expenses" value={`₹${(finance?.totalExpenses ?? 0).toLocaleString('en-IN')}`} icon={IndianRupee} tone="red" hint="All recorded expenses" />
+      </section>
 
-      {/* Two forms suited to what each is actually showing: a trend over
-          time (area) and a status split of one whole (donut) — the
-          Internship Category Breakdown chart previously here duplicated
-          nothing shown elsewhere but was a narrow operational detail, not
-          an executive-level metric; replaced below with an actionable
-          "Needs Attention" panel and a genuinely org-wide Recent Activity
-          feed (previously scoped to internship-lifecycle events only). */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Attendance — Last 30 Days</CardTitle>
-          </CardHeader>
-          <CardContent className="pb-5">
-            {attendanceTrendData.length > 0 ? (
-              <AreaChart data={attendanceTrendData} dataKey="present" nameKey="date" />
-            ) : (
-              <p className="py-16 text-center text-sm text-muted-foreground">No attendance recorded yet.</p>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Tasks by Status</CardTitle>
-          </CardHeader>
-          <CardContent className="pb-5">
-            <PieChart data={taskChartData} dataKey="count" nameKey="name" height={240} />
-          </CardContent>
-        </Card>
-      </div>
+      <section className="dashboard-chart-grid">
+        <DashboardPanel title="Attendance — Last 30 Days" icon={BarChart3} action="Last 30 Days" className="dashboard-attendance-panel">
+          {attendanceTrendData.length ? <div className="dashboard-attendance-chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={attendanceTrendData} margin={{ top: 12, right: 10, left: -16, bottom: 5 }}><CartesianGrid vertical={false} stroke="#e8ebf4" /><XAxis dataKey="date" tick={{ fill: '#7280a0', fontSize: 10 }} axisLine={false} tickLine={false} interval={Math.max(0, Math.ceil(attendanceTrendData.length / 10) - 1)} /><YAxis allowDecimals={false} tick={{ fill: '#7280a0', fontSize: 10 }} axisLine={false} tickLine={false} width={30} /><Tooltip contentStyle={{ border: '1px solid #e7e9f2', borderRadius: 8, fontSize: 12 }} /><Bar dataKey="present" fill="#7566eb" radius={[5, 5, 0, 0]} maxBarSize={14} /></BarChart></ResponsiveContainer></div> : <DashboardEmpty text="No attendance recorded yet." />}
+        </DashboardPanel>
+        <DashboardPanel title="Tasks by Status" icon={PieIcon} action="This Month" className="dashboard-task-panel">
+          {taskChartData.length ? <><div className="dashboard-donut"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={taskChartData} dataKey="count" nameKey="name" innerRadius={54} outerRadius={82} stroke="none" paddingAngle={1}><Label content={() => <g><text x="50%" y="47%" textAnchor="middle" fill="#111a47" fontSize="23" fontWeight="700">{taskTotal}</text><text x="50%" y="62%" textAnchor="middle" fill="#7883a2" fontSize="11">Total Tasks</text></g>} />{taskChartData.map((entry, index) => <Cell key={entry.name} fill={taskColors[index % taskColors.length]} />)}</Pie></PieChart></ResponsiveContainer></div><div className="dashboard-task-legend">{taskChartData.map((entry, index) => <div key={entry.name}><span><i style={{ background: taskColors[index % taskColors.length] }} />{entry.name}</span><strong>{entry.count}</strong><em>{taskTotal ? Math.round((entry.count / taskTotal) * 100) : 0}%</em></div>)}</div></> : <DashboardEmpty text="No task status data yet." />}
+        </DashboardPanel>
+      </section>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Needs Attention</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-1 pb-5">
-            {needsAttention && NEEDS_ATTENTION_META.every((m) => !needsAttention[m.key]) ? (
-              <div className="flex flex-col items-center gap-2 py-8 text-center">
-                <Inbox className="size-5 text-muted-foreground/60" />
-                <p className="text-sm text-muted-foreground">Nothing pending — you're all caught up.</p>
-              </div>
-            ) : (
-              NEEDS_ATTENTION_META.map((m) => {
-                const count = needsAttention?.[m.key];
-                if (!count) return null;
-                return (
-                  <Link
-                    key={m.key}
-                    to={m.to}
-                    className="group flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm transition-colors hover:bg-accent"
-                  >
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-warning/15 text-warning">
-                      <m.icon className="size-4" />
-                    </span>
-                    <span className="flex-1 font-medium text-foreground">{m.label}</span>
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-foreground">{count}</span>
-                    <ChevronRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-                  </Link>
-                );
-              })
-            )}
-          </CardContent>
-        </Card>
-        <AuditLogTimeline items={activityItems} emptyMessage="No recent activity yet." viewAllTo="/configuration/audit-log" />
-      </div>
+      <section className="dashboard-bottom-grid">
+        <div className="dashboard-panel dashboard-attention-panel"><DashboardPanelHeading title="Needs Attention" icon={BellRing} action="View All" /><div className="dashboard-attention-list">{attentionItems.length ? attentionItems.map((item) => <Link key={item.key} to={item.to} className="dashboard-attention-row"><span className="dashboard-row-icon"><item.icon size={17} /></span><span><strong>{item.label}</strong><small>{item.count} {item.count === 1 ? 'item' : 'items'} waiting for review</small></span><b>{item.count}</b></Link>) : <DashboardEmpty text="Nothing pending — you're all caught up." />}</div></div>
+        <div className="dashboard-panel dashboard-activity-panel"><DashboardPanelHeading title="Recent Activity" icon={Activity} action="View All" to="/configuration/audit-log" /><div className="dashboard-activity-list">{recentActivity.length ? recentActivity.map((item) => { const actor = item.actor; const actorName = actor ? `${actor.firstName} ${actor.lastName}` : 'System'; return <div className="dashboard-activity-row" key={item.id}><span className="dashboard-activity-avatar">{actor ? `${actor.firstName?.[0] || ''}${actor.lastName?.[0] || ''}`.toUpperCase() : 'SY'}</span><span><strong>{actorName} <small>{item.action.replace(/_/g, ' ').toLowerCase()}</small> {item.entityLabel || item.module.replace(/_/g, ' ')}</strong><small>{new Date(item.createdAt).toLocaleString()}</small></span><button type="button" aria-label="Activity options"><MoreVertical size={16} /></button></div>; }) : <DashboardEmpty text="No recent activity yet." />}</div></div>
+      </section>
 
-      {/* Compact action cards, not the shared list-style QuickActions —
-          each its own bordered tile with an icon chip, arranged in a
-          responsive grid rather than a stacked list of rows. */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Quick Actions</CardTitle>
-        </CardHeader>
-        <CardContent className="pb-5">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            {QUICK_ACTIONS.map((action) => (
-              <Link
-                key={action.to}
-                to={action.to}
-                className="group flex flex-col items-center gap-2.5 rounded-xl border border-border bg-card px-3 py-5 text-center transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
-              >
-                <span className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
-                  <action.icon className="size-5" />
-                </span>
-                <span className="text-sm font-medium text-foreground">{action.label}</span>
-              </Link>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      <section className="dashboard-panel dashboard-quick-actions"><DashboardPanelHeading title="Quick Actions" icon={FolderKanban} /><div className="dashboard-quick-action-grid">{QUICK_ACTIONS.map((action) => <Link key={action.to} to={action.to} className="dashboard-quick-action"><action.icon size={18} /><span>{action.label}</span></Link>)}</div></section>
     </div>
   );
 }
+
+function DashboardKpi({ label, value, icon: Icon, tone, hint }) {
+  return <article className="dashboard-kpi"><span className={`dashboard-kpi-icon dashboard-kpi-icon-${tone}`}><Icon size={22} /></span><span className="dashboard-kpi-copy"><strong>{label}</strong><b>{value}</b><small>{hint}</small></span><MoreVertical className="dashboard-kpi-more" size={17} /></article>;
+}
+
+function DashboardPanel({ title, icon: Icon, action, className = '', children }) {
+  return <article className={`dashboard-panel ${className}`}><DashboardPanelHeading title={title} icon={Icon} action={action} /><div className="dashboard-panel-content">{children}</div></article>;
+}
+
+function DashboardPanelHeading({ title, icon: Icon, action, to }) {
+  const content = <><span className="dashboard-panel-icon"><Icon size={19} /></span><h2>{title}</h2></>;
+  return <header className="dashboard-panel-heading"><div>{content}</div>{to ? <Link to={to} className="dashboard-view-all">{action}</Link> : action && <button type="button" className="dashboard-panel-action">{action}<ChevronDown size={15} /></button>}</header>;
+}
+
+function DashboardEmpty({ text }) { return <div className="dashboard-empty"><Inbox size={20} /><span>{text}</span></div>; }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Eye, Pencil, Trash2, RotateCcw, FolderKanban, Activity, CheckCircle2, Search } from 'lucide-react';
+import { Plus, Eye, Pencil, Trash2, RotateCcw, FolderKanban, Search, Grid2X2, List, Filter, CalendarDays, ListChecks } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
@@ -8,7 +8,7 @@ import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import TableActions from '../../components/common/TableActions';
-import StatCard from '../../components/common/StatCard';
+import DropdownMenu from '../../components/common/DropdownMenu';
 import toast from 'react-hot-toast';
 
 const STATUS_OPTIONS = ['PLANNED', 'ACTIVE', 'ON_HOLD', 'COMPLETED', 'CANCELLED'];
@@ -24,6 +24,37 @@ const STATUS_FILTER_OPTIONS = [
   { value: 'COMPLETED', label: 'Completed' },
 ];
 
+function userInitials(user) {
+  return `${user?.firstName?.[0] || ''}${user?.lastName?.[0] || ''}`.toUpperCase() || '?';
+}
+
+function ProjectAvatar({ user, className = '', label }) {
+  const imageUrl = user?.avatarUrl || user?.profileImage || user?.imageUrl || user?.photoUrl;
+  return (
+    <span className={`project-avatar ${className}`.trim()} title={label} aria-label={label}>
+      <span className="project-avatar-fallback">{userInitials(user)}</span>
+      {imageUrl && <img src={imageUrl} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
+    </span>
+  );
+}
+
+function ProjectMemberAvatars({ members, className = '' }) {
+  const visibleMembers = (members || []).slice(0, 3);
+  const remaining = Math.max(0, (members || []).length - visibleMembers.length);
+  return (
+    <div className={`project-avatar-stack ${className}`.trim()} aria-label={`${members?.length || 0} project members`}>
+      {visibleMembers.map((member) => (
+        <ProjectAvatar
+          key={member.id}
+          user={member.user}
+          label={`${member.user?.firstName || ''} ${member.user?.lastName || ''}`.trim()}
+        />
+      ))}
+      {remaining > 0 && <span className="project-avatar project-avatar-more">+{remaining}</span>}
+    </div>
+  );
+}
+
 export default function Projects() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -32,8 +63,10 @@ export default function Projects() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewTab, setViewTab] = useState('all');
+  const [projectView, setProjectView] = useState('list');
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
   const [priorities, setPriorities] = useState([]);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -211,9 +244,16 @@ export default function Projects() {
     ...(isSuperAdmin ? [selectColumn] : []),
     { key: 'id', header: 'ID', render: (r) => <span title={r.id}>{r.id.slice(0, 8)}</span> },
     { key: 'name', header: 'Project', render: (r) => <Link to={`/projects/${r.id}`}>{r.name}</Link> },
-    { key: 'manager', header: 'Manager', render: (r) => `${r.manager.firstName} ${r.manager.lastName}` },
+    {
+      key: 'manager', header: 'Manager', render: (r) => (
+        <span className="project-table-person">
+          <ProjectAvatar user={r.manager} label={`${r.manager.firstName} ${r.manager.lastName}`} />
+          <span>{r.manager.firstName} {r.manager.lastName}</span>
+        </span>
+      ),
+    },
     { key: 'status', header: 'Status', render: (r) => <Badge value={r.status} /> },
-    { key: 'members', header: 'Members', render: (r) => r.members?.length ?? 0 },
+    { key: 'members', header: 'Members', render: (r) => <ProjectMemberAvatars members={r.members} className="project-table-member-stack" /> },
     { key: 'tasks', header: 'Tasks', render: (r) => r._count?.tasks ?? 0 },
     {
       key: 'actions', header: 'Actions',
@@ -232,7 +272,14 @@ export default function Projects() {
   const trashColumns = [
     { key: 'id', header: 'ID', render: (r) => <span title={r.id}>{r.id.slice(0, 8)}</span> },
     { key: 'name', header: 'Project', render: (r) => <Link to={`/projects/${r.id}`}>{r.name}</Link> },
-    { key: 'manager', header: 'Manager', render: (r) => `${r.manager.firstName} ${r.manager.lastName}` },
+    {
+      key: 'manager', header: 'Manager', render: (r) => (
+        <span className="project-table-person">
+          <ProjectAvatar user={r.manager} label={`${r.manager.firstName} ${r.manager.lastName}`} />
+          <span>{r.manager.firstName} {r.manager.lastName}</span>
+        </span>
+      ),
+    },
     { key: 'status', header: 'Status', render: (r) => <Badge value={r.status} /> },
     { key: 'deletedAt', header: 'Removed Date', render: (r) => r.deletedAt ? new Date(r.deletedAt).toLocaleDateString() : '—' },
     {
@@ -249,50 +296,98 @@ export default function Projects() {
     },
   ];
 
+  const getProjectActions = (project) => viewTab === 'trash'
+    ? [
+      { key: 'view', icon: Eye, label: 'View', onClick: () => navigate(`/projects/${project.id}`) },
+      isSuperAdmin && { key: 'restore', icon: RotateCcw, label: 'Restore', onClick: () => handleRestore(project) },
+      isSuperAdmin && { key: 'delete-permanent', icon: Trash2, label: 'Delete Permanently', danger: true, onClick: () => handlePermanentlyDelete(project) },
+    ]
+    : [
+      { key: 'view', icon: Eye, label: 'View', onClick: () => navigate(`/projects/${project.id}`) },
+      isManager && { key: 'edit', icon: Pencil, label: 'Edit', onClick: () => openEdit(project) },
+      isSuperAdmin && { key: 'trash', icon: Trash2, label: 'Delete (move to Trash)', danger: true, onClick: () => handleDelete(project) },
+    ];
+
+  const projectProgress = (project) => Math.max(0, Math.min(100, Number(project.progress ?? project.progressPercent ?? 0)));
+
+  const renderProjectCard = (project) => {
+    const progress = projectProgress(project);
+    const members = project.members || [];
+    const managerName = project.manager ? `${project.manager.firstName} ${project.manager.lastName}` : 'Unassigned';
+    return (
+      <article className="project-card" key={project.id}>
+        <div className="project-card-top">
+          <div className="project-card-icon"><FolderKanban size={24} /></div>
+          <div className="project-card-heading">
+            <Link to={`/projects/${project.id}`} className="project-card-title">{project.name}</Link>
+            <p>{project.description || 'No project description'}</p>
+          </div>
+          <Badge value={project.status} />
+          <DropdownMenu
+            items={getProjectActions(project)}
+            triggerClassName="project-card-menu"
+            label={`Actions for ${project.name}`}
+          />
+        </div>
+        <div className="project-card-manager">
+          <ProjectAvatar user={project.manager} label={managerName} />
+          <span>{managerName}</span>
+        </div>
+        <div className="project-card-members">
+          <ProjectMemberAvatars members={members} />
+          <span>{members.length} {members.length === 1 ? 'member' : 'members'}</span>
+        </div>
+        <div className="project-progress-label"><span>Progress</span><strong>{progress}%</strong></div>
+        <div className="project-progress-track"><span style={{ width: `${progress}%` }} /></div>
+        <div className="project-card-meta">
+          <span><ListChecks size={15} /> {project._count?.tasks ?? 0} tasks</span>
+          <span><CalendarDays size={15} /> {project.endDate ? new Date(project.endDate).toLocaleDateString() : 'No end date'}</span>
+        </div>
+      </article>
+    );
+  };
+
   return (
-    <div>
+    <div className="projects-page">
       <PageHeader
         title="Projects"
         subtitle="Project-based work across the organization"
         actions={isManager && <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> New Project</button>}
       />
 
-      <div className="stat-grid">
-        <StatCard label="Total Projects" value={summary.total} accent="blue" icon={FolderKanban} />
-        <StatCard label="Active" value={summary.active} accent="green" icon={Activity} />
-        <StatCard label="Completed" value={summary.completed} accent="purple" icon={CheckCircle2} />
-        <StatCard label="Trash" value={summary.trash} accent="red" icon={Trash2} />
-      </div>
-
-      <div className="toolbar">
-        <button className={`tab ${viewTab === 'trash' ? 'active' : ''}`} onClick={() => setViewTab(viewTab === 'trash' ? 'all' : 'trash')}>
-          🗑️ Trash{summary.trash > 0 && <Badge value="TERMINATED" label={String(summary.trash)} />}
-        </button>
+      <div className="projects-toolbar">
+        <div className="project-tabs" role="tablist" aria-label="Project status">
+          {[['', 'All', summary.total], ['ACTIVE', 'Active', summary.active], ['PLANNED', 'Planned', projects.filter((project) => project.status === 'PLANNED').length], ['COMPLETED', 'Completed', summary.completed]].map(([value, label, count]) => (
+            <button key={label} type="button" role="tab" aria-selected={viewTab !== 'trash' && statusFilter === value} className={viewTab !== 'trash' && statusFilter === value ? 'active' : ''} onClick={() => { setViewTab('all'); setStatusFilter(value); }}>
+              {label}<span>{count}</span>
+            </button>
+          ))}
+          <button type="button" role="tab" aria-selected={viewTab === 'trash'} className={viewTab === 'trash' ? 'active trash' : 'trash'} onClick={() => setViewTab(viewTab === 'trash' ? 'all' : 'trash')}>
+            Trash<span>{summary.trash}</span>
+          </button>
+        </div>
         <div className="toolbar-actions">
-          <span className="search-input-wrap">
-            <Search size={16} strokeWidth={2.5} />
-            <input className="search-input" placeholder="Search by name or description..." value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search projects" />
-          </span>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            disabled={viewTab === 'trash'}
-            title={viewTab === 'trash' ? 'Status filter does not apply to Trash' : undefined}
-            aria-label="Filter by status"
-          >
-            {STATUS_FILTER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <select
-            value={priorityFilter}
-            onChange={(e) => setPriorityFilter(e.target.value)}
-            disabled={viewTab === 'trash'}
-            aria-label="Filter by task priority"
-          >
-            <option value="">All Task Priorities</option>
-            {priorities.map((priority) => <option key={priority.code} value={priority.code}>{priority.label}</option>)}
-          </select>
+          <label className="projects-search">
+            <Search size={16} strokeWidth={2.25} />
+            <input placeholder="Search projects..." value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search projects" />
+          </label>
+          <div className="project-view-toggle" role="group" aria-label="Project view">
+            <button type="button" className={projectView === 'grid' ? 'active' : ''} onClick={() => setProjectView('grid')} aria-label="Grid view" title="Grid view"><Grid2X2 size={16} /></button>
+            <button type="button" className={projectView === 'list' ? 'active' : ''} onClick={() => setProjectView('list')} aria-label="List view" title="List view"><List size={17} /></button>
+          </div>
+          <button type="button" className={`projects-filter-button${showFilters ? ' active' : ''}`} onClick={() => setShowFilters((open) => !open)}><Filter size={16} /> Filter</button>
         </div>
       </div>
+
+      {showFilters && <div className="projects-filter-panel">
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} disabled={viewTab === 'trash'} aria-label="Filter by status">
+          {STATUS_FILTER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} disabled={viewTab === 'trash'} aria-label="Filter by task priority">
+          <option value="">All Task Priorities</option>
+          {priorities.map((priority) => <option key={priority.code} value={priority.code}>{priority.label}</option>)}
+        </select>
+      </div>}
 
       {isSuperAdmin && viewTab !== 'trash' && selectedIds.size > 0 && (
         <div className="toolbar" style={{ marginBottom: 12 }}>
@@ -305,11 +400,14 @@ export default function Projects() {
       )}
 
       {loading ? <div className="page-loading">Loading...</div> : (
-        <DataTable
-          columns={viewTab === 'trash' ? trashColumns : columns}
-          rows={projects}
-          emptyMessage={viewTab === 'trash' ? 'Trash is empty.' : 'No projects found.'}
-        />
+        projectView === 'grid'
+          ? projects.length ? <div className="project-grid">{projects.map(renderProjectCard)}</div> : <div className="empty-state">{viewTab === 'trash' ? 'Trash is empty.' : 'No projects found.'}</div>
+          : <DataTable
+              columns={viewTab === 'trash' ? trashColumns : columns}
+              rows={projects}
+              emptyMessage={viewTab === 'trash' ? 'Trash is empty.' : 'No projects found.'}
+              tableClassName="projects-table"
+            />
       )}
 
       {showModal && (
