@@ -95,7 +95,7 @@ function MonthCalendar({ days, todayIso, leaveByDate, onSelectDay }) {
   );
 }
 
-export default function MonthlySummary({ userId, onViewWeek }) {
+export default function MonthlySummary({ userId, onViewWeek, calendarOnly = false }) {
   const { user } = useAuth();
   const [cursor, setCursor] = useState(() => new Date());
   const [monthSummary, setMonthSummary] = useState(null);
@@ -244,7 +244,7 @@ export default function MonthlySummary({ userId, onViewWeek }) {
     : '—';
 
   return (
-    <div>
+    <div className={`ts-monthly-view${calendarOnly ? ' ts-calendar-view' : ''}`}>
       <div className="ts-header-block">
         <div className="ts-header-row">
           <h2 className="ts-period-heading">{monthLabel(cursor.getFullYear(), cursor.getMonth())}</h2>
@@ -292,7 +292,7 @@ export default function MonthlySummary({ userId, onViewWeek }) {
             <span><i className="ts-legend-dot ts-legend-weekend" /> Weekend</span>
           </div>
 
-          {leaveTypes.length > 0 && (
+          {!calendarOnly && leaveTypes.length > 0 && (
             <>
               <p className="ts-section-label" style={{ marginTop: 24 }}>Leave Summary</p>
               <div className="ts-leave-summary">
@@ -306,21 +306,25 @@ export default function MonthlySummary({ userId, onViewWeek }) {
             </>
           )}
 
-          <p className="ts-section-label" style={{ marginTop: 24 }}>Weekly Status</p>
-          {weekRows.length === 0 ? (
-            <p className="empty-state" style={{ padding: 0, textAlign: 'left' }}>No weeks in this month.</p>
-          ) : (
-            <div className="ts-week-status-list">
-              {weekRows.map((w) => (
-                <div className="ts-week-status-row" key={toIsoDate(w.weekStart)}>
-                  <span className="ts-week-status-period">{w.period}</span>
-                  <Badge value={w.status} label={TIMESHEET_STATUS_LABELS[w.status]} />
-                  <button className="btn btn-ghost btn-sm" onClick={() => handleView(w.weekStart)}>
-                    <Eye size={14} /> View
-                  </button>
+          {!calendarOnly && (
+            <>
+              <p className="ts-section-label" style={{ marginTop: 24 }}>Weekly Status</p>
+              {weekRows.length === 0 ? (
+                <p className="empty-state" style={{ padding: 0, textAlign: 'left' }}>No weeks in this month.</p>
+              ) : (
+                <div className="ts-week-status-list">
+                  {weekRows.map((w) => (
+                    <div className="ts-week-status-row" key={toIsoDate(w.weekStart)}>
+                      <span className="ts-week-status-period">{w.period}</span>
+                      <Badge value={w.status} label={TIMESHEET_STATUS_LABELS[w.status]} />
+                      <button className="btn btn-ghost btn-sm" onClick={() => handleView(w.weekStart)}>
+                        <Eye size={14} /> View
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              )}
+            </>
           )}
         </>
       )}

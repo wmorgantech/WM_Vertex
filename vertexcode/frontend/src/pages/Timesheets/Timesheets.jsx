@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Download } from 'lucide-react';
+import { CalendarDays, Download } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
 import { downloadReport } from '../../lib/download';
@@ -10,8 +10,8 @@ import TeamView from './TeamView';
 export default function Timesheets() {
   const { user } = useAuth();
   const isManager = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
-  const [scope, setScope] = useState('mine'); // 'mine' | 'team'
-  const [view, setView] = useState('weekly'); // 'weekly' | 'monthly'
+  const [scope, setScope] = useState(isManager ? 'team' : 'mine'); // 'mine' | 'team'
+  const [view, setView] = useState('weekly'); // 'weekly' | 'monthly' | 'calendar'
   // Set only when Monthly's "View" jumps to a specific week — cleared when
   // the Weekly tab is clicked directly, so that always lands on the
   // current week as before.
@@ -19,18 +19,18 @@ export default function Timesheets() {
 
   const goToWeekly = () => { setView('weekly'); setWeekJump(null); };
   const viewWeek = (monday) => { setWeekJump(monday); setView('weekly'); };
-
   return (
-    <div>
+    <div className={`timesheets-page timesheet-view-${scope === 'team' ? 'team' : view}`}>
       <PageHeader
-        title="Timesheets"
-        subtitle="Log your working hours and track approval status"
+        title={scope === 'team' ? 'Team Timesheets' : `${view === 'weekly' ? 'Weekly' : view === 'monthly' ? 'Monthly' : 'Calendar'} Timesheet`}
+        subtitle={scope === 'team' ? 'Review and approve team timesheets' : 'Log your working hours and track approval status'}
         actions={(
           <>
             {scope === 'mine' && (
-              <div className="ts-segment">
+              <div className="ts-segment ts-view-segment" aria-label="Timesheet view">
                 <button className={view === 'weekly' ? 'active' : ''} onClick={goToWeekly}>Weekly</button>
                 <button className={view === 'monthly' ? 'active' : ''} onClick={() => setView('monthly')}>Monthly</button>
+                <button className={view === 'calendar' ? 'active' : ''} onClick={() => setView('calendar')}><CalendarDays size={14} /> Calendar</button>
               </div>
             )}
             {user.role === 'SUPER_ADMIN' && (
@@ -43,17 +43,21 @@ export default function Timesheets() {
         )}
       />
 
-      {/* A tab bar with a single, always-active item is chrome with nothing to
-          switch between — only managers (who also have Team) see it. */}
-      {isManager && (
-        <div className="tabs">
-          <button className={`tab ${scope === 'mine' ? 'active' : ''}`} onClick={() => setScope('mine')}>My Timesheet</button>
-          <button className={`tab ${scope === 'team' ? 'active' : ''}`} onClick={() => setScope('team')}>Team</button>
+      <div className="timesheet-toolbar">
+        <div className="ts-role-tabs" aria-label="Timesheet module">
+          {!isManager && <span className="ts-my-timesheet-label">My Timesheet</span>}
         </div>
-      )}
+        {isManager && (
+          <div className="ts-scope-tabs" aria-label="Timesheet scope">
+            <button className={scope === 'mine' ? 'active' : ''} onClick={() => setScope('mine')}>My Timesheet</button>
+            <button className={scope === 'team' ? 'active' : ''} onClick={() => setScope('team')}>Team</button>
+          </div>
+        )}
+      </div>
 
       {scope === 'mine' ? (
-        view === 'weekly' ? <WeeklyGrid initialMonday={weekJump} /> : <MonthlySummary onViewWeek={viewWeek} />
+        view === 'weekly' ? <WeeklyGrid initialMonday={weekJump} />
+          : <MonthlySummary onViewWeek={viewWeek} calendarOnly={view === 'calendar'} />
       ) : (
         <TeamView />
       )}

@@ -398,6 +398,12 @@ export default function WeeklyGrid({ userId, readOnly = false, onChanged, initia
 
       <div className="table-wrap sticky-header timesheet-grid">
         <table className="data-table">
+          <colgroup>
+            <col className="timesheet-position-col" />
+            {dayIsos.map((iso) => <col key={iso} className="timesheet-day-col" />)}
+            <col className="timesheet-total-col" />
+            {canDeleteRows && <col className="timesheet-actions-col" />}
+          </colgroup>
           <thead>
             <tr>
               <th className="col-sticky col-group-end" style={{ minWidth: 165 }}>Position</th>
