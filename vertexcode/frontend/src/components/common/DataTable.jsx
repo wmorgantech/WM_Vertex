@@ -1,6 +1,6 @@
 import { Inbox } from 'lucide-react';
 
-export default function DataTable({ columns, rows, emptyMessage = 'No records found.', loading = false }) {
+export default function DataTable({ columns, rows, emptyMessage = 'No records found.', loading = false, tableClassName = '' }) {
   if (loading) {
     return <div className="page-loading">Loading...</div>;
   }
@@ -14,7 +14,7 @@ export default function DataTable({ columns, rows, emptyMessage = 'No records fo
   }
   return (
     <div className="table-wrap">
-      <table className="data-table">
+      <table className={`data-table${tableClassName ? ` ${tableClassName}` : ''}`}>
         <thead>
           <tr>
             {columns.map((col) => (
