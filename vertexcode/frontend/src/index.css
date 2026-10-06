@@ -16,6 +16,39 @@
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
 }
 
+/* WMorgan Employee portal theme — scoped to `body.vx-theme-employee`
+   (toggled by DashboardLayout.jsx based on role, EMPLOYEE only), so every
+   other role's theme is completely untouched by default. `body.<class>`
+   has higher specificity than the bare `:root`/`:root` rules both this
+   file and styles/globals.css define their defaults with, so this
+   overrides both design systems' tokens at once from one place: the
+   legacy --brand/--brand-dark pair (used by Tasks/Attendance/Timesheets/
+   Leave/Workshops/Enquiries/Expenses/Work Updates — the CSS-class-based
+   pages) and the Tailwind --primary/--sidebar-* pair (used by
+   EmployeeDashboard.jsx and the shared Sidebar/TopBar). Real WMorgan green
+   (see the login/intro splash for the same palette), not a generic teal —
+   red stays exactly as-is everywhere (--red / --destructive), reserved for
+   errors/destructive actions only, never repurposed as a nav color. */
+body.vx-theme-employee {
+  --brand: #15803d;
+  --brand-dark: #14532d;
+
+  --primary: #15803d;
+  --primary-foreground: #ffffff;
+  --secondary: #e6f4ec;
+  --secondary-foreground: #14532d;
+  --ring: rgb(21 128 61 / 0.4);
+
+  --sidebar: #0d3b2a;
+  --sidebar-foreground: #e9f3ee;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-accent: rgba(255, 255, 255, 0.07);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-primary: #34d399;
+  --sidebar-primary-foreground: #0d3b2a;
+  --sidebar-ring: rgb(52 211 153 / 0.4);
+}
+
 * { box-sizing: border-box; }
 
 body {

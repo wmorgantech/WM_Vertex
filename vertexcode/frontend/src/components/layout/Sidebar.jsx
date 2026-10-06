@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { PanelLeftClose, PanelLeftOpen, Layers } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getNavGroups } from '@/config/navigation';
 import { useAuth } from '@/context/AuthContext';
 import SidebarNavLink from './SidebarNavLink';
+import UserMenu from './UserMenu';
+import wmMark from '@/assets/wmorgan-mark.png';
 
 const STORAGE_KEY = 'vertexwm_sidebar_collapsed';
 
@@ -43,18 +45,20 @@ export default function Sidebar({ collapsed, onToggle, className }) {
         className
       )}
     >
-      <div className={cn('flex h-14 shrink-0 items-center gap-2 border-b border-sidebar-border px-4', collapsed && 'justify-center px-0')}>
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <Layers className="size-4" />
+      <div className={cn('flex h-14 shrink-0 items-center gap-2.5 border-b border-sidebar-border px-4', collapsed && 'justify-center px-0')}>
+        {/* Real WMorgan mark, unmodified (no filter/recolor) — same asset
+            and framing convention as the login page's branding panel. */}
+        <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-black/5">
+          <img src={wmMark} alt="WMorgan Technologies" className="h-full w-full object-cover" />
         </div>
-        {!collapsed && <span className="text-sm font-semibold tracking-tight">VertexWM</span>}
+        {!collapsed && <span className="truncate text-sm font-semibold tracking-tight">WMorgan Technologies</span>}
       </div>
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-2">
         {groups.map((group) => (
           <div key={group.label} className="space-y-1">
             {!collapsed && (
-              <p className="px-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              <p className="px-2.5 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
                 {group.label}
               </p>
             )}
@@ -67,11 +71,15 @@ export default function Sidebar({ collapsed, onToggle, className }) {
         ))}
       </nav>
 
-      <div className={cn('flex items-center border-t border-sidebar-border p-3', collapsed && 'justify-center')}>
+      <div className="shrink-0 border-t border-sidebar-border p-2">
+        <UserMenu collapsed={collapsed} />
         <button
           type="button"
           onClick={onToggle}
-          className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          className={cn(
+            'mt-1 flex size-8 items-center justify-center rounded-lg text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+            !collapsed && 'ml-auto'
+          )}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}

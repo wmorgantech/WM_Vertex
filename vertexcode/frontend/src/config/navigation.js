@@ -186,16 +186,33 @@ const INTERN_GROUPS = [
   },
 ];
 
-// Employee-only: read-only "My Expenses" (see expense.routes.js/
-// expense.controller.js — scoped server-side to their own records). Built
-// as its own array on top of SELF_GROUPS rather than appended directly to
-// it, so INTERN_GROUPS (which also derives from SELF_GROUPS above) doesn't
-// inherit it — Interns were not asked for this and get no such access.
+// Employee's own nav — a fixed, self-contained structure (not derived from
+// SELF_GROUPS, which stays exactly as-is for the fallback/other roles)
+// per the WMorgan employee-portal redesign. Every route/permission here is
+// pre-existing and unchanged — "My Work" (day-to-day work-tracking) and
+// "My Services" (workshops/enquiries/expenses — self-service requests, not
+// daily-use tools) are simply split into two groups instead of one long
+// list. "My Expenses" (expense.routes.js — scoped server-side to the
+// caller's own records) stays Employee-only, same as before.
 const EMPLOYEE_GROUPS = [
-  SELF_GROUPS[0],
+  { label: 'Overview', items: [{ to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }] },
   {
-    ...SELF_GROUPS[1],
-    items: [...SELF_GROUPS[1].items, { to: '/expenses', label: 'My Expenses', icon: IndianRupee }],
+    label: 'My Work',
+    items: [
+      { to: '/tasks', label: 'My Tasks', icon: ListChecks },
+      { to: '/attendance', label: 'Attendance', icon: Clock },
+      { to: '/timesheets', label: 'Timesheets', icon: FileClock },
+      { to: '/work-updates', label: 'Work Updates', icon: FileText },
+      { to: '/leave', label: 'Leave', icon: CalendarOff },
+    ],
+  },
+  {
+    label: 'My Services',
+    items: [
+      { to: '/workshops', label: 'My Workshops', icon: Presentation },
+      { to: '/enquiries', label: 'My Enquiries', icon: MessageSquare },
+      { to: '/expenses', label: 'My Expenses', icon: IndianRupee },
+    ],
   },
 ];
 
