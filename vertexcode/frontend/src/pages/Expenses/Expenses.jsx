@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Eye, Download } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye, Download, IndianRupee, CalendarDays, Receipt } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -156,6 +156,18 @@ export default function Expenses() {
     }
   };
 
+  // Own-expenses KPI snapshot — derived client-side from the already-loaded
+  // `expenses` list (server-scoped to this employee's own USER-linked
+  // records), since the /expenses/summary endpoint is manager-only.
+  const now = new Date();
+  const myStats = isEmployee && {
+    total: expenses.reduce((sum, e) => sum + e.amount, 0),
+    thisMonth: expenses
+      .filter((e) => { const d = new Date(e.expenseDate); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); })
+      .reduce((sum, e) => sum + e.amount, 0),
+    count: expenses.length,
+  };
+
   const columns = isEmployee ? [
     { key: 'expenseDate', header: 'Date', render: (r) => new Date(r.expenseDate).toLocaleDateString() },
     { key: 'category', header: 'Category', render: (r) => <Badge value={r.category.code} /> },
@@ -220,6 +232,14 @@ export default function Expenses() {
           {summary.byCategory.filter((c) => c.total > 0).slice(0, 4).map((c) => (
             <StatCard key={c.code} label={c.label} value={`₹${c.total.toLocaleString()}`} accent="gray" />
           ))}
+        </div>
+      )}
+
+      {myStats && (
+        <div className="stat-grid">
+          <StatCard label="Total Recorded" value={`₹${myStats.total.toLocaleString()}`} hint={`${myStats.count} record(s)`} accent="blue" icon={IndianRupee} />
+          <StatCard label="This Month" value={`₹${myStats.thisMonth.toLocaleString()}`} accent="amber" icon={CalendarDays} />
+          <StatCard label="Records" value={myStats.count} accent="gray" icon={Receipt} />
         </div>
       )}
 

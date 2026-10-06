@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Pencil, Trash2, Eye, RotateCcw, Upload, Download, ListChecks, Clock, AlertTriangle, UserX, MessageSquare, Send } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye, RotateCcw, Upload, Download, ListChecks, Clock, AlertTriangle, UserX, CheckCircle2, MessageSquare, Send } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -61,7 +61,7 @@ export default function Tasks() {
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
-  const [summary, setSummary] = useState({ total: 0, inProgress: 0, blocked: 0, unallocated: 0, trash: 0 });
+  const [summary, setSummary] = useState({ total: 0, inProgress: 0, blocked: 0, unallocated: 0, completed: 0, trash: 0 });
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', type: 'DAILY', priority: 'MEDIUM', dueDate: '', assigneeId: '', projectId: '' });
   const [saving, setSaving] = useState(false);
@@ -138,10 +138,13 @@ export default function Tasks() {
     if (isManager) {
       calls.push(loadAllUsers(), api.get('/projects'));
     }
-    // Manager-only KPI counts, reusing GET /tasks?limit=1 (no new backend
-    // endpoint) exactly like Interns/Employees' summary cards. Deliberately
-    // scoped without `scope`/`excludeStatus` so it always reflects the same
-    // "active, non-deleted" default the table itself falls back to.
+    // KPI counts, reusing GET /tasks?limit=1 (no new backend endpoint) —
+    // deliberately scoped without `scope`/`excludeStatus` (manager) so it
+    // always reflects the same "active, non-deleted" default the table
+    // itself falls back to. Employees get the same mechanism scoped to
+    // their own assignments only (enforced server-side, same as the main
+    // list call above) so the KPI cards reflect true totals across every
+    // page, not just the 25 rows currently on screen.
     const countStart = calls.length;
     if (isManager) {
       calls.push(
@@ -153,6 +156,13 @@ export default function Tasks() {
       if (isSuperAdmin) {
         calls.push(api.get('/tasks', { params: { scope: 'trash', limit: 1 } }));
       }
+    } else {
+      calls.push(
+        api.get('/tasks', { params: { excludeStatus: 'DONE', limit: 1 } }),
+        api.get('/tasks', { params: { status: 'IN_PROGRESS', limit: 1 } }),
+        api.get('/tasks', { params: { status: 'BLOCKED', limit: 1 } }),
+        api.get('/tasks', { params: { status: 'DONE', limit: 1 } }),
+      );
     }
     Promise.allSettled(calls).then((results) => {
       const [t, st, pr, ty, u, p] = results;
@@ -169,11 +179,21 @@ export default function Tasks() {
       if (isManager) {
         const [totalC, inProgressC, blockedC, unallocatedC, trashC] = results.slice(countStart);
         setSummary((prev) => ({
+          ...prev,
           total: totalC.status === 'fulfilled' ? (totalC.value.data.meta?.total ?? 0) : prev.total,
           inProgress: inProgressC.status === 'fulfilled' ? (inProgressC.value.data.meta?.total ?? 0) : prev.inProgress,
           blocked: blockedC.status === 'fulfilled' ? (blockedC.value.data.meta?.total ?? 0) : prev.blocked,
           unallocated: unallocatedC.status === 'fulfilled' ? (unallocatedC.value.data.meta?.total ?? 0) : prev.unallocated,
           trash: isSuperAdmin && trashC?.status === 'fulfilled' ? (trashC.value.data.meta?.total ?? 0) : prev.trash,
+        }));
+      } else {
+        const [activeC, inProgressC, blockedC, completedC] = results.slice(countStart);
+        setSummary((prev) => ({
+          ...prev,
+          total: activeC.status === 'fulfilled' ? (activeC.value.data.meta?.total ?? 0) : prev.total,
+          inProgress: inProgressC.status === 'fulfilled' ? (inProgressC.value.data.meta?.total ?? 0) : prev.inProgress,
+          blocked: blockedC.status === 'fulfilled' ? (blockedC.value.data.meta?.total ?? 0) : prev.blocked,
+          completed: completedC.status === 'fulfilled' ? (completedC.value.data.meta?.total ?? 0) : prev.completed,
         }));
       }
 
@@ -426,14 +446,23 @@ export default function Tasks() {
         )}
       />
 
-      {isManager && (
-        <div className="stat-grid">
-          <StatCard label="Total Tasks" value={summary.total} accent="blue" icon={ListChecks} />
-          <StatCard label="In Progress" value={summary.inProgress} accent="amber" icon={Clock} />
-          <StatCard label="Blocked" value={summary.blocked} accent="red" icon={AlertTriangle} />
-          <StatCard label="Not Allocated" value={summary.unallocated} accent="red" icon={UserX} />
-        </div>
-      )}
+      <div className="stat-grid">
+        {isManager ? (
+          <>
+            <StatCard label="Total Tasks" value={summary.total} accent="blue" icon={ListChecks} />
+            <StatCard label="In Progress" value={summary.inProgress} accent="amber" icon={Clock} />
+            <StatCard label="Blocked" value={summary.blocked} accent="red" icon={AlertTriangle} />
+            <StatCard label="Not Allocated" value={summary.unallocated} accent="red" icon={UserX} />
+          </>
+        ) : (
+          <>
+            <StatCard label="Active Tasks" value={summary.total} accent="blue" icon={ListChecks} />
+            <StatCard label="In Progress" value={summary.inProgress} accent="amber" icon={Clock} />
+            <StatCard label="Blocked" value={summary.blocked} accent="red" icon={AlertTriangle} />
+            <StatCard label="Completed" value={summary.completed} accent="green" icon={CheckCircle2} />
+          </>
+        )}
+      </div>
 
         {/* Search and workflow filters stay separate from the Super Admin-only
           Trash view. The status dropdown controls task workflow state; Trash

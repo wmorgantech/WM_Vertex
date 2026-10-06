@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Eye, Pencil, Download } from 'lucide-react';
+import { Plus, Trash2, Eye, Pencil, Download, MessageSquare, Clock, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -8,6 +8,7 @@ import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import TableActions from '../../components/common/TableActions';
 import DetailField from '../../components/common/DetailField';
+import StatCard from '../../components/common/StatCard';
 import toast from 'react-hot-toast';
 import { downloadReport } from '../../lib/download';
 
@@ -174,6 +175,16 @@ export default function Enquiries() {
     }
   };
 
+  // Own-enquiries KPI snapshot — derived client-side from the already-loaded
+  // `enquiries` list (server-scoped to this user for non-managers), so it
+  // always matches the table below exactly.
+  const myStats = !isManager && {
+    total: enquiries.length,
+    open: enquiries.filter((e) => !['CLOSED', 'CANCELLED', 'CONVERTED'].includes(e.status)).length,
+    overdue: enquiries.filter((e) => e.followUpOverdue).length,
+    closed: enquiries.filter((e) => ['CLOSED', 'CANCELLED', 'CONVERTED'].includes(e.status)).length,
+  };
+
   const columns = isManager ? [
     { key: 'contactName', header: 'Submitted By' },
     { key: 'category', header: 'Category', render: (r) => r.category ? categoryLabel(r.category) : '—' },
@@ -239,6 +250,15 @@ export default function Enquiries() {
           </>
         )}
       />
+
+      {myStats && (
+        <div className="stat-grid">
+          <StatCard label="Total Enquiries" value={myStats.total} accent="blue" icon={MessageSquare} />
+          <StatCard label="Open" value={myStats.open} accent="amber" icon={Clock} />
+          <StatCard label="Follow-up Overdue" value={myStats.overdue} accent={myStats.overdue > 0 ? 'red' : 'green'} icon={AlertTriangle} />
+          <StatCard label="Closed" value={myStats.closed} accent="green" icon={CheckCircle2} />
+        </div>
+      )}
 
       <div className="toolbar">
         <input className="search-input" placeholder="Search by contact, company, subject or email..." value={search} onChange={(e) => setSearch(e.target.value)} />

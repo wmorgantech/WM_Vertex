@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Check, X, Plus } from 'lucide-react';
+import { Check, X, Plus, CalendarClock, CalendarCheck, CalendarX } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
 import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import StatCard from '../../components/common/StatCard';
 import toast from 'react-hot-toast';
 
 export default function Leave() {
@@ -86,6 +87,16 @@ export default function Leave() {
     }
   };
 
+  // Own-requests KPI snapshot — derived client-side from the already-loaded
+  // `myRequests` list (always exactly this user's own requests, mine or
+  // team's), so it can never drift from the table below it.
+  const myStats = {
+    pending: myRequests.filter((r) => r.status === 'PENDING').length,
+    approved: myRequests.filter((r) => r.status === 'APPROVED').length,
+    rejected: myRequests.filter((r) => r.status === 'REJECTED').length,
+    total: myRequests.length,
+  };
+
   const myColumns = [
     { key: 'leaveType', header: 'Type', render: (r) => r.leaveType.label },
     { key: 'startDate', header: 'From', render: (r) => new Date(r.startDate).toLocaleDateString() },
@@ -120,6 +131,15 @@ export default function Leave() {
         subtitle="Request time off and track approvals"
         actions={<button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> Request Leave</button>}
       />
+
+      {!loading && (
+        <div className="stat-grid">
+          <StatCard label="Pending" value={myStats.pending} accent="amber" icon={CalendarClock} />
+          <StatCard label="Approved" value={myStats.approved} accent="green" icon={CalendarCheck} />
+          <StatCard label="Rejected" value={myStats.rejected} accent="red" icon={CalendarX} />
+          <StatCard label="Total Requests" value={myStats.total} accent="blue" icon={CalendarClock} />
+        </div>
+      )}
 
       {loading ? <div className="page-loading">Loading...</div> : (
         <>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Eye, Plus } from 'lucide-react';
+import { Eye, Plus, NotebookPen, Clock, CheckCircle2, AlertTriangle } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
@@ -7,6 +7,7 @@ import DataTable from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import DetailField from '../../components/common/DetailField';
+import StatCard from '../../components/common/StatCard';
 import toast from 'react-hot-toast';
 import { localDateString } from '../../lib/utils';
 
@@ -98,6 +99,16 @@ export default function WorkUpdates() {
     }
   };
 
+  // Own-updates KPI snapshot — derived entirely client-side from the
+  // already-loaded (unpaginated, server-scoped-to-self for non-managers)
+  // `updates` list, so it's always exactly what the table below shows.
+  const myStats = !isManager && {
+    total: updates.length,
+    submitted: updates.filter((u) => u.status === 'SUBMITTED').length,
+    reviewed: updates.filter((u) => u.status === 'REVIEWED').length,
+    flagged: updates.filter((u) => u.status === 'FLAGGED').length,
+  };
+
   const columns = [
     ...(isManager ? [{ key: 'user', header: 'Employee', render: (r) => <span className="work-update-nowrap">{r.user.firstName} {r.user.lastName}</span> }] : []),
     { key: 'date', header: 'Date', render: (r) => <span className="work-update-nowrap">{new Date(r.date).toLocaleDateString()}</span> },
@@ -121,6 +132,16 @@ export default function WorkUpdates() {
         subtitle="End-of-day reports and manager feedback"
         actions={!isManager && <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> Submit Update</button>}
       />
+
+      {myStats && (
+        <div className="stat-grid">
+          <StatCard label="Total Updates" value={myStats.total} accent="blue" icon={NotebookPen} />
+          <StatCard label="Awaiting Review" value={myStats.submitted} accent="amber" icon={Clock} />
+          <StatCard label="Reviewed" value={myStats.reviewed} accent="green" icon={CheckCircle2} />
+          <StatCard label="Flagged" value={myStats.flagged} accent={myStats.flagged > 0 ? 'red' : 'gray'} icon={AlertTriangle} />
+        </div>
+      )}
+
       {isManager && (
         <div className="toolbar work-updates-toolbar">
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
